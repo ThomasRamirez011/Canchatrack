@@ -46,7 +46,10 @@ public class UserAdministrationService {
      */
     @Transactional
     public UserView createStaffUser(CreateUserCommand command, UUID actorId, String actorRole, ClientOrigin origin) {
-        UserAccount created = create(command, actorId, validatedRoles(command));
+        // Todos los errores se reportan juntos (roles + datos de la cuenta), no de a uno por intento.
+        List<Map<String, String>> errors = new ArrayList<>();
+        Set<RoleCode> roles = collectRoles(command, errors);
+        UserAccount created = create(command, actorId, roles, errors);
         auditCreation(ACTION_USER_CREATED, created, actorId, actorRole, origin);
         return UserView.from(created);
     }
@@ -61,14 +64,15 @@ public class UserAdministrationService {
             return false;
         }
         CreateUserCommand command = new CreateUserCommand(email, fullName, password, List.of(RoleCode.COORDINATOR.name()));
-        UserAccount created = create(command, null, validatedRoles(command));
+        List<Map<String, String>> errors = new ArrayList<>();
+        Set<RoleCode> roles = collectRoles(command, errors);
+        UserAccount created = create(command, null, roles, errors);
         auditCreation(ACTION_USER_BOOTSTRAPPED, created, null, null, ClientOrigin.UNKNOWN);
         return true;
     }
 
-    private UserAccount create(CreateUserCommand command, UUID createdBy, Set<RoleCode> roles) {
+    private UserAccount create(CreateUserCommand command, UUID createdBy, Set<RoleCode> roles, List<Map<String, String>> errors) {
         String email = Emails.normalize(command.email());
-        List<Map<String, String>> errors = new ArrayList<>();
 
         if (!Emails.isValid(email)) {
             errors.add(error("email", "El correo no es válido."));
@@ -94,8 +98,7 @@ public class UserAdministrationService {
         }
     }
 
-    private Set<RoleCode> validatedRoles(CreateUserCommand command) {
-        List<Map<String, String>> errors = new ArrayList<>();
+    private Set<RoleCode> collectRoles(CreateUserCommand command, List<Map<String, String>> errors) {
         Set<RoleCode> roles = EnumSet.noneOf(RoleCode.class);
         List<String> requested = command.roles() == null ? List.of() : command.roles();
         if (requested.isEmpty()) {
@@ -110,7 +113,6 @@ public class UserAdministrationService {
                 }
             }, () -> errors.add(error("roles", "Rol desconocido: " + sanitize(code))));
         }
-        failIfAny(errors);
         return roles;
     }
 

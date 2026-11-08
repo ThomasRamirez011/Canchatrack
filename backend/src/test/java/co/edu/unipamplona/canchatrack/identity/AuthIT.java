@@ -312,7 +312,7 @@ class AuthIT {
         UUID guardianUser = userId(guardianEmail);
         UUID guardianRow = jdbc.queryForObject(
                 "INSERT INTO guardians (user_id, document_type, document_number) VALUES (?, 'CC', ?) RETURNING id",
-                UUID.class, guardianUser, "cc-" + UUID.randomUUID());
+                UUID.class, guardianUser, "cc-" + UUID.randomUUID().toString().substring(0, 20));
         UUID linked = newPlayer();
         UUID unlinked = newPlayer();
         UUID formerlyLinked = newPlayer();
@@ -333,6 +333,6 @@ class AuthIT {
         return jdbc.queryForObject("""
                 INSERT INTO players (first_name, last_name, document_type, document_number, birth_date)
                 VALUES ('Jugador', 'Prueba', 'TI', ?, '2014-05-05') RETURNING id
-                """, UUID.class, "ti-" + UUID.randomUUID());
+                """, UUID.class, "ti-" + UUID.randomUUID().toString().substring(0, 20));
     }
 }

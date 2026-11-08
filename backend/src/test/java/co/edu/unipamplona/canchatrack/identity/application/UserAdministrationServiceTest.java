@@ -51,6 +51,15 @@ class UserAdministrationServiceTest {
     }
 
     @Test
+    void roleAndAccountErrorsAreReportedTogether() {
+        CreateUserCommand command = new CreateUserCommand("x@club.test", "X", "debil1", List.of("GUARDIAN"));
+        assertThatThrownBy(() -> service.createStaffUser(command, UUID.randomUUID(), "COORDINATOR", null))
+                .isInstanceOfSatisfying(DomainException.class, e ->
+                        assertThat(errorsOf(e)).extracting(m -> m.get("field")).contains("roles", "password"));
+        assertThat(users.count()).isZero();
+    }
+
+    @Test
     void guardianAccountsAreNotCreatedHere() {
         assertRejectedWithErrorOn(new CreateUserCommand("g@club.test", "G", "Entrenador-2026", List.of("GUARDIAN")), "roles");
     }
