@@ -1,0 +1,16 @@
+# Desarrollo local contra el PostgreSQL de docker-compose.yml.
+# Estas credenciales son desechables y SOLO valen para el contenedor local; cualquier otro ambiente usa variables.
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/canchatrack}
+    username: ${DB_USER:canchatrack}
+    password: ${DB_PASSWORD:canchatrack_dev}
+  jpa:
+    show-sql: false
+
+logging:
+  level:
+    co.edu.unipamplona.canchatrack: DEBUG
+    org.flywaydb: INFO
+  pattern:
+    level: "%5p [%X{correlationId:-}]"

@@ -1,0 +1,23 @@
+# Producción: todo llega por variables de entorno o gestor de secretos; sin valores por defecto.
+# El usuario de la aplicación NO es dueño del esquema (mínimo privilegio, DDS 12.1);
+# las migraciones se ejecutan con una cuenta distinta (DB_MIGRATION_USER).
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+  flyway:
+    url: ${DB_URL}
+    user: ${DB_MIGRATION_USER}
+    password: ${DB_MIGRATION_PASSWORD}
+  jpa:
+    show-sql: false
+
+server:
+  forward-headers-strategy: framework # TLS termina en el proxy inverso (HTTPS obligatorio, SEC-03)
+
+logging:
+  level:
+    root: INFO
+  pattern:
+    level: "%5p [%X{correlationId:-}]"
