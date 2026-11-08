@@ -38,7 +38,7 @@ class JwtAccessTokenIssuerTest {
 
         Jwt jwt = NimbusJwtDecoder.withSecretKey(key).macAlgorithm(MacAlgorithm.HS256).build().decode(issued.token());
         assertThat(jwt.getSubject()).isEqualTo(userId.toString());
-        assertThat(jwt.getIssuer().toString()).isEqualTo("canchatrack");
+        assertThat(jwt.getClaimAsString("iss")).isEqualTo("canchatrack");
         assertThat(jwt.getClaimAsStringList("roles")).containsExactly("COACH", "EVALUATOR");
         assertThat(jwt.getId()).isNotBlank();
         assertThat(issued.expiresAt()).isEqualTo(now.plus(Duration.ofMinutes(15)));
