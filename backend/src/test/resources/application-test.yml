@@ -1,0 +1,10 @@
+# Perfil de pruebas de integración. La base de datos la aporta Testcontainers (@ServiceConnection),
+# por eso no se define spring.datasource.* aquí.
+spring:
+  jpa:
+    show-sql: false
+
+logging:
+  level:
+    root: WARN
+    co.edu.unipamplona.canchatrack: INFO

@@ -1,0 +1,126 @@
+openapi: 3.1.0
+info:
+  title: CanchaTrack API
+  version: 0.1.0
+  summary: API REST de CanchaTrack (gestión de una escuela formativa de baloncesto).
+  description: |
+    Contrato ejecutable de la API (DDS secc. 8). **Regla del proyecto: cada endpoint se documenta aquí antes de
+    implementarse** y se versiona junto con el código.
+
+    Convenciones (DDS 8.1): JSON UTF-8, fechas ISO 8601 con zona horaria, UUID como identificador técnico,
+    errores en `application/problem+json` con `code` estable y `correlationId`. Las operaciones reintentables
+    exigen la cabecera `Idempotency-Key`.
+servers:
+  - url: /api/v1
+    description: Prefijo de todas las rutas
+tags:
+  - name: system
+    description: Estado del servicio
+paths: {}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token emitido por el módulo identity (pendiente de implementar; DT-06).
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Clave única por intento lógico. Reenviar la misma clave con el mismo cuerpo no repite el efecto.
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 100
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      description: Identificador de correlación opcional (8-64 caracteres A-Za-z0-9._-). Si falta, el servidor lo genera.
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9._-]{8,64}$'
+  headers:
+    X-Correlation-Id:
+      description: Identificador de correlación de la solicitud.
+      schema:
+        type: string
+  schemas:
+    Problem:
+      type: object
+      description: Error según RFC 9457 (application/problem+json).
+      required: [type, title, status, detail, code, correlationId]
+      properties:
+        type:
+          type: string
+          format: uri
+          description: "urn:canchatrack:problem:<code>"
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+          description: Mensaje seguro; nunca incluye datos clínicos, secretos ni detalles internos.
+        code:
+          type: string
+          description: Código estable (DDS secc. 13). Los errores genéricos del framework usan HTTP_<estado>.
+          examples: [CALLUP_NOT_ELIGIBLE]
+        correlationId:
+          type: string
+      additionalProperties: true
+    ErrorCode:
+      type: string
+      description: Catálogo cerrado de códigos de negocio. Sincronizado con shared.domain.ErrorCode (lo verifica OpenApiContractTest).
+      enum:
+          - AUTH_FORBIDDEN
+          - PLAYER_STATE_CONFLICT
+          - ENROLLMENT_CLOSED
+          - CATEGORY_FULL
+          - PANEL_INVALID
+          - NEGATIVE_REASON_REQUIRED
+          - ROUND_CLOSED
+          - CALLUP_NOT_ELIGIBLE
+          - SCHEDULE_CONFLICT
+          - ATTENDANCE_SESSION_CLOSED
+          - FILE_REJECTED
+          - PAYMENT_IMMUTABLE
+          - NOTIFICATION_DELIVERY_FAILED
+          - REPORT_GENERATION_FAILED
+          - AUTH_UNAUTHENTICATED
+          - RESOURCE_NOT_FOUND
+          - VALIDATION_FAILED
+          - CONCURRENT_MODIFICATION
+          - IDEMPOTENCY_KEY_REQUIRED
+          - IDEMPOTENCY_KEY_REUSED
+          - INTERNAL_ERROR
+  responses:
+    BadRequest:
+      description: Solicitud mal formada.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unauthorized:
+      description: Falta autenticación válida.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: Sin permiso efectivo (rol, vínculo con el jugador o estado). Código AUTH_FORBIDDEN.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: Conflicto de estado, agenda, cupo o versión obsoleta (HTTP 409).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unprocessable:
+      description: Regla de negocio o validación incumplida (HTTP 422).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+security:
+  - bearerAuth: []

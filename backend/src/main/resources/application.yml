@@ -1,0 +1,52 @@
+# Configuración común. Lo específico de cada ambiente vive en application-{dev,test,prod}.yml.
+# Los secretos NUNCA se escriben aquí: llegan por variables de entorno (CLAUDE.md, DDS secc. 14).
+spring:
+  application:
+    name: canchatrack-backend
+  profiles:
+    default: dev
+  autoconfigure:
+    exclude:
+      # Sin usuario en memoria con contraseña generada. La autenticación (JWT/OIDC) llega en el paso siguiente.
+      - org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate # el esquema lo gobierna Flyway; Hibernate solo verifica (DDS 7.1)
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    validate-on-migrate: true
+    clean-disabled: true
+    baseline-on-migrate: false
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false # fechas ISO 8601 (DDS 8.1)
+  mvc:
+    problemdetails:
+      enabled: false # los errores los construye ApiExceptionHandler (application/problem+json con code y correlationId)
+
+server:
+  shutdown: graceful
+  error:
+    include-message: never
+    include-stacktrace: never
+    include-binding-errors: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+canchatrack:
+  zone-id: America/Bogota # zona horaria del club para reglas de fecha (vigencias, recordatorios)
