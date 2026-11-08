@@ -15,8 +15,8 @@ import org.springframework.security.web.SecurityFilterChain;
 import co.edu.unipamplona.canchatrack.shared.web.ApiPaths;
 
 /**
- * Seguridad de la API: sin estado, todo requiere un access token (JWT) salvo el health check y los tres endpoints
- * que abren, renuevan o cierran la sesión. Los roles salen del claim {@code roles} del token y se exponen como
+ * Seguridad de la API: sin estado, todo requiere un access token (JWT) salvo el health check, los tres endpoints
+ * que abren, renuevan o cierran la sesión y el autorregistro de acudientes. Los roles salen del claim {@code roles} del token y se exponen como
  * {@code ROLE_<CÓDIGO>} para {@code hasRole(...)} y {@code @PreAuthorize}.
  *
  * <p>CSRF se desactiva porque no hay sesión ni cookies de autenticación: el cliente envía el token en la
@@ -43,7 +43,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST,
                                 ApiPaths.V1 + "/auth/login",
                                 ApiPaths.V1 + "/auth/refresh",
-                                ApiPaths.V1 + "/auth/logout").permitAll()
+                                ApiPaths.V1 + "/auth/logout",
+                                ApiPaths.V1 + "/guardians").permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter()))

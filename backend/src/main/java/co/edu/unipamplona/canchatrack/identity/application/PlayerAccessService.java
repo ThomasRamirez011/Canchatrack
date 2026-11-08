@@ -6,6 +6,7 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 
 import co.edu.unipamplona.canchatrack.identity.api.PlayerAccessPolicy;
+import co.edu.unipamplona.canchatrack.identity.api.PlayerScope;
 import co.edu.unipamplona.canchatrack.identity.domain.RoleCode;
 
 @Service
@@ -31,5 +32,19 @@ public class PlayerAccessService implements PlayerAccessPolicy {
         // COACH y EVALUATOR: su alcance depende de datos del módulo players (categoría asignada, panel de evaluación).
         // Hasta definirlo se deniega.
         return false;
+    }
+
+    @Override
+    public PlayerScope scopeOf(Set<String> roleCodes) {
+        if (roleCodes == null) {
+            return PlayerScope.NONE;
+        }
+        if (roleCodes.contains(RoleCode.COORDINATOR.name()) || roleCodes.contains(RoleCode.COMMITTEE.name())) {
+            return PlayerScope.ALL;
+        }
+        if (roleCodes.contains(RoleCode.GUARDIAN.name())) {
+            return PlayerScope.LINKED_GUARDIAN;
+        }
+        return PlayerScope.NONE;
     }
 }

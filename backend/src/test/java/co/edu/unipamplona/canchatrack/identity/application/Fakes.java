@@ -19,6 +19,7 @@ import co.edu.unipamplona.canchatrack.identity.domain.AccountStatus;
 import co.edu.unipamplona.canchatrack.identity.domain.RefreshToken;
 import co.edu.unipamplona.canchatrack.identity.domain.RoleCode;
 import co.edu.unipamplona.canchatrack.identity.domain.UserAccount;
+import co.edu.unipamplona.canchatrack.shared.domain.IdDocumentType;
 
 /** Dobles en memoria de los puertos de identity, compartidos por las pruebas de los casos de uso. */
 final class Fakes {
@@ -109,6 +110,35 @@ final class Fakes {
             UserAccount u = byId.get(id);
             byId.put(id, new UserAccount(id, u.email(), u.fullName(), u.passwordHash(), status, u.failedLoginAttempts(),
                     u.lockedUntil(), u.roles()));
+        }
+    }
+
+    static final class InMemoryGuardians implements GuardianRegistry {
+
+        final Map<UUID, UUID> guardianIdByUser = new HashMap<>();
+        final Map<String, UUID> userByDocument = new HashMap<>();
+        final Map<UUID, String> phoneByUser = new HashMap<>();
+
+        @Override
+        public Optional<UUID> findGuardianId(UUID userId) {
+            return Optional.ofNullable(guardianIdByUser.get(userId));
+        }
+
+        @Override
+        public boolean existsByDocument(IdDocumentType type, String normalizedNumber) {
+            return userByDocument.containsKey(type + ":" + normalizedNumber);
+        }
+
+        @Override
+        public UUID create(UUID userId, IdDocumentType type, String normalizedNumber, String phone) {
+            if (existsByDocument(type, normalizedNumber)) {
+                throw new DuplicateGuardianDocumentException();
+            }
+            UUID id = UUID.randomUUID();
+            guardianIdByUser.put(userId, id);
+            userByDocument.put(type + ":" + normalizedNumber, userId);
+            phoneByUser.put(userId, phone);
+            return id;
         }
     }
 

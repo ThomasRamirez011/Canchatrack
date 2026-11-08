@@ -47,6 +47,20 @@ public final class AuthDtos {
         }
     }
 
+    public record RegisterGuardianRequest(
+            @NotBlank(message = "El correo es obligatorio.") @Size(max = 254, message = "El correo es demasiado largo.") String email,
+            @NotBlank(message = "El nombre es obligatorio.") @Size(max = 200, message = "El nombre es demasiado largo.") String fullName,
+            @NotBlank(message = "La contraseña es obligatoria.") @Size(max = 128, message = "La contraseña es demasiado larga.") String password,
+            @NotBlank(message = "El tipo de documento es obligatorio.") @Size(max = 10, message = "Tipo de documento no válido.") String documentType,
+            @NotBlank(message = "El número de documento es obligatorio.") @Size(max = 30, message = "El número de documento es demasiado largo.") String documentNumber,
+            @Size(max = 30, message = "El teléfono es demasiado largo.") String phone) {
+
+        @Override
+        public String toString() {
+            return "RegisterGuardianRequest[email=" + email + ", password=***]";
+        }
+    }
+
     public record UserResponse(UUID id, String email, String fullName, List<String> roles) {
 
         public static UserResponse from(UserView view) {

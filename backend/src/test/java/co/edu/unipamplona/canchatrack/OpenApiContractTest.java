@@ -49,7 +49,7 @@ class OpenApiContractTest {
         Map<String, Object> paths = (Map<String, Object>) load().get("paths");
 
         assertThat(paths.keySet()).contains("/auth/login", "/auth/refresh", "/auth/logout", "/auth/me", "/users");
-        for (String publicPath : List.of("/auth/login", "/auth/refresh", "/auth/logout")) {
+        for (String publicPath : List.of("/auth/login", "/auth/refresh", "/auth/logout", "/guardians")) {
             Map<String, Object> post = (Map<String, Object>) ((Map<String, Object>) paths.get(publicPath)).get("post");
             assertThat(post.get("security")).as("%s no exige token", publicPath).isEqualTo(List.of());
         }
@@ -57,6 +57,34 @@ class OpenApiContractTest {
         Map<String, Object> createUser = (Map<String, Object>) ((Map<String, Object>) paths.get("/users")).get("post");
         assertThat(me).doesNotContainKey("security"); // hereda el esquema global (bearerAuth)
         assertThat(createUser).doesNotContainKey("security");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void enrollmentAndPlayerEndpointsAreDocumentedAndRequireAuthentication() throws Exception {
+        Map<String, Object> paths = (Map<String, Object>) load().get("paths");
+
+        assertThat(paths.keySet()).contains("/guardians", "/calls/open", "/enrollments", "/players", "/players/{playerId}");
+        Map<String, Object> enrollment = (Map<String, Object>) ((Map<String, Object>) paths.get("/enrollments")).get("post");
+        Map<String, Object> calls = (Map<String, Object>) ((Map<String, Object>) paths.get("/calls/open")).get("get");
+        Map<String, Object> players = (Map<String, Object>) ((Map<String, Object>) paths.get("/players")).get("get");
+        Map<String, Object> player = (Map<String, Object>) ((Map<String, Object>) paths.get("/players/{playerId}")).get("get");
+        assertThat(enrollment).doesNotContainKey("security");
+        assertThat(calls).doesNotContainKey("security");
+        assertThat(players).doesNotContainKey("security");
+        assertThat(player).doesNotContainKey("security");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void playerStatusEnumMatchesTheDomain() throws Exception {
+        Map<String, Object> components = (Map<String, Object>) load().get("components");
+        Map<String, Object> schemas = (Map<String, Object>) components.get("schemas");
+        Map<String, Object> playerStatus = (Map<String, Object>) schemas.get("PlayerStatus");
+
+        List<String> domain = Arrays.stream(co.edu.unipamplona.canchatrack.players.domain.PlayerStatus.values())
+                .map(Enum::name).toList();
+        assertThat((List<String>) playerStatus.get("enum")).containsExactlyInAnyOrderElementsOf(domain);
     }
 
     @Test

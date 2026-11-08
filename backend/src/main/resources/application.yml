@@ -62,3 +62,5 @@ canchatrack:
     max-failed-attempts: 5
     lock-duration: 15m
     # bootstrap.coordinator-email / -name / -password: primera cuenta; solo se usa si no hay ninguna (ver README).
+  enrollment:
+    consent-version: v1 # versión del texto de consentimiento que acepta el acudiente al radicar (RF-011)

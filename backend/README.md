@@ -44,6 +44,8 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
   server JWT HS256; todo requiere token salvo health y login/refresh/logout; 401/403 también en `problem+json`).
 - `identity` (autenticación y autorización, ver «Autenticación» abajo): login, renovación con rotación, cierre de sesión,
   `/auth/me`, alta de personal por el coordinador, bloqueo por intentos, `PlayerAccessPolicy` (acudiente-jugador).
+- `players` (inscripción, ver «Inscripción» abajo): autorregistro de acudientes (en `identity`), convocatorias abiertas, radicación
+  de inscripciones con consentimientos (en `documents`) y consulta de jugadores filtrada por `PlayerAccessPolicy`.
 - `audit`: puerto `AuditWriter` (`write` en la transacción de negocio; `writeIndependent` para intentos rechazados,
   p. ej. PA-01) y adaptador JDBC.
 
@@ -56,6 +58,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 | `ErrorCode` coincide con DDS 13, `DomainException`, `AuditRecord` | `javac` + ejecución | Ejecutado: OK |
 | YAML (perfiles, compose), `pom.xml`, OpenAPI 3.1 | parseo / `openapi-spec-validator` | Ejecutado: OK |
 | Autenticación (V13, `identity`, JWT, `SecurityConfig`, `AuthIT`) | Migración e invariantes SQL en PostgreSQL 16 real (con mutaciones); dominio y casos de uso compilados y ejecutados con dobles en memoria | **Verificado:** `mvn test` (66 pruebas) y `mvn verify` (`AuthIT` incluida, con Testcontainers) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0 |
+| Inscripción (`players`, registro de acudientes, consentimientos, `EnrollmentIT`) | Todas las sentencias SQL de los adaptadores ejecutadas contra PostgreSQL 16 real; dominio y casos de uso compilados con `-Xlint:all` y ejecutados con dobles en memoria (58 comprobaciones); YAML OpenAPI validado | **Verificado:** `mvn test` y `mvn verify` (`EnrollmentIT` incluida, con Testcontainers) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0 |
 | Código Spring (filtro, handler, seguridad, `JdbcAuditWriter`), `ArchitectureTest`, unitarias | `mvn test` en Windows 11, JDK 24 (compila con `--release 21`), Maven 3.10.0 | Ejecutado: OK (19 pruebas, 0 fallos) |
 | `*IT` con Testcontainers (`DatabaseSchemaIT`, `AuditWriterIT`) | `mvn verify`, Docker Desktop 4.98 / Engine 29.9.2 | Ejecutado: OK (7 pruebas, 0 fallos) |
 
@@ -161,8 +164,42 @@ poder probar sin configurar nada. **Nunca despliegue con el perfil por defecto (
    emitir, migrar a RS256/ES256 sin cambiar el contrato.
 5. El origen (IP) de auditoría depende de `server.forward-headers-strategy` (activo en prod) detrás del proxy inverso.
 
+## Inscripción (players)
+
+**Flujo.** El acudiente se registra, inicia sesión, consulta las convocatorias abiertas y radica la inscripción de su jugador
+(DAD CU-02 / DDS UC-01). La radicación crea el expediente (estado `SUBMITTED`), vincula al acudiente como principal,
+registra el consentimiento de datos y la autorización de participación (RF-011) y devuelve el código de radicación.
+
+| Endpoint | Acceso | Notas |
+|---|---|---|
+| `POST /api/v1/guardians` | **público** | Autorregistro: cuenta con rol `GUARDIAN` + ficha de acudiente (CC, CE o PA). |
+| `GET /api/v1/calls/open` | autenticado | Publicadas y dentro de su ventana, con el reloj de la **base de datos** (RN-01). |
+| `POST /api/v1/enrollments` | `GUARDIAN` | Radica la inscripción. 409 `ENROLLMENT_CLOSED` si la convocatoria no está abierta y no hay habilitación excepcional vigente. |
+| `GET /api/v1/players` | roles con alcance | Coordinador y comité: todos; acudiente: solo los vinculados; entrenador y evaluador: 403. Filtro `status`, paginación (`size` ≤ 100). |
+| `GET /api/v1/players/{id}` | según `PlayerAccessPolicy` | Sin acceso y sin existencia responden igual (404). |
+
+**Reglas.** Convocatoria publicada y abierta, o habilitación excepcional vigente del acudiente (`call_exceptions`; RN-01,
+RF-044). Un jugador solo se radica de nuevo si su proceso anterior terminó (`REJECTED` o `SEASON_CLOSED`): se reutiliza su
+expediente (RN-20); `WITHDRAWN` y cualquier proceso en curso dan 409. Los conflictos con un jugador existente responden
+**siempre con el mismo mensaje genérico**, de modo que un acudiente no puede averiguar qué documentos de otras familias
+existen. Todo rechazo de negocio deja rastro de auditoría en una transacción aparte (PA-01); la auditoría no guarda nombres,
+documentos ni contactos. Las vigencias (convocatoria abierta, habilitaciones, vínculos) se evalúan con `now()` de la base de datos.
+
+**Límites conocidos y pendientes (confirmar).**
+1. **El registro público de acudientes no verifica el correo ni limita la tasa por IP**, y por ser un alta abierta revela si
+   un correo o documento ya está registrado. Conviene añadir verificación por correo y límite de tasa antes de exponerlo.
+2. **No hay administración de convocatorias ni temporadas todavía** (CU-01): hoy se crean por SQL o por el siguiente
+   incremento. Sin una convocatoria abierta no se puede radicar.
+3. **No se adjuntan documentos** en la radicación (`documents`) ni se envían notificaciones (`notifications`).
+4. Si el jugador ya existe y es del mismo acudiente, se **ignoran** los nombres y la fecha de nacimiento enviados (manda el
+   expediente existente); corregirlos será una operación aparte con auditoría.
+5. Rangos de edad por categoría pendientes del cliente (DP-01): solo se rechazan fechas imposibles (futuras o de hace más de 100 años).
+6. Tipos de documento provisionales (CC, CE, PA, TI, RC); el club puede ajustarlos.
+7. Versión del texto de consentimiento: `canchatrack.enrollment.consent-version` (por defecto `v1`).
+
 ## Siguiente paso
 
-Incremento de **jugadores e inscripción** (radicación, comité, categoría) usando `PlayerAccessPolicy`; la **generación de cargos**
-(matrícula al aprobar la inscripción, mensualidades por mes) con el incremento de pagos. Después: Dockerfile multi-etapa,
-pipeline CI con quality gates, Swagger UI en `dev`.
+Siguientes incrementos de `players`: **administración de convocatorias y temporadas** (CU-01) y **decisión del comité**
+(acta, categoría con cupo, entrenador y panel de tres evaluadores; T-01/T-02), que además define el alcance de entrenador y
+evaluador en `PlayerAccessPolicy`. La **generación de cargos** (matrícula al aprobar la inscripción, mensualidades por mes)
+llega con el incremento de pagos. Después: Dockerfile multi-etapa, pipeline CI con quality gates, Swagger UI en `dev`.
