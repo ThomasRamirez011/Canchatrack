@@ -53,7 +53,18 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 | Invariantes críticas (≈90 aserciones, incl. pagos, asistencia, unanimidad, auditoría) | `schema-invariants.sql`; se comprobó que **fallan** si se quitan los triggers | Ejecutado: OK |
 | `ErrorCode` coincide con DDS 13, `DomainException`, `AuditRecord` | `javac` + ejecución | Ejecutado: OK |
 | YAML (perfiles, compose), `pom.xml`, OpenAPI 3.1 | parseo / `openapi-spec-validator` | Ejecutado: OK |
-| Código Spring (filtro, handler, seguridad, `JdbcAuditWriter`), `ArchitectureTest`, `*IT` | — | **No compilado ni ejecutado**: el entorno donde se generó no podía descargar dependencias de Maven Central ni tenía Docker. Primer `mvn verify` pendiente. |
+| Código Spring (filtro, handler, seguridad, `JdbcAuditWriter`), `ArchitectureTest`, unitarias | `mvn test` en Windows 11, JDK 24 (compila con `--release 21`), Maven 3.10.0 | Ejecutado: OK (19 pruebas, 0 fallos) |
+| `*IT` con Testcontainers (`DatabaseSchemaIT`, `AuditWriterIT`) | `mvn verify`, Docker Desktop 4.98 / Engine 29.9.2 | Ejecutado: OK (7 pruebas, 0 fallos) |
+
+### Nota: Docker Desktop reciente + Testcontainers
+
+Con Docker Engine 29.x, el Testcontainers que gestiona Spring Boot 3.5.7 puede fallar con
+`Could not find a valid Docker environment`, porque habla una API de Docker más antigua que la mínima aceptada.
+Solución local (no va en el repositorio): crear `%USERPROFILE%\.docker-java.properties` (en Linux/macOS `~/.docker-java.properties`) con
+
+```
+api.version=1.44
+```
 
 ## Decisiones que debe confirmar / discrepancias con los documentos
 
