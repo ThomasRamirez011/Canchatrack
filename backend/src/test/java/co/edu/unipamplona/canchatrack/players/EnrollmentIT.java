@@ -139,7 +139,7 @@ class EnrollmentIT {
     }
 
     private static String newPlayerDocument() {
-        return "TI-" + UUID.randomUUID().toString().substring(0, 8);
+        return "TI-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(); // el servidor guarda el documento en mayúsculas
     }
 
     private long countAudit(String action, UUID actor, String reason) {
