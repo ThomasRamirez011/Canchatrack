@@ -158,4 +158,74 @@ final class CallAdminFakes {
             return exceptions.stream().filter(e -> e.callId().equals(callId)).toList();
         }
     }
+
+    /** Categorías en memoria. {@code occupied} se fija a mano: la ocupación real la calculan las asignaciones del comité. */
+    static class InMemoryCategories implements CategoryStore {
+
+        final Map<UUID, CategoryInfo> rows = new LinkedHashMap<>();
+
+        CategoryInfo add(String name, int min, int max, int capacity, int occupied, boolean active) {
+            CategoryInfo category = new CategoryInfo(UUID.randomUUID(), name, min, max, capacity, occupied, null, active);
+            rows.put(category.id(), category);
+            return category;
+        }
+
+        @Override
+        public CategoryInfo insert(String name, int min, int max, int capacity, UUID nextCategoryId, UUID createdBy) {
+            checkUniqueness(null, name, min, max, true);
+            CategoryInfo category = new CategoryInfo(UUID.randomUUID(), name, min, max, capacity, 0, nextCategoryId, true);
+            rows.put(category.id(), category);
+            return category;
+        }
+
+        /** Replica las restricciones de la base: nombre único y sin solape entre activas (V14). */
+        private void checkUniqueness(UUID self, String name, int min, int max, boolean active) {
+            for (CategoryInfo other : rows.values()) {
+                if (other.id().equals(self)) {
+                    continue;
+                }
+                if (other.name().equals(name)) {
+                    throw new DuplicateCategoryNameException();
+                }
+                if (active && other.active() && other.birthYearMin() <= max && min <= other.birthYearMax()) {
+                    throw new OverlappingCategoryRangeException();
+                }
+            }
+        }
+
+        @Override
+        public List<CategoryInfo> findAll(boolean activeOnly) {
+            return rows.values().stream().filter(c -> !activeOnly || c.active())
+                    .sorted(Comparator.comparingInt(CategoryInfo::birthYearMin).reversed()).toList();
+        }
+
+        @Override
+        public Optional<CategoryInfo> findById(UUID categoryId) {
+            return Optional.ofNullable(rows.get(categoryId));
+        }
+
+        @Override
+        public Optional<CategoryInfo> findByIdForUpdate(UUID categoryId) {
+            return findById(categoryId);
+        }
+
+        @Override
+        public Optional<CategoryInfo> findActiveCovering(int birthYear) {
+            return rows.values().stream().filter(c -> c.active() && c.covers(birthYear)).findFirst();
+        }
+
+        @Override
+        public Optional<CategoryInfo> findActiveOverlapping(int min, int max, UUID exclude) {
+            return rows.values().stream()
+                    .filter(c -> c.active() && !c.id().equals(exclude) && c.birthYearMin() <= max && min <= c.birthYearMax())
+                    .findFirst();
+        }
+
+        @Override
+        public void update(UUID categoryId, String name, int min, int max, int capacity, UUID nextCategoryId, boolean active) {
+            checkUniqueness(categoryId, name, min, max, active);
+            CategoryInfo current = rows.get(categoryId);
+            rows.put(categoryId, new CategoryInfo(categoryId, name, min, max, capacity, current.occupied(), nextCategoryId, active));
+        }
+    }
 }

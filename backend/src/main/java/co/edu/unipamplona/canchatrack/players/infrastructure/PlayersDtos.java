@@ -7,6 +7,8 @@ import java.util.UUID;
 
 import co.edu.unipamplona.canchatrack.players.application.CallDetail;
 import co.edu.unipamplona.canchatrack.players.application.CallExceptionInfo;
+import co.edu.unipamplona.canchatrack.players.application.CategoryInfo;
+import co.edu.unipamplona.canchatrack.players.application.CategorySuggestion;
 import co.edu.unipamplona.canchatrack.players.application.EnrollmentReceipt;
 import co.edu.unipamplona.canchatrack.players.application.EnrollmentSummary;
 import co.edu.unipamplona.canchatrack.players.application.PageResult;
@@ -155,6 +157,44 @@ public final class PlayersDtos {
             return new CallExceptionResponse(exception.id(), exception.callId(), exception.guardianId(),
                     exception.reason(), exception.grantedBy(), exception.grantedAt(), exception.expiresAt(),
                     exception.active());
+        }
+    }
+
+    // --- Categorías (coordinador escribe; coordinador y comité leen) ---
+
+    public record CreateCategoryRequest(
+            @NotBlank(message = "El nombre es obligatorio.") @Size(max = 80, message = "El nombre no puede superar 80 caracteres.") String name,
+            @NotNull(message = "El primer año de nacimiento es obligatorio.") Integer birthYearMin,
+            @NotNull(message = "El último año de nacimiento es obligatorio.") Integer birthYearMax,
+            @NotNull(message = "El cupo es obligatorio.") Integer capacity,
+            UUID nextCategoryId) {
+    }
+
+    public record UpdateCategoryRequest(
+            @Size(max = 80, message = "El nombre no puede superar 80 caracteres.") String name,
+            Integer birthYearMin,
+            Integer birthYearMax,
+            Integer capacity,
+            UUID nextCategoryId,
+            Boolean clearNextCategory,
+            Boolean active) {
+    }
+
+    public record CategoryResponse(UUID id, String name, int birthYearMin, int birthYearMax, int capacity, int occupied,
+                                   int available, UUID nextCategoryId, boolean active) {
+
+        static CategoryResponse from(CategoryInfo category) {
+            return new CategoryResponse(category.id(), category.name(), category.birthYearMin(),
+                    category.birthYearMax(), category.capacity(), category.occupied(), category.available(),
+                    category.nextCategoryId(), category.active());
+        }
+    }
+
+    public record CategorySuggestionResponse(UUID playerId, int birthYear, CategoryResponse suggested) {
+
+        static CategorySuggestionResponse from(CategorySuggestion suggestion) {
+            return new CategorySuggestionResponse(suggestion.playerId(), suggestion.birthYear(),
+                    suggestion.suggested() == null ? null : CategoryResponse.from(suggestion.suggested()));
         }
     }
 }
