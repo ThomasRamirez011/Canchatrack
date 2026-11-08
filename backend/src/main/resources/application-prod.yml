@@ -13,6 +13,17 @@ spring:
   jpa:
     show-sql: false
 
+canchatrack:
+  security:
+    jwt:
+      secret: ${JWT_SECRET} # sin valor por defecto: la aplicación no arranca si falta
+  identity:
+    bootstrap:
+      # Solo para el primer arranque (si no hay usuarios). Definir las variables, arrancar una vez y retirarlas.
+      coordinator-email: ${BOOTSTRAP_COORDINATOR_EMAIL:}
+      coordinator-name: ${BOOTSTRAP_COORDINATOR_NAME:Coordinador}
+      coordinator-password: ${BOOTSTRAP_COORDINATOR_PASSWORD:}
+
 server:
   forward-headers-strategy: framework # TLS termina en el proxy inverso (HTTPS obligatorio, SEC-03)
 

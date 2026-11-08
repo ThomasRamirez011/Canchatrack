@@ -16,14 +16,120 @@ servers:
 tags:
   - name: system
     description: Estado del servicio
-paths: {}
+  - name: auth
+    description: Inicio, renovación y cierre de sesión. Access token JWT corto + refresh token opaco con rotación.
+  - name: users
+    description: Cuentas de personal del club (solo coordinador).
+paths:
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Inicia sesión con correo y contraseña.
+      description: |
+        Devuelve un access token (JWT, vigencia corta) y un refresh token opaco. Toda causa de rechazo (correo
+        inexistente, contraseña errónea, cuenta bloqueada o inhabilitada) produce la MISMA respuesta 401, para no
+        revelar qué cuentas existen. Tras 5 intentos fallidos consecutivos la cuenta se bloquea 15 minutos.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Sesión abierta.
+          headers:
+            Cache-Control:
+              schema: { type: string, examples: [no-store] }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /auth/refresh:
+    post:
+      tags: [auth]
+      operationId: refreshSession
+      summary: Renueva la sesión canjeando un refresh token (rotación).
+      description: |
+        Cada refresh token se usa UNA sola vez y se reemplaza por uno nuevo. Presentar uno ya canjeado revoca toda
+        la sesión (posible robo): hay que iniciar sesión de nuevo. La sesión tiene además un tope absoluto de 30 días.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '200':
+          description: Par de tokens nuevo.
+          headers:
+            Cache-Control:
+              schema: { type: string, examples: [no-store] }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: Cierra la sesión del refresh token indicado.
+      description: 'Idempotente y silencioso: responde 204 aunque el token no exista o ya esté revocado.'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '204':
+          description: Sesión cerrada.
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /auth/me:
+    get:
+      tags: [auth]
+      operationId: currentUser
+      summary: Cuenta del access token presentado, con su estado actual.
+      description: Se lee de la base, no del token. Una cuenta inexistente o no activa responde 401.
+      responses:
+        '200':
+          description: Cuenta autenticada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /users:
+    post:
+      tags: [users]
+      operationId: createStaffUser
+      summary: Crea una cuenta de personal (coordinador, entrenador, evaluador o comité técnico).
+      description: |
+        Solo el coordinador. No admite el rol GUARDIAN: las cuentas de acudiente nacen con la inscripción.
+        La contraseña inicial exige 12 a 72 bytes con al menos una letra y un dígito.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateUserRequest' }
+      responses:
+        '201':
+          description: Cuenta creada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: Token emitido por el módulo identity (pendiente de implementar; DT-06).
+      description: Access token JWT (HS256) emitido por POST /auth/login o /auth/refresh. Lleva sub (id de cuenta) y roles.
   parameters:
     IdempotencyKey:
       name: Idempotency-Key
@@ -48,6 +154,67 @@ components:
       schema:
         type: string
   schemas:
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, maxLength: 254, examples: [coordinador@club.test] }
+        password: { type: string, maxLength: 128, format: password }
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken: { type: string, maxLength: 256 }
+    CreateUserRequest:
+      type: object
+      required: [email, fullName, password, roles]
+      properties:
+        email: { type: string, maxLength: 254 }
+        fullName: { type: string, maxLength: 200 }
+        password: { type: string, maxLength: 128, format: password }
+        roles:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items: { $ref: '#/components/schemas/StaffRole' }
+    StaffRole:
+      type: string
+      description: Roles asignables por el coordinador. GUARDIAN queda excluido a propósito.
+      enum: [COORDINATOR, COACH, EVALUATOR, COMMITTEE]
+    UserResponse:
+      type: object
+      required: [id, email, fullName, roles]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        fullName: { type: string }
+        roles:
+          type: array
+          items: { type: string, enum: [GUARDIAN, COORDINATOR, COACH, EVALUATOR, COMMITTEE] }
+    SessionResponse:
+      type: object
+      required: [accessToken, tokenType, expiresIn, refreshToken, refreshTokenExpiresAt, user]
+      properties:
+        accessToken: { type: string, description: 'JWT. Se envía en la cabecera Authorization como: Bearer <token>.' }
+        tokenType: { type: string, enum: [Bearer] }
+        expiresIn: { type: integer, description: 'Segundos de vigencia del access token.' }
+        refreshToken: { type: string, description: 'Valor opaco; se muestra una sola vez y no puede recuperarse.' }
+        refreshTokenExpiresAt: { type: string, format: date-time }
+        user: { $ref: '#/components/schemas/UserResponse' }
+    ValidationProblem:
+      description: Problem con la lista de campos inválidos (VALIDATION_FAILED).
+      allOf:
+        - { $ref: '#/components/schemas/Problem' }
+        - type: object
+          properties:
+            errors:
+              type: array
+              items:
+                type: object
+                required: [field, message]
+                properties:
+                  field: { type: string }
+                  message: { type: string }
     Problem:
       type: object
       description: Error según RFC 9457 (application/problem+json).
@@ -112,6 +279,11 @@ components:
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
+    ValidationFailed:
+      description: Datos inválidos (HTTP 422, código VALIDATION_FAILED) con la lista `errors` por campo.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ValidationProblem' }
     Conflict:
       description: Conflicto de estado, agenda, cupo o versión obsoleta (HTTP 409).
       content:

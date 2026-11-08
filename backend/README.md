@@ -7,7 +7,7 @@ Proyecto académico: Universidad de Pamplona · Ingeniería de Software II. Fuen
 
 ```bash
 docker compose up -d                 # PostgreSQL 16 local (credenciales desechables de application-dev.yml)
-mvn spring-boot:run                  # perfil "dev" por defecto; Flyway aplica V1..V12 al iniciar
+mvn spring-boot:run                  # perfil "dev" por defecto; Flyway aplica V1..V13 al iniciar
 curl localhost:8080/actuator/health  # {"status":"UP"}
 
 mvn test                             # unitarias + arquitectura (sin Docker)
@@ -22,7 +22,7 @@ src/main/java/co/edu/unipamplona/canchatrack/
   <modulo>/{api,domain,application,infrastructure}   11 módulos del DDS secc. 3
   shared/{config,domain,web,security}                núcleo mínimo: ErrorCode, correlación, problem+json, seguridad base
 src/main/resources/
-  db/migration/V1..V12                               modelo de datos del DDS secc. 7 (una migración por módulo)
+  db/migration/V1..V13                               modelo de datos del DDS secc. 7 (una migración por módulo)
   openapi/canchatrack-v1.yaml                        contrato OpenAPI 3.1 (se documenta aquí ANTES de implementar)
   application{,-dev,-prod}.yml                       perfiles; secretos solo por variables de entorno
 src/test/                                            ArchUnit, unitarias, *IT (Testcontainers), schema-invariants.sql
@@ -35,13 +35,15 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 
 ## Qué hay ya implementado
 
-- **Esquema completo (47 tablas, 3 vistas)** con las reglas críticas impuestas en la base como última línea de defensa:
+- **Esquema completo (48 tablas, 3 vistas)** con las reglas críticas impuestas en la base como última línea de defensa:
   pagos/ajustes/auditoría/versiones **append-only** (trigger `CT001`), asistencia **idempotente** (`client_uuid` y
   `(event_id, player_id)` únicos, lote por `Idempotency-Key`), sesión cerrada bloquea cambios (`CT002`), ronda cerrada
   bloquea decisiones (`CT003`), anulaciones y ajustes coherentes de pagos y cargos (`CT004`), justificación obligatoria si el concepto no es favorable.
 - `shared`: `ErrorCode` (los 14 códigos del DDS 13 + 7 adiciones), `DomainException`, `CorrelationIdFilter`,
-  `ApiExceptionHandler` (`application/problem+json` con `code` y `correlationId`), `SecurityConfig` (sin estado, todo
-  autenticado salvo health; **sin login todavía**).
+  `ApiExceptionHandler` (`application/problem+json` con `code` y `correlationId`), `SecurityConfig` (sin estado; resource
+  server JWT HS256; todo requiere token salvo health y login/refresh/logout; 401/403 también en `problem+json`).
+- `identity` (autenticación y autorización, ver «Autenticación» abajo): login, renovación con rotación, cierre de sesión,
+  `/auth/me`, alta de personal por el coordinador, bloqueo por intentos, `PlayerAccessPolicy` (acudiente-jugador).
 - `audit`: puerto `AuditWriter` (`write` en la transacción de negocio; `writeIndependent` para intentos rechazados,
   p. ej. PA-01) y adaptador JDBC.
 
@@ -49,10 +51,11 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 
 | Qué | Cómo se verificó | Estado |
 |---|---|---|
-| Migraciones V1..V12 sobre PostgreSQL 16 real | `scripts/check-schema.sh` | Ejecutado: OK |
+| Migraciones V1..V13 sobre PostgreSQL 16 real | `scripts/check-schema.sh` | Ejecutado: OK |
 | Invariantes críticas (≈90 aserciones, incl. pagos, asistencia, unanimidad, auditoría) | `schema-invariants.sql`; se comprobó que **fallan** si se quitan los triggers | Ejecutado: OK |
 | `ErrorCode` coincide con DDS 13, `DomainException`, `AuditRecord` | `javac` + ejecución | Ejecutado: OK |
 | YAML (perfiles, compose), `pom.xml`, OpenAPI 3.1 | parseo / `openapi-spec-validator` | Ejecutado: OK |
+| Autenticación (V13, `identity`, JWT, `SecurityConfig`, `AuthIT`) | Migración e invariantes SQL en PostgreSQL 16 real (con mutaciones); dominio y casos de uso compilados y ejecutados con dobles en memoria | **Parcial:** el código Spring de esta parte y sus pruebas JUnit/`AuthIT` **aún no se han compilado ni ejecutado**: pendiente `mvn verify` |
 | Código Spring (filtro, handler, seguridad, `JdbcAuditWriter`), `ArchitectureTest`, unitarias | `mvn test` en Windows 11, JDK 24 (compila con `--release 21`), Maven 3.10.0 | Ejecutado: OK (19 pruebas, 0 fallos) |
 | `*IT` con Testcontainers (`DatabaseSchemaIT`, `AuditWriterIT`) | `mvn verify`, Docker Desktop 4.98 / Engine 29.9.2 | Ejecutado: OK (7 pruebas, 0 fallos) |
 
@@ -93,7 +96,7 @@ api.version=1.44
 
 ## Convenciones
 
-- Una migración Flyway por cambio de esquema; **nunca editar una ya aplicada** (las V1..V12 son la línea base:
+- Una migración Flyway por cambio de esquema; **nunca editar una ya aplicada** (las V1..V13 son la línea base:
   pueden ajustarse hasta el primer despliegue; después, solo migraciones nuevas).
 - Los códigos `SQLSTATE` `CT001..CT004` deben traducirse a `ErrorCode` en el adaptador de persistencia.
 - Secretos fuera del repositorio. En producción la aplicación usa una cuenta sin DDL y Flyway otra (`DB_MIGRATION_*`).
@@ -116,8 +119,50 @@ api.version=1.44
 - **Mora: fuera de alcance.** Solo se guarda `due_date`; días de gracia y recargos son un parámetro pendiente del cliente (DP-05).
   Tampoco se sembraron tarifas ni el día de vencimiento mensual.
 
-## Siguiente paso (CLAUDE.md, punto 1)
+## Autenticación (identity)
 
-Autenticación y roles: cuentas propias + OIDC opcional (DT-06), emisión/validación de JWT, roles desde `user_roles`,
-autorización por vínculo con el jugador (PA-04, PA-14). Después: Dockerfile multi-etapa, pipeline CI con quality gates,
-Swagger UI en `dev`, y los incrementos I2 en adelante.
+**Modelo.** Cuentas propias con correo y contraseña (BCrypt). Access token **JWT HS256 de 15 min** (`sub` = id de cuenta,
+`roles`, `iss`, `jti`) + **refresh token opaco** de 7 días con **rotación**: cada uso lo reemplaza y reutilizar uno ya
+canjeado **revoca toda la sesión**. Tope absoluto de sesión: 30 días. Los refresh tokens solo se guardan como SHA-256.
+OIDC (DT-06) queda como extensión posterior (`users.oidc_subject` ya existe).
+
+| Endpoint | Acceso | Notas |
+|---|---|---|
+| `POST /api/v1/auth/login` | público | Toda causa de rechazo responde igual (401): no revela qué cuentas existen. 5 fallos seguidos bloquean 15 min. |
+| `POST /api/v1/auth/refresh` | público (con refresh token) | Rotación + detección de reutilización. |
+| `POST /api/v1/auth/logout` | público (con refresh token) | Idempotente; 204 siempre. |
+| `GET /api/v1/auth/me` | autenticado | Lee de la base: una cuenta no activa responde 401. |
+| `POST /api/v1/users` | `COORDINATOR` | Alta de personal. **No** admite `GUARDIAN`: esas cuentas nacen con la inscripción. |
+
+**Reglas de acceso a jugadores** (`identity.api.PlayerAccessPolicy`, la usarán los demás módulos): coordinador y comité,
+todos; acudiente, solo con vínculo vigente en `player_guardians`; **entrenador y evaluador, ninguno todavía** (su alcance
+depende de la categoría asignada y del panel de evaluación, que define `players`; lo no resuelto se deniega).
+
+**Configuración (todo por entorno; ver `application*.yml`).**
+
+| Variable | Dónde | Descripción |
+|---|---|---|
+| `JWT_SECRET` | **obligatoria en prod** | Base64 de ≥ 32 bytes. Generar: `openssl rand -base64 48`. Sin ella la aplicación no arranca. |
+| `BOOTSTRAP_COORDINATOR_EMAIL` / `_PASSWORD` / `_NAME` | primer arranque | Crean el primer coordinador **solo si no hay ninguna cuenta**. Arrancar una vez, retirar las variables y cambiar la contraseña. |
+| `canchatrack.identity.*` | opcional | `bcrypt-strength` (12), `refresh-ttl` (7d), `refresh-absolute-ttl` (30d), `max-failed-attempts` (5), `lock-duration` (15m). |
+
+En **dev** hay una clave JWT y un coordinador desechables (`coordinador@canchatrack.local` / `Dev-Only-Change-Me-1`) para
+poder probar sin configurar nada. **Nunca despliegue con el perfil por defecto (`dev`)**: use `SPRING_PROFILES_ACTIVE=prod`.
+
+**Decisiones y límites conocidos (confirmar).**
+1. **El access token no se puede revocar antes de vencer** (15 min): un cambio de roles o una cuenta inhabilitada surten efecto
+   al renovar o vencer. `/auth/me` y la renovación sí consultan el estado actual. Si el cliente exige revocación inmediata,
+   hay que añadir una lista de `jti` revocados o consultar la base en cada solicitud.
+2. **Reutilización estricta:** dos renovaciones simultáneas con el mismo token (p. ej. doble clic) cuentan como reutilización y
+   cierran la sesión. Una ventana de gracia de unos segundos es posible, a costa de debilitar la detección.
+3. **Faltan** (no estaban pedidos todavía): recuperación y cambio de contraseña (dependen de notificaciones por correo),
+   MFA del coordinador (DDS 12.1), limitación de tasa por IP, y limpieza periódica de refresh tokens vencidos (índice listo).
+4. HS256 usa una clave simétrica: basta mientras un único servicio emite y valida. Si otro servicio debe validar sin poder
+   emitir, migrar a RS256/ES256 sin cambiar el contrato.
+5. El origen (IP) de auditoría depende de `server.forward-headers-strategy` (activo en prod) detrás del proxy inverso.
+
+## Siguiente paso
+
+Incremento de **jugadores e inscripción** (radicación, comité, categoría) usando `PlayerAccessPolicy`; la **generación de cargos**
+(matrícula al aprobar la inscripción, mensualidades por mes) con el incremento de pagos. Después: Dockerfile multi-etapa,
+pipeline CI con quality gates, Swagger UI en `dev`.

@@ -37,7 +37,7 @@ class DatabaseSchemaIT {
             "evaluation_rubrics", "evaluation_rounds", "evaluator_decisions", "evaluator_decision_history",
             "fees", "charges", "charge_adjustments", "payments", "adjustments", "season_reports", "support_documents",
             "notifications", "delivery_attempts", "state_history", "audit_events", "outbox_events",
-            "idempotency_keys", "club_parameters", "stored_files");
+            "idempotency_keys", "club_parameters", "stored_files", "refresh_tokens");
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -53,7 +53,7 @@ class DatabaseSchemaIT {
                 "SELECT count(*) FROM flyway_schema_history WHERE success = true AND version IS NOT NULL", Integer.class);
 
         assertThat(failed).isZero();
-        assertThat(applied).isGreaterThanOrEqualTo(12);
+        assertThat(applied).isGreaterThanOrEqualTo(13);
     }
 
     @Test

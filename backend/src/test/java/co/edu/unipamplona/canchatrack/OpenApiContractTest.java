@@ -43,6 +43,32 @@ class OpenApiContractTest {
         assertThat(documented).containsExactlyInAnyOrderElementsOf(implemented);
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void identityEndpointsAreDocumentedAndOnlySessionOpeningOnesArePublic() throws Exception {
+        Map<String, Object> paths = (Map<String, Object>) load().get("paths");
+
+        assertThat(paths.keySet()).contains("/auth/login", "/auth/refresh", "/auth/logout", "/auth/me", "/users");
+        for (String publicPath : List.of("/auth/login", "/auth/refresh", "/auth/logout")) {
+            Map<String, Object> post = (Map<String, Object>) ((Map<String, Object>) paths.get(publicPath)).get("post");
+            assertThat(post.get("security")).as("%s no exige token", publicPath).isEqualTo(List.of());
+        }
+        Map<String, Object> me = (Map<String, Object>) ((Map<String, Object>) paths.get("/auth/me")).get("get");
+        Map<String, Object> createUser = (Map<String, Object>) ((Map<String, Object>) paths.get("/users")).get("post");
+        assertThat(me).doesNotContainKey("security"); // hereda el esquema global (bearerAuth)
+        assertThat(createUser).doesNotContainKey("security");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void guardianRoleCannotBeAssignedThroughTheUsersEndpoint() throws Exception {
+        Map<String, Object> components = (Map<String, Object>) load().get("components");
+        Map<String, Object> schemas = (Map<String, Object>) components.get("schemas");
+        Map<String, Object> staffRole = (Map<String, Object>) schemas.get("StaffRole");
+
+        assertThat((List<String>) staffRole.get("enum")).doesNotContain("GUARDIAN");
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> load() throws Exception {
         try (InputStream in = getClass().getResourceAsStream(SPEC)) {

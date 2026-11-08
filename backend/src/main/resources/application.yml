@@ -7,7 +7,7 @@ spring:
     default: dev
   autoconfigure:
     exclude:
-      # Sin usuario en memoria con contraseña generada. La autenticación (JWT/OIDC) llega en el paso siguiente.
+      # Sin usuario en memoria con contraseña generada: la autenticación es por JWT (ver canchatrack.security / identity).
       - org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
   jpa:
     open-in-view: false
@@ -50,3 +50,15 @@ management:
 
 canchatrack:
   zone-id: America/Bogota # zona horaria del club para reglas de fecha (vigencias, recordatorios)
+  security:
+    jwt:
+      # secret: SIEMPRE por variable de entorno JWT_SECRET (Base64, >= 32 bytes); el perfil dev trae uno desechable.
+      issuer: canchatrack
+      access-ttl: 15m # corto a propósito: un access token no se puede revocar antes de vencer
+  identity:
+    bcrypt-strength: 12
+    refresh-ttl: 7d
+    refresh-absolute-ttl: 30d # tope de la sesión completa; no se extiende al rotar
+    max-failed-attempts: 5
+    lock-duration: 15m
+    # bootstrap.coordinator-email / -name / -password: primera cuenta; solo se usa si no hay ninguna (ver README).

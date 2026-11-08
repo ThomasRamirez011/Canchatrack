@@ -1,6 +1,7 @@
 package co.edu.unipamplona.canchatrack.shared.web;
 
 import java.net.URI;
+import java.util.List;
 import java.util.Map;
 
 import org.slf4j.Logger;
@@ -11,6 +12,7 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
@@ -56,6 +58,20 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         LOG.error("Unhandled exception [correlationId={}]", CorrelationIds.current(), ex);
         return respond(ErrorCode.INTERNAL_ERROR,
                 "Ocurrió un error interno. Informe el correlationId al soporte.");
+    }
+
+    /** Validación de cuerpos ({@code @Valid}): 422 {@code VALIDATION_FAILED} con la lista de campos inválidos. */
+    @Override
+    protected ResponseEntity<Object> handleMethodArgumentNotValid(
+            MethodArgumentNotValidException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        List<Map<String, String>> errors = ex.getBindingResult().getFieldErrors().stream()
+                .map(fieldError -> Map.of(
+                        "field", fieldError.getField(),
+                        "message", fieldError.getDefaultMessage() == null ? "Valor no válido." : fieldError.getDefaultMessage()))
+                .toList();
+        ProblemDetail problem = problem(ErrorCode.VALIDATION_FAILED, ErrorCode.VALIDATION_FAILED.defaultDetail());
+        problem.setProperty("errors", errors);
+        return ResponseEntity.status(ErrorCode.VALIDATION_FAILED.httpStatus()).body(problem);
     }
 
     /** Punto único por donde pasan los errores del propio framework: los enriquece sin cambiar su estado HTTP. */

@@ -4,6 +4,13 @@ spring:
   jpa:
     show-sql: false
 
+canchatrack:
+  security:
+    jwt:
+      secret: G8vny3gToStxavTB+wo9OQx++bZyXmGriJlxuZtG8OlLkqQYDAai+X3fJDc+ZgC7 # solo pruebas
+  identity:
+    bcrypt-strength: 4 # mínimo de BCrypt: acelera las pruebas, no es un valor de producción
+
 logging:
   level:
     root: WARN

@@ -373,6 +373,17 @@ $test$
         PERFORM pg_temp.expect_error(format($q$INSERT INTO payments (player_id, fee_id, charge_id, amount, method, paid_at, recorded_by) VALUES (%L, %L, %L, 1000, 'CASH', now(), %L)$q$, v_p1, v_fee, v_charge2, v_coord), '23514');
 
         ----------------------------------------------------------------------------------------------------------
+        -- Refresh tokens (V13): solo hash, vencimientos coherentes, revocación con motivo
+        ----------------------------------------------------------------------------------------------------------
+        INSERT INTO refresh_tokens (user_id, family_id, token_hash, issued_at, expires_at, family_expires_at)
+        VALUES (v_coord, gen_random_uuid(), repeat('a', 64), now(), now() + interval '7 days', now() + interval '30 days');
+        PERFORM pg_temp.expect_error(format($q$INSERT INTO refresh_tokens (user_id, family_id, token_hash, issued_at, expires_at, family_expires_at) VALUES (%L, gen_random_uuid(), %L, now(), now() + interval '1 day', now() + interval '2 days')$q$, v_coord, repeat('a', 64)), '23505'); -- hash único
+        PERFORM pg_temp.expect_error(format($q$INSERT INTO refresh_tokens (user_id, family_id, token_hash, issued_at, expires_at, family_expires_at) VALUES (%L, gen_random_uuid(), 'no-es-un-sha256', now(), now() + interval '1 day', now() + interval '2 days')$q$, v_coord), '23514'); -- solo hash hexadecimal de 64
+        PERFORM pg_temp.expect_error(format($q$INSERT INTO refresh_tokens (user_id, family_id, token_hash, issued_at, expires_at, family_expires_at) VALUES (%L, gen_random_uuid(), repeat('b', 64), now(), now() + interval '3 days', now() + interval '2 days')$q$, v_coord), '23514'); -- no supera el tope de la sesión
+        PERFORM pg_temp.expect_error(format($q$INSERT INTO refresh_tokens (user_id, family_id, token_hash, issued_at, expires_at, family_expires_at) VALUES (%L, gen_random_uuid(), repeat('c', 64), now(), now() - interval '1 day', now() + interval '2 days')$q$, v_coord), '23514'); -- vence después de emitirse
+        PERFORM pg_temp.expect_error(format($q$INSERT INTO refresh_tokens (user_id, family_id, token_hash, issued_at, expires_at, family_expires_at, revoked_at) VALUES (%L, gen_random_uuid(), repeat('d', 64), now(), now() + interval '1 day', now() + interval '2 days', now())$q$, v_coord), '23514'); -- revocar exige motivo
+
+        ----------------------------------------------------------------------------------------------------------
         -- Auditoría e historial inmutables (regla crítica 3; RN-19)
         ----------------------------------------------------------------------------------------------------------
         INSERT INTO audit_events (actor_id, actor_role, action, entity_type, entity_id, reason)

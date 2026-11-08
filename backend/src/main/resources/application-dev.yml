@@ -14,3 +14,15 @@ logging:
     org.flywaydb: INFO
   pattern:
     level: "%5p [%X{correlationId:-}]"
+
+canchatrack:
+  security:
+    jwt:
+      # Clave DESECHABLE, solo para desarrollo local: cualquier otro ambiente usa JWT_SECRET.
+      secret: ${JWT_SECRET:DKv8YoVfp9uedaoXm7r9CRmB1vHtCdNAa3NXpuqV3C1wDf9ZRUZqqmfuOxSOWKh+}
+  identity:
+    bootstrap:
+      # Cuenta inicial desechable de desarrollo (solo se crea si la base no tiene usuarios).
+      coordinator-email: ${BOOTSTRAP_COORDINATOR_EMAIL:coordinador@canchatrack.local}
+      coordinator-name: Coordinador (desarrollo)
+      coordinator-password: ${BOOTSTRAP_COORDINATOR_PASSWORD:Dev-Only-Change-Me-1}
