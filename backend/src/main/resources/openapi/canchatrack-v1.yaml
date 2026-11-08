@@ -20,6 +20,14 @@ tags:
     description: Inicio, renovación y cierre de sesión. Access token JWT corto + refresh token opaco con rotación.
   - name: users
     description: Cuentas de personal del club (solo coordinador).
+  - name: guardians
+    description: Autorregistro público de acudientes.
+  - name: calls
+    description: Convocatorias de inscripción.
+  - name: enrollments
+    description: Radicación de inscripciones por el acudiente.
+  - name: players
+    description: Consulta de jugadores según el rol y el vínculo con el acudiente.
 paths:
   /auth/login:
     post:
@@ -123,6 +131,137 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
+  /guardians:
+    post:
+      tags: [guardians]
+      operationId: registerGuardian
+      summary: Autorregistro de un acudiente (público).
+      description: |
+        Crea la cuenta (rol GUARDIAN) y la ficha del acudiente; con ella se inicia sesión y se radica la inscripción.
+        El documento debe ser de adulto (CC, CE o PA). Limitaciones conocidas: no verifica el correo ni limita la tasa
+        por IP, y revela si un correo o documento ya está registrado.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterGuardianRequest' }
+      responses:
+        '201':
+          description: Cuenta creada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserResponse' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /calls/open:
+    get:
+      tags: [calls]
+      operationId: listOpenCalls
+      summary: Convocatorias abiertas en este momento.
+      description: Publicadas y dentro de su ventana, según el reloj del servidor de base de datos. Cualquier usuario autenticado.
+      responses:
+        '200':
+          description: Convocatorias abiertas (la que cierra primero va antes).
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CallResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /enrollments:
+    post:
+      tags: [enrollments]
+      operationId: submitEnrollment
+      summary: Radica la inscripción de un jugador (solo acudiente).
+      description: |
+        Crea el expediente del jugador (o reutiliza el de un jugador propio cuyo proceso anterior terminó: no aceptado
+        o temporada cerrada), vincula al acudiente como principal, registra el consentimiento de datos y la
+        autorización de participación, y devuelve la constancia con el código de radicación.
+
+        Reglas: convocatoria publicada y dentro de su ventana, o habilitación excepcional vigente del acudiente
+        (RN-01, RF-044); sin proceso en curso del jugador; ambas aceptaciones obligatorias. Todo rechazo de negocio
+        deja rastro de auditoría. Los conflictos con jugadores existentes responden siempre con el mismo mensaje
+        genérico (PLAYER_STATE_CONFLICT) para no revelar qué documentos existen. Pendiente: adjuntar documentos
+        (módulo documents) y notificaciones.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SubmitEnrollmentRequest' }
+      responses:
+        '201':
+          description: Inscripción radicada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnrollmentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: La convocatoria no existe o no está publicada (RESOURCE_NOT_FOUND).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: Convocatoria cerrada o cancelada (ENROLLMENT_CLOSED), o conflicto con el jugador (PLAYER_STATE_CONFLICT).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /players:
+    get:
+      tags: [players]
+      operationId: listPlayers
+      summary: Lista jugadores según el alcance del rol.
+      description: |
+        Coordinador y comité técnico ven todos; el acudiente, solo los jugadores con vínculo vigente; entrenador y
+        evaluador reciben 403 hasta que se defina su alcance.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema: { $ref: '#/components/schemas/PlayerStatus' }
+        - name: page
+          in: query
+          required: false
+          description: Página, desde 0 (los valores negativos se tratan como 0).
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: size
+          in: query
+          required: false
+          description: Tamaño de página; se limita a 1..100.
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: Página de jugadores, del más reciente al más antiguo.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlayerPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /players/{playerId}:
+    get:
+      tags: [players]
+      operationId: getPlayer
+      summary: Expediente de un jugador con sus inscripciones.
+      description: 'Sin acceso y sin existencia responden igual (404): no se revela qué jugadores existen.'
+      parameters:
+        - name: playerId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Jugador.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlayerDetailResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: El jugador no existe o el usuario no tiene acceso (RESOURCE_NOT_FOUND).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 components:
   securitySchemes:
     bearerAuth:
@@ -201,6 +340,105 @@ components:
         refreshToken: { type: string, description: 'Valor opaco; se muestra una sola vez y no puede recuperarse.' }
         refreshTokenExpiresAt: { type: string, format: date-time }
         user: { $ref: '#/components/schemas/UserResponse' }
+    RegisterGuardianRequest:
+      type: object
+      required: [email, fullName, password, documentType, documentNumber]
+      properties:
+        email: { type: string, maxLength: 254 }
+        fullName: { type: string, maxLength: 200 }
+        password: { type: string, maxLength: 128, format: password }
+        documentType: { type: string, enum: [CC, CE, PA], description: Documento de persona adulta. }
+        documentNumber: { type: string, minLength: 4, maxLength: 30, description: 'Letras, dígitos y guion; se normaliza a mayúsculas.' }
+        phone: { type: string, maxLength: 30 }
+    CallResponse:
+      type: object
+      required: [id, name, startAt, endAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        instructions: { type: [string, 'null'] }
+    PlayerStatus:
+      type: string
+      description: Estados del expediente (DAD 3.2).
+      enum: [SUBMITTED, COMMITTEE_PENDING, CATEGORY_ASSIGNED, PENDING_REGISTRATION, ACTIVE, IN_EVALUATION,
+             PROMOTION_APPROVED, SUSPENDED, WITHDRAWN, SEASON_CLOSED, REJECTED]
+    EnrollmentPlayer:
+      type: object
+      required: [firstName, lastName, documentType, documentNumber, birthDate]
+      properties:
+        firstName: { type: string, maxLength: 100 }
+        lastName: { type: string, maxLength: 100 }
+        documentType: { type: string, enum: [CC, CE, PA, TI, RC] }
+        documentNumber: { type: string, minLength: 4, maxLength: 30 }
+        birthDate: { type: string, format: date, description: No puede ser futura. }
+    SubmitEnrollmentRequest:
+      type: object
+      required: [callId, player, acceptDataProcessing, acceptParticipation]
+      properties:
+        callId: { type: string, format: uuid }
+        player: { $ref: '#/components/schemas/EnrollmentPlayer' }
+        relationship: { type: string, maxLength: 40, examples: [Madre] }
+        acceptDataProcessing: { type: boolean, description: Debe ser true (RF-011). }
+        acceptParticipation: { type: boolean, description: Debe ser true (RF-011). }
+    EnrollmentResponse:
+      type: object
+      required: [enrollmentId, filingCode, playerId, playerCode, playerStatus, callId, submittedAt, viaException]
+      properties:
+        enrollmentId: { type: string, format: uuid }
+        filingCode: { type: string, examples: [RAD-000001] }
+        playerId: { type: string, format: uuid }
+        playerCode: { type: string, examples: [JG-000001] }
+        playerStatus: { $ref: '#/components/schemas/PlayerStatus' }
+        callId: { type: string, format: uuid }
+        submittedAt: { type: string, format: date-time }
+        viaException: { type: boolean, description: true si se radicó con una habilitación excepcional. }
+    PlayerSummaryResponse:
+      type: object
+      required: [id, code, firstName, lastName, birthDate, status]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        firstName: { type: string }
+        lastName: { type: string }
+        birthDate: { type: string, format: date }
+        status: { $ref: '#/components/schemas/PlayerStatus' }
+    PlayerPage:
+      type: object
+      required: [items, page, size, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/PlayerSummaryResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        total: { type: integer, format: int64 }
+    EnrollmentSummaryResponse:
+      type: object
+      required: [id, filingCode, callId, callName, submittedAt]
+      properties:
+        id: { type: string, format: uuid }
+        filingCode: { type: string }
+        callId: { type: string, format: uuid }
+        callName: { type: string }
+        submittedAt: { type: string, format: date-time }
+    PlayerDetailResponse:
+      type: object
+      required: [id, code, firstName, lastName, documentType, documentNumber, birthDate, status, createdAt, enrollments]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        firstName: { type: string }
+        lastName: { type: string }
+        documentType: { type: string }
+        documentNumber: { type: string }
+        birthDate: { type: string, format: date }
+        status: { $ref: '#/components/schemas/PlayerStatus' }
+        createdAt: { type: string, format: date-time }
+        enrollments:
+          type: array
+          items: { $ref: '#/components/schemas/EnrollmentSummaryResponse' }
     ValidationProblem:
       description: Problem con la lista de campos inválidos (VALIDATION_FAILED).
       allOf:

@@ -7,6 +7,8 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 
+import co.edu.unipamplona.canchatrack.identity.api.PlayerScope;
+
 
 class PlayerAccessServiceTest {
 
@@ -33,6 +35,18 @@ class PlayerAccessServiceTest {
     void coachAndEvaluatorAreDeniedUntilTheirScopeIsDefined() {
         assertThat(access.canAccess(UUID.randomUUID(), Set.of("COACH"), myPlayer)).isFalse();
         assertThat(access.canAccess(UUID.randomUUID(), Set.of("EVALUATOR"), myPlayer)).isFalse();
+    }
+
+    @Test
+    void scopeFollowsTheSameRolesAsTheAccessRules() {
+        assertThat(access.scopeOf(Set.of("COORDINATOR"))).isEqualTo(PlayerScope.ALL);
+        assertThat(access.scopeOf(Set.of("COMMITTEE"))).isEqualTo(PlayerScope.ALL);
+        assertThat(access.scopeOf(Set.of("GUARDIAN"))).isEqualTo(PlayerScope.LINKED_GUARDIAN);
+        assertThat(access.scopeOf(Set.of("COACH", "EVALUATOR"))).isEqualTo(PlayerScope.NONE);
+        assertThat(access.scopeOf(Set.of())).isEqualTo(PlayerScope.NONE);
+        assertThat(access.scopeOf(null)).isEqualTo(PlayerScope.NONE);
+        // quien tiene un rol amplio y el de acudiente conserva el alcance amplio
+        assertThat(access.scopeOf(Set.of("GUARDIAN", "COORDINATOR"))).isEqualTo(PlayerScope.ALL);
     }
 
     @Test

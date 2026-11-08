@@ -14,4 +14,10 @@ import java.util.UUID;
 public interface PlayerAccessPolicy {
 
     boolean canAccess(UUID userId, Set<String> roleCodes, UUID playerId);
+
+    /**
+     * Alcance para listados: qué jugadores puede ver un usuario con estos roles. Debe ser coherente con
+     * {@link #canAccess}; el vínculo acudiente-jugador lo resuelve quien consulta (con el id de la cuenta).
+     */
+    PlayerScope scopeOf(Set<String> roleCodes);
 }
