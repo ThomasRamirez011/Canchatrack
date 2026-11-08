@@ -77,6 +77,28 @@ class OpenApiContractTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void callAdministrationEndpointsAreDocumentedAndEnumsMatchTheDomain() throws Exception {
+        Map<String, Object> spec = load();
+        Map<String, Object> paths = (Map<String, Object>) spec.get("paths");
+        Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) spec.get("components")).get("schemas");
+
+        assertThat(paths.keySet()).contains("/seasons", "/seasons/{seasonId}/activate", "/calls", "/calls/{callId}",
+                "/calls/{callId}/publish", "/calls/{callId}/cancel", "/calls/{callId}/exceptions");
+        for (String path : List.of("/seasons", "/calls", "/calls/{callId}/exceptions")) {
+            assertThat(((Map<String, Object>) paths.get(path)).keySet()).contains("get", "post");
+        }
+        assertThat(((Map<String, Object>) paths.get("/calls/{callId}")).keySet()).contains("get", "patch");
+
+        assertThat((List<String>) ((Map<String, Object>) schemas.get("CallStatus")).get("enum"))
+                .containsExactlyInAnyOrderElementsOf(Arrays.stream(
+                        co.edu.unipamplona.canchatrack.players.domain.CallStatus.values()).map(Enum::name).toList());
+        assertThat((List<String>) ((Map<String, Object>) schemas.get("SeasonStatus")).get("enum"))
+                .containsExactlyInAnyOrderElementsOf(Arrays.stream(
+                        co.edu.unipamplona.canchatrack.players.domain.SeasonStatus.values()).map(Enum::name).toList());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void playerStatusEnumMatchesTheDomain() throws Exception {
         Map<String, Object> components = (Map<String, Object>) load().get("components");
         Map<String, Object> schemas = (Map<String, Object>) components.get("schemas");

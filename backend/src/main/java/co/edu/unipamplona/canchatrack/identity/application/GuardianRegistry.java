@@ -10,6 +10,8 @@ public interface GuardianRegistry {
 
     Optional<UUID> findGuardianId(UUID userId);
 
+    boolean existsById(UUID guardianId);
+
     boolean existsByDocument(IdDocumentType type, String normalizedNumber);
 
     /** @throws DuplicateGuardianDocumentException si el documento ya pertenece a otro acudiente */

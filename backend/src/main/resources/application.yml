@@ -64,3 +64,5 @@ canchatrack:
     # bootstrap.coordinator-email / -name / -password: primera cuenta; solo se usa si no hay ninguna (ver README).
   enrollment:
     consent-version: v1 # versión del texto de consentimiento que acepta el acudiente al radicar (RF-011)
+  calls:
+    max-exception-validity: 30d # vigencia máxima de una habilitación excepcional (RF-044)

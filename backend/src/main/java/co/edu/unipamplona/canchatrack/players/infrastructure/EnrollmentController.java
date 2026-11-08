@@ -1,8 +1,5 @@
 package co.edu.unipamplona.canchatrack.players.infrastructure;
 
-import java.net.InetAddress;
-import java.net.UnknownHostException;
-
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -42,19 +39,6 @@ public class EnrollmentController {
                 request.relationship(), Boolean.TRUE.equals(request.acceptDataProcessing()),
                 Boolean.TRUE.equals(request.acceptParticipation()));
         return EnrollmentResponse.from(enrollment.submit(
-                CurrentUser.require().id(), command, remoteAddress(http), http.getHeader("User-Agent")));
-    }
-
-    /** {@code getRemoteAddr()} devuelve un literal de IP: {@code getByName} no hace consultas DNS. */
-    private static InetAddress remoteAddress(HttpServletRequest request) {
-        String remote = request.getRemoteAddr();
-        if (remote == null || remote.isBlank()) {
-            return null;
-        }
-        try {
-            return InetAddress.getByName(remote);
-        } catch (UnknownHostException e) {
-            return null;
-        }
+                CurrentUser.require().id(), command, RequestOrigins.remoteAddress(http), http.getHeader("User-Agent")));
     }
 }

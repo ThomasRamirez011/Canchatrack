@@ -39,13 +39,15 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
   pagos/ajustes/auditoría/versiones **append-only** (trigger `CT001`), asistencia **idempotente** (`client_uuid` y
   `(event_id, player_id)` únicos, lote por `Idempotency-Key`), sesión cerrada bloquea cambios (`CT002`), ronda cerrada
   bloquea decisiones (`CT003`), anulaciones y ajustes coherentes de pagos y cargos (`CT004`), justificación obligatoria si el concepto no es favorable.
-- `shared`: `ErrorCode` (los 14 códigos del DDS 13 + 7 adiciones), `DomainException`, `CorrelationIdFilter`,
+- `shared`: `ErrorCode` (los 14 códigos del DDS 13 + 8 adiciones), `DomainException`, `CorrelationIdFilter`,
   `ApiExceptionHandler` (`application/problem+json` con `code` y `correlationId`), `SecurityConfig` (sin estado; resource
   server JWT HS256; todo requiere token salvo health y login/refresh/logout; 401/403 también en `problem+json`).
 - `identity` (autenticación y autorización, ver «Autenticación» abajo): login, renovación con rotación, cierre de sesión,
   `/auth/me`, alta de personal por el coordinador, bloqueo por intentos, `PlayerAccessPolicy` (acudiente-jugador).
 - `players` (inscripción, ver «Inscripción» abajo): autorregistro de acudientes (en `identity`), convocatorias abiertas, radicación
   de inscripciones con consentimientos (en `documents`) y consulta de jugadores filtrada por `PlayerAccessPolicy`.
+- `players` (administración, ver «Convocatorias y temporadas» abajo): el coordinador crea y activa temporadas; crea, edita,
+  publica y cancela convocatorias y concede habilitaciones excepcionales con motivo (CU-01, RF-043, RF-044).
 - `audit`: puerto `AuditWriter` (`write` en la transacción de negocio; `writeIndependent` para intentos rechazados,
   p. ej. PA-01) y adaptador JDBC.
 
@@ -59,6 +61,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 | YAML (perfiles, compose), `pom.xml`, OpenAPI 3.1 | parseo / `openapi-spec-validator` | Ejecutado: OK |
 | Autenticación (V13, `identity`, JWT, `SecurityConfig`, `AuthIT`) | Migración e invariantes SQL en PostgreSQL 16 real (con mutaciones); dominio y casos de uso compilados y ejecutados con dobles en memoria | **Verificado:** `mvn test` (66 pruebas) y `mvn verify` (`AuthIT` incluida, con Testcontainers) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0 |
 | Inscripción (`players`, registro de acudientes, consentimientos, `EnrollmentIT`) | Todas las sentencias SQL de los adaptadores ejecutadas contra PostgreSQL 16 real; dominio y casos de uso compilados con `-Xlint:all` y ejecutados con dobles en memoria (58 comprobaciones); YAML OpenAPI validado | **Verificado:** `mvn test` y `mvn verify` (`EnrollmentIT` incluida, con Testcontainers) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0 |
+| Convocatorias y temporadas (`players`, `CallsAdminIT`) | Las sentencias SQL nuevas ejecutadas contra PostgreSQL 16 real con las migraciones V1..V13; servicios y reglas compilados y ejecutados con dobles en memoria (33 comprobaciones); YAML OpenAPI validado y referencias resueltas | **Pendiente de `mvn test` y `mvn verify` locales** (el código Spring, los controladores y `CallsAdminIT` no se pueden compilar en el entorno de desarrollo sin Maven Central) |
 | Código Spring (filtro, handler, seguridad, `JdbcAuditWriter`), `ArchitectureTest`, unitarias | `mvn test` en Windows 11, JDK 24 (compila con `--release 21`), Maven 3.10.0 | Ejecutado: OK (19 pruebas, 0 fallos) |
 | `*IT` con Testcontainers (`DatabaseSchemaIT`, `AuditWriterIT`) | `mvn verify`, Docker Desktop 4.98 / Engine 29.9.2 | Ejecutado: OK (7 pruebas, 0 fallos) |
 
@@ -188,8 +191,8 @@ documentos ni contactos. Las vigencias (convocatoria abierta, habilitaciones, v�
 **Límites conocidos y pendientes (confirmar).**
 1. **El registro público de acudientes no verifica el correo ni limita la tasa por IP**, y por ser un alta abierta revela si
    un correo o documento ya está registrado. Conviene añadir verificación por correo y límite de tasa antes de exponerlo.
-2. **No hay administración de convocatorias ni temporadas todavía** (CU-01): hoy se crean por SQL o por el siguiente
-   incremento. Sin una convocatoria abierta no se puede radicar.
+2. Las convocatorias y temporadas se administran con la API de «Convocatorias y temporadas» (abajo); sin una convocatoria
+   publicada y abierta no se puede radicar.
 3. **No se adjuntan documentos** en la radicación (`documents`) ni se envían notificaciones (`notifications`).
 4. Si el jugador ya existe y es del mismo acudiente, se **ignoran** los nombres y la fecha de nacimiento enviados (manda el
    expediente existente); corregirlos será una operación aparte con auditoría.
@@ -197,9 +200,45 @@ documentos ni contactos. Las vigencias (convocatoria abierta, habilitaciones, v�
 6. Tipos de documento provisionales (CC, CE, PA, TI, RC); el club puede ajustarlos.
 7. Versión del texto de consentimiento: `canchatrack.enrollment.consent-version` (por defecto `v1`).
 
+## Convocatorias y temporadas (players)
+
+**Flujo.** El coordinador crea la temporada y la activa, crea la convocatoria (queda en borrador, invisible para los
+acudientes), la publica y, si hace falta, mueve el cierre, la cancela o concede una habilitación excepcional a un acudiente
+(DAD CU-01, ERS RF-043, RF-044, RN-01). Todo es solo para el rol `COORDINATOR`, salvo `GET /calls/open`.
+
+| Endpoint | Notas |
+|---|---|
+| `POST /api/v1/seasons`, `GET /api/v1/seasons` | Crea una temporada `PLANNED` (nombre único) y lista, la más reciente primero. |
+| `POST /api/v1/seasons/{id}/activate` | `PLANNED` → `ACTIVE`. 409 `RESOURCE_STATE_CONFLICT` en otro estado. |
+| `POST /api/v1/calls`, `GET /api/v1/calls` | Crea en `DRAFT` (temporada existente y no cerrada); lista con filtros `seasonId` y `status` (máx. 200). |
+| `GET /api/v1/calls/{id}` | Detalle, con `windowOpen` calculado por la base de datos. |
+| `PATCH /api/v1/calls/{id}` | Parcial. Borrador: todo editable. Publicada: solo cierre e instrucciones, y mover el cierre exige `reason`. Cancelada: 409. |
+| `POST /api/v1/calls/{id}/publish` | `DRAFT` → `PUBLISHED`; exige que el cierre aún no haya ocurrido. |
+| `POST /api/v1/calls/{id}/cancel` | Exige `reason`. Cierra la recepción; **no anula** las inscripciones ya radicadas. |
+| `POST /api/v1/calls/{id}/exceptions`, `GET …/exceptions` | Habilitación excepcional para un acudiente: motivo y vencimiento obligatorios, tope configurable. Solo en convocatorias publicadas. |
+
+**Reglas.** Las transiciones usan `UPDATE … WHERE status = …` sobre la fila bloqueada (`FOR UPDATE`), de modo que dos
+coordinadores no pueden publicar o cancelar a la vez. «Abierta», «cierre vencido» y «habilitación vigente» se evalúan con
+`now()` de la base de datos, no con el reloj de la aplicación. Una habilitación no se edita ni se revoca: **caduca**
+(`canchatrack.calls.max-exception-validity`, por defecto 30 días). Cada operación deja rastro de auditoría con estado anterior
+y posterior cuando aplica (`SEASON_CREATED`, `SEASON_ACTIVATED`, `CALL_CREATED`, `CALL_UPDATED`, `CALL_PUBLISHED`,
+`CALL_CANCELLED`, `CALL_EXCEPTION_GRANTED`); los resúmenes JSON se serializan con Jackson, así que un nombre con comillas no
+rompe el documento. Código nuevo `RESOURCE_STATE_CONFLICT` (409) para transiciones no permitidas.
+
+**Límites conocidos y pendientes (confirmar).**
+1. **Cupos por categoría y documentos obligatorios** (RF-043) no se modelan: dependen de DP-01 (categorías, rangos y cupos) y
+   DP-04 (documentos y vigencias), aún sin respuesta del cliente. Exigen una migración nueva.
+2. **El cierre y la reapertura de temporadas** son el caso de uso CU-11 (RN-18) y no se exponen; no se impone una sola temporada
+   activa porque el DAD no lo exige.
+3. **Una habilitación excepcional no se puede revocar antes de su vencimiento** (la tabla es de solo concesión). Si el cliente lo
+   pide, hay que añadir columnas de revocación con motivo.
+4. La convocatoria no avisa a nadie al publicarse o cancelarse (`notifications` pendiente).
+5. Los `@PreAuthorize` se evalúan después de validar el cuerpo: un usuario sin rol que envíe un cuerpo inválido recibe 422 y no
+   403. No expone datos, pero conviene mover la autorización a `SecurityConfig` en una pasada transversal.
+
 ## Siguiente paso
 
-Siguientes incrementos de `players`: **administración de convocatorias y temporadas** (CU-01) y **decisión del comité**
-(acta, categoría con cupo, entrenador y panel de tres evaluadores; T-01/T-02), que además define el alcance de entrenador y
-evaluador en `PlayerAccessPolicy`. La **generación de cargos** (matrícula al aprobar la inscripción, mensualidades por mes)
+Siguiente incremento de `players`: **decisión del comité** (acta, categoría con cupo, entrenador y panel de tres
+evaluadores; T-01/T-02), que además define el alcance de entrenador y evaluador en `PlayerAccessPolicy` y necesita las
+decisiones DP-01 (categorías y cupos). La **generación de cargos** (matrícula al aprobar la inscripción, mensualidades por mes)
 llega con el incremento de pagos. Después: Dockerfile multi-etapa, pipeline CI con quality gates, Swagger UI en `dev`.

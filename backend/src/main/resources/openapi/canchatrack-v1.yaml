@@ -22,8 +22,10 @@ tags:
     description: Cuentas de personal del club (solo coordinador).
   - name: guardians
     description: Autorregistro público de acudientes.
+  - name: seasons
+    description: Temporadas deportivas (solo coordinador).
   - name: calls
-    description: Convocatorias de inscripción.
+    description: Convocatorias de inscripción. Consulta de abiertas para cualquier usuario; administración solo del coordinador.
   - name: enrollments
     description: Radicación de inscripciones por el acudiente.
   - name: players
@@ -168,6 +170,226 @@ paths:
                 type: array
                 items: { $ref: '#/components/schemas/CallResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+  /seasons:
+    post:
+      tags: [seasons]
+      operationId: createSeason
+      summary: Crea una temporada planificada (solo coordinador).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateSeasonRequest' }
+      responses:
+        '201':
+          description: Temporada creada en estado PLANNED.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeasonResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    get:
+      tags: [seasons]
+      operationId: listSeasons
+      summary: Lista las temporadas, la más reciente primero (solo coordinador).
+      responses:
+        '200':
+          description: Temporadas.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SeasonResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /seasons/{seasonId}/activate:
+    post:
+      tags: [seasons]
+      operationId: activateSeason
+      summary: Activa una temporada planificada (solo coordinador).
+      description: |
+        PLANNED a ACTIVE. No impone una sola temporada activa (pendiente de confirmación del cliente). El cierre y la
+        reapertura corresponden al caso de uso CU-11 y no se exponen aún.
+      parameters:
+        - { name: seasonId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Temporada activa.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeasonResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /calls:
+    post:
+      tags: [calls]
+      operationId: createCall
+      summary: Crea una convocatoria en borrador (solo coordinador).
+      description: |
+        RF-043. Queda en DRAFT: los acudientes no la ven hasta publicarla. La temporada debe existir y no estar cerrada.
+        Pendiente (decisiones del cliente DP-01 y DP-04): cupos por categoría y documentos obligatorios.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCallRequest' }
+      responses:
+        '201':
+          description: Convocatoria creada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CallDetailResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    get:
+      tags: [calls]
+      operationId: listCalls
+      summary: Lista convocatorias con filtros opcionales (solo coordinador).
+      description: Más recientes primero; máximo 200 filas.
+      parameters:
+        - { name: seasonId, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: status, in: query, required: false, schema: { $ref: '#/components/schemas/CallStatus' } }
+      responses:
+        '200':
+          description: Convocatorias.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CallDetailResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /calls/{callId}:
+    parameters:
+      - { name: callId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [calls]
+      operationId: getCall
+      summary: Consulta una convocatoria (solo coordinador).
+      responses:
+        '200':
+          description: Convocatoria.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CallDetailResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [calls]
+      operationId: updateCall
+      summary: Modifica una convocatoria (solo coordinador).
+      description: |
+        Modificación parcial: un campo ausente no se toca; instrucciones vacías las borran. En borrador se puede cambiar
+        todo. Publicada solo admite cambiar el cierre y las instrucciones, y mover el cierre exige `reason`.
+        Una cancelada no se modifica (RESOURCE_STATE_CONFLICT). Cada cambio queda auditado con el estado anterior.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateCallRequest' }
+      responses:
+        '200':
+          description: Convocatoria actualizada (o sin cambios si los valores coinciden).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CallDetailResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /calls/{callId}/publish:
+    post:
+      tags: [calls]
+      operationId: publishCall
+      summary: Publica una convocatoria en borrador (solo coordinador).
+      description: DRAFT a PUBLISHED. Exige que el cierre aún no haya ocurrido según el reloj de la base de datos.
+      parameters:
+        - { name: callId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Convocatoria publicada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CallDetailResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /calls/{callId}/cancel:
+    post:
+      tags: [calls]
+      operationId: cancelCall
+      summary: Cancela una convocatoria con motivo (solo coordinador).
+      description: |
+        DRAFT o PUBLISHED a CANCELLED. Cierra la recepción de nuevas inscripciones; no anula las ya radicadas.
+      parameters:
+        - { name: callId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CancelCallRequest' }
+      responses:
+        '200':
+          description: Convocatoria cancelada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CallDetailResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /calls/{callId}/exceptions:
+    parameters:
+      - { name: callId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [calls]
+      operationId: grantCallException
+      summary: Concede una habilitación excepcional a un acudiente (solo coordinador).
+      description: |
+        RF-044 / RN-01. Permite al acudiente radicar fuera de la ventana mientras la habilitación esté vigente. Exige
+        motivo y vencimiento futuro, con un tope configurable (por defecto 30 días). Solo en convocatorias publicadas.
+        No se edita ni se revoca: caduca.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GrantExceptionRequest' }
+      responses:
+        '201':
+          description: Habilitación concedida.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CallExceptionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    get:
+      tags: [calls]
+      operationId: listCallExceptions
+      summary: Lista las habilitaciones de una convocatoria (solo coordinador).
+      responses:
+        '200':
+          description: Habilitaciones, la más reciente primero.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CallExceptionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /enrollments:
     post:
       tags: [enrollments]
@@ -359,6 +581,87 @@ components:
         startAt: { type: string, format: date-time }
         endAt: { type: string, format: date-time }
         instructions: { type: [string, 'null'] }
+    CallStatus:
+      type: string
+      enum: [DRAFT, PUBLISHED, CANCELLED]
+    SeasonStatus:
+      type: string
+      enum: [PLANNED, ACTIVE, CLOSED]
+    CreateSeasonRequest:
+      type: object
+      required: [name, startAt, endAt]
+      properties:
+        name: { type: string, maxLength: 100 }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time, description: Posterior a startAt. }
+    SeasonResponse:
+      type: object
+      required: [id, name, startAt, endAt, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        status: { $ref: '#/components/schemas/SeasonStatus' }
+        createdAt: { type: string, format: date-time }
+    CreateCallRequest:
+      type: object
+      required: [seasonId, name, startAt, endAt]
+      properties:
+        seasonId: { type: string, format: uuid }
+        name: { type: string, maxLength: 150 }
+        startAt: { type: string, format: date-time, description: Apertura de la recepción. }
+        endAt: { type: string, format: date-time, description: Cierre de la recepción; posterior a startAt. }
+        instructions: { type: [string, 'null'], maxLength: 4000 }
+    UpdateCallRequest:
+      type: object
+      description: Todos los campos son opcionales; al menos uno es obligatorio.
+      properties:
+        name: { type: string, maxLength: 150 }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        instructions: { type: string, maxLength: 4000, description: Vacío borra las instrucciones. }
+        reason: { type: string, maxLength: 500, description: Obligatorio al mover el cierre de una convocatoria publicada. }
+    CancelCallRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, maxLength: 500 }
+    CallDetailResponse:
+      type: object
+      required: [id, seasonId, name, startAt, endAt, status, windowOpen, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        seasonId: { type: string, format: uuid }
+        name: { type: string }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        instructions: { type: [string, 'null'] }
+        status: { $ref: '#/components/schemas/CallStatus' }
+        windowOpen:
+          type: boolean
+          description: Si ahora está dentro de la ventana, según el reloj de la base de datos. Solo recibe inscripciones si además está publicada.
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    GrantExceptionRequest:
+      type: object
+      required: [guardianId, reason, expiresAt]
+      properties:
+        guardianId: { type: string, format: uuid }
+        reason: { type: string, maxLength: 500 }
+        expiresAt: { type: string, format: date-time, description: Futuro y dentro del tope configurado. }
+    CallExceptionResponse:
+      type: object
+      required: [id, callId, guardianId, reason, grantedBy, grantedAt, expiresAt, active]
+      properties:
+        id: { type: string, format: uuid }
+        callId: { type: string, format: uuid }
+        guardianId: { type: string, format: uuid }
+        reason: { type: string }
+        grantedBy: { type: string, format: uuid }
+        grantedAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        active: { type: boolean, description: 'Vigente ahora, según el reloj de la base de datos.' }
     PlayerStatus:
       type: string
       description: Estados del expediente (DAD 3.2).
@@ -497,6 +800,7 @@ components:
           - AUTH_UNAUTHENTICATED
           - RESOURCE_NOT_FOUND
           - VALIDATION_FAILED
+          - RESOURCE_STATE_CONFLICT
           - CONCURRENT_MODIFICATION
           - IDEMPOTENCY_KEY_REQUIRED
           - IDEMPOTENCY_KEY_REUSED
@@ -514,6 +818,11 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
     Forbidden:
       description: Sin permiso efectivo (rol, vínculo con el jugador o estado). Código AUTH_FORBIDDEN.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: El recurso no existe (RESOURCE_NOT_FOUND).
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }

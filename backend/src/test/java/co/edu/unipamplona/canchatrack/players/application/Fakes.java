@@ -192,6 +192,11 @@ final class Fakes {
         public Optional<UUID> guardianIdOf(UUID userId) {
             return Optional.ofNullable(guardianByUser.get(userId));
         }
+
+        @Override
+        public boolean exists(UUID guardianId) {
+            return guardianByUser.containsValue(guardianId);
+        }
     }
 
     static final class RecordingConsents implements ConsentRecorder {
