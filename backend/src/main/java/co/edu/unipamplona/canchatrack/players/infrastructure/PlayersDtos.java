@@ -162,16 +162,18 @@ public final class PlayersDtos {
 
     // --- Categorías (coordinador escribe; coordinador y comité leen) ---
 
+    // Sin anotaciones de Bean Validation a propósito: CategoryRules es la única fuente de validación y acumula
+    // todos los errores de campo en un solo 422 (Bean Validation cortaría antes con solo los primeros).
     public record CreateCategoryRequest(
-            @NotBlank(message = "El nombre es obligatorio.") @Size(max = 80, message = "El nombre no puede superar 80 caracteres.") String name,
-            @NotNull(message = "El primer año de nacimiento es obligatorio.") Integer birthYearMin,
-            @NotNull(message = "El último año de nacimiento es obligatorio.") Integer birthYearMax,
-            @NotNull(message = "El cupo es obligatorio.") Integer capacity,
+            String name,
+            Integer birthYearMin,
+            Integer birthYearMax,
+            Integer capacity,
             UUID nextCategoryId) {
     }
 
     public record UpdateCategoryRequest(
-            @Size(max = 80, message = "El nombre no puede superar 80 caracteres.") String name,
+            String name,
             Integer birthYearMin,
             Integer birthYearMax,
             Integer capacity,
