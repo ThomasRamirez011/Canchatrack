@@ -7,7 +7,7 @@ Proyecto académico: Universidad de Pamplona · Ingeniería de Software II. Fuen
 
 ```bash
 docker compose up -d                 # PostgreSQL 16 local (credenciales desechables de application-dev.yml)
-mvn spring-boot:run                  # perfil "dev" por defecto; Flyway aplica V1..V11 al iniciar
+mvn spring-boot:run                  # perfil "dev" por defecto; Flyway aplica V1..V12 al iniciar
 curl localhost:8080/actuator/health  # {"status":"UP"}
 
 mvn test                             # unitarias + arquitectura (sin Docker)
@@ -22,7 +22,7 @@ src/main/java/co/edu/unipamplona/canchatrack/
   <modulo>/{api,domain,application,infrastructure}   11 módulos del DDS secc. 3
   shared/{config,domain,web,security}                núcleo mínimo: ErrorCode, correlación, problem+json, seguridad base
 src/main/resources/
-  db/migration/V1..V11                               modelo de datos del DDS secc. 7 (una migración por módulo)
+  db/migration/V1..V12                               modelo de datos del DDS secc. 7 (una migración por módulo)
   openapi/canchatrack-v1.yaml                        contrato OpenAPI 3.1 (se documenta aquí ANTES de implementar)
   application{,-dev,-prod}.yml                       perfiles; secretos solo por variables de entorno
 src/test/                                            ArchUnit, unitarias, *IT (Testcontainers), schema-invariants.sql
@@ -35,10 +35,10 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 
 ## Qué hay ya implementado
 
-- **Esquema completo (46 tablas, 2 vistas)** con las reglas críticas impuestas en la base como última línea de defensa:
+- **Esquema completo (47 tablas, 3 vistas)** con las reglas críticas impuestas en la base como última línea de defensa:
   pagos/ajustes/auditoría/versiones **append-only** (trigger `CT001`), asistencia **idempotente** (`client_uuid` y
   `(event_id, player_id)` únicos, lote por `Idempotency-Key`), sesión cerrada bloquea cambios (`CT002`), ronda cerrada
-  bloquea decisiones (`CT003`), anulaciones coherentes (`CT004`), justificación obligatoria si el concepto no es favorable.
+  bloquea decisiones (`CT003`), anulaciones y ajustes coherentes de pagos y cargos (`CT004`), justificación obligatoria si el concepto no es favorable.
 - `shared`: `ErrorCode` (los 14 códigos del DDS 13 + 7 adiciones), `DomainException`, `CorrelationIdFilter`,
   `ApiExceptionHandler` (`application/problem+json` con `code` y `correlationId`), `SecurityConfig` (sin estado, todo
   autenticado salvo health; **sin login todavía**).
@@ -49,7 +49,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 
 | Qué | Cómo se verificó | Estado |
 |---|---|---|
-| Migraciones V1..V11 sobre PostgreSQL 16 real | `scripts/check-schema.sh` | Ejecutado: OK |
+| Migraciones V1..V12 sobre PostgreSQL 16 real | `scripts/check-schema.sh` | Ejecutado: OK |
 | Invariantes críticas (≈90 aserciones, incl. pagos, asistencia, unanimidad, auditoría) | `schema-invariants.sql`; se comprobó que **fallan** si se quitan los triggers | Ejecutado: OK |
 | `ErrorCode` coincide con DDS 13, `DomainException`, `AuditRecord` | `javac` + ejecución | Ejecutado: OK |
 | YAML (perfiles, compose), `pom.xml`, OpenAPI 3.1 | parseo / `openapi-spec-validator` | Ejecutado: OK |
@@ -79,7 +79,7 @@ api.version=1.44
    `evaluator_assignments` (panel de 3), `document_types`/`document_windows` (RN-05, D-04), `attendance_sessions`
    (cierre), `sync_batches`, `attendance_corrections` (RN-15), `evaluation_rubrics` (DP-06), `evaluator_decision_history`,
    `charges` (sin cargos no hay saldo ni mora; ERS 7.3 "Cartera"), `venues`, `delivery_attempts`, `idempotency_keys`,
-   `club_parameters`, `stored_files`. **Revisar `charges`**: el DDS no define de dónde sale lo adeudado.
+   `club_parameters`, `stored_files`. **`charges` (resuelto en V12)**: el DDS no definía de dónde sale lo adeudado; ver «Modelo de cobros» abajo.
 6. **Diferencias menores con el DDS**: `event_participants` admite `player_id` (los menores no tienen cuenta) además de
    `UNIQUE(event_id,user_id,role)`; `audit_events.before/after` → `before_state/after_state` (palabras reservadas);
    `document_versions.type/number` → `document_type_id/version_number`.
@@ -93,12 +93,28 @@ api.version=1.44
 
 ## Convenciones
 
-- Una migración Flyway por cambio de esquema; **nunca editar una ya aplicada** (las V1..V11 son la línea base:
+- Una migración Flyway por cambio de esquema; **nunca editar una ya aplicada** (las V1..V12 son la línea base:
   pueden ajustarse hasta el primer despliegue; después, solo migraciones nuevas).
 - Los códigos `SQLSTATE` `CT001..CT004` deben traducirse a `ErrorCode` en el adaptador de persistencia.
 - Secretos fuera del repositorio. En producción la aplicación usa una cuenta sin DDL y Flyway otra (`DB_MIGRATION_*`).
 - Corrección de asistencia tras el cierre: en la misma transacción, `SELECT set_config('canchatrack.attendance_correction','on',true)`
   e insertar la fila en `attendance_corrections`.
+
+## Modelo de cobros (V12)
+
+- **Cargos persistidos** (`charges`), no calculados al vuelo: un cambio de tarifa a mitad de temporada no altera la deuda
+  histórica. Matrícula: un cargo único al aprobarse la inscripción (`period` NULL). Mensualidad: un cargo por mes
+  (`period` = día 1). La **generación vive en la capa de aplicación** (aún sin implementar) y es idempotente gracias a
+  `UNIQUE NULLS NOT DISTINCT (player_id, fee_id, period)`: `INSERT ... ON CONFLICT DO NOTHING`.
+- Un cargo es **inmutable** (`CT001` si se edita o borra); solo admite una **anulación** única con motivo y autor.
+- **Descuentos y exoneraciones** son asientos append-only en `charge_adjustments` (`DISCOUNT`, `EXEMPTION`, `CORRECTION`)
+  con motivo obligatorio. Una `EXEMPTION` perdona exactamente lo pendiente (no lo ya pagado) y solo existe una por cargo;
+  ninguna reducción puede dejar el cargo con saldo a favor. Violaciones → `CT004`.
+- Un pago aplicado a un cargo debe ser del mismo jugador y tarifa y el cargo no puede estar anulado (`check_violation`).
+- Vistas derivadas: `player_balances` (saldo por jugador) y `charge_balances` (estado por cargo: `VOIDED`, `SETTLED`,
+  `PARTIAL`, `PENDING`).
+- **Mora: fuera de alcance.** Solo se guarda `due_date`; días de gracia y recargos son un parámetro pendiente del cliente (DP-05).
+  Tampoco se sembraron tarifas ni el día de vencimiento mensual.
 
 ## Siguiente paso (CLAUDE.md, punto 1)
 

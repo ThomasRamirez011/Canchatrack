@@ -59,6 +59,7 @@ $test$
         v_dec     uuid;
         v_fee     uuid;
         v_charge  uuid;
+        v_charge2 uuid;
         v_pay     uuid;
         v_pay2    uuid;
         v_doctype uuid;
@@ -313,6 +314,63 @@ $test$
         INSERT INTO payments (player_id, fee_id, amount, method, paid_at, recorded_by)
         VALUES (v_p2, v_fee, 50000, 'CASH', now(), v_coord) RETURNING id INTO v_pay2;
         PERFORM pg_temp.expect_error(format($q$INSERT INTO adjustments (payment_id, kind, amount, reason, created_by) VALUES (%L, 'VOID', 50000, 'signo', %L)$q$, v_pay2, v_coord), 'CT004');
+
+        ----------------------------------------------------------------------------------------------------------
+        -- Ciclo de vida de los cargos (V12): inmutables, descuentos/exoneraciones como asientos, coherencia con pagos
+        ----------------------------------------------------------------------------------------------------------
+        PERFORM pg_temp.expect_error(format($q$UPDATE charges SET amount = 1 WHERE id = %L$q$, v_charge), 'CT001');
+        PERFORM pg_temp.expect_error(format($q$UPDATE charges SET due_date = '2027-01-01' WHERE id = %L$q$, v_charge), 'CT001');
+        PERFORM pg_temp.expect_error(format($q$DELETE FROM charges WHERE id = %L$q$, v_charge), 'CT001');
+
+        -- Descuento: reduce lo adeudado sin tocar el cargo original
+        INSERT INTO charge_adjustments (charge_id, kind, amount, reason, created_by)
+        VALUES (v_charge, 'DISCOUNT', -20000, 'Beca parcial', v_coord);
+        SELECT balance INTO v_num FROM player_balances WHERE player_id = v_p1;
+        PERFORM pg_temp.assert_true(v_num = 80000, 'el descuento reduce el saldo derivado');
+        SELECT count(*) INTO v_count FROM charges WHERE id = v_charge AND amount = 100000;
+        PERFORM pg_temp.assert_true(v_count = 1, 'el cargo original se conserva');
+        SELECT count(*) INTO v_count FROM charge_balances
+        WHERE charge_id = v_charge AND net_amount = 80000 AND outstanding = 80000 AND status = 'PENDING';
+        PERFORM pg_temp.assert_true(v_count = 1, 'charge_balances: pendiente con el neto tras el descuento');
+        PERFORM pg_temp.expect_error(format($q$INSERT INTO charge_adjustments (charge_id, kind, amount, reason, created_by) VALUES (%L, 'DISCOUNT', 5, 'signo', %L)$q$, v_charge, v_coord), '23514');
+        PERFORM pg_temp.expect_error(format($q$INSERT INTO charge_adjustments (charge_id, kind, amount, reason, created_by) VALUES (%L, 'DISCOUNT', -1, '  ', %L)$q$, v_charge, v_coord), '23514');
+        PERFORM pg_temp.expect_error(format($q$INSERT INTO charge_adjustments (charge_id, kind, amount, reason, created_by) VALUES (%L, 'DISCOUNT', -90000, 'excede', %L)$q$, v_charge, v_coord), 'CT004');
+        PERFORM pg_temp.expect_error(format($q$UPDATE charge_adjustments SET reason = 'x' WHERE charge_id = %L$q$, v_charge), 'CT001');
+        PERFORM pg_temp.expect_error(format($q$DELETE FROM charge_adjustments WHERE charge_id = %L$q$, v_charge), 'CT001');
+
+        -- Pago parcial aplicado al cargo
+        INSERT INTO payments (player_id, fee_id, charge_id, amount, method, paid_at, recorded_by)
+        VALUES (v_p1, v_fee, v_charge, 30000, 'CASH', now(), v_coord);
+        SELECT count(*) INTO v_count FROM charge_balances
+        WHERE charge_id = v_charge AND applied = 30000 AND outstanding = 50000 AND status = 'PARTIAL';
+        PERFORM pg_temp.assert_true(v_count = 1, 'charge_balances: parcial con saldo pendiente exacto');
+
+        -- Exoneración: perdona exactamente lo que aún se debe (no lo ya pagado), una sola vez
+        PERFORM pg_temp.expect_error(format($q$INSERT INTO charge_adjustments (charge_id, kind, amount, reason, created_by) VALUES (%L, 'DISCOUNT', -60000, 'excede lo pendiente', %L)$q$, v_charge, v_coord), 'CT004'); -- neto 80000, pendiente 50000
+        PERFORM pg_temp.expect_error(format($q$INSERT INTO charge_adjustments (charge_id, kind, amount, reason, created_by) VALUES (%L, 'EXEMPTION', -1, 'parcial', %L)$q$, v_charge, v_coord), 'CT004');
+        INSERT INTO charge_adjustments (charge_id, kind, amount, reason, created_by)
+        VALUES (v_charge, 'EXEMPTION', -50000, 'Exoneración aprobada por el comité', v_coord);
+        SELECT count(*) INTO v_count FROM charge_balances WHERE charge_id = v_charge AND outstanding = 0 AND status = 'SETTLED';
+        PERFORM pg_temp.assert_true(v_count = 1, 'charge_balances: la exoneración deja el cargo saldado');
+        SELECT balance INTO v_num FROM player_balances WHERE player_id = v_p1;
+        PERFORM pg_temp.assert_true(v_num = 0, 'saldo del jugador = 0 tras pago parcial + exoneración');
+        PERFORM pg_temp.expect_error(format($q$INSERT INTO charge_adjustments (charge_id, kind, amount, reason, created_by) VALUES (%L, 'DISCOUNT', -1, 'otra', %L)$q$, v_charge, v_coord), 'CT004');
+
+        -- Coherencia entre pagos y cargos
+        PERFORM pg_temp.expect_error(format($q$INSERT INTO payments (player_id, fee_id, charge_id, amount, method, paid_at, recorded_by) VALUES (%L, %L, %L, 1000, 'CASH', now(), %L)$q$, v_p2, v_fee, v_charge, v_coord), '23514'); -- otro jugador
+
+        -- Anulación única de un cargo (el cargo anulado no cuenta, no recibe pagos ni ajustes y no se vuelve a modificar)
+        INSERT INTO charges (player_id, fee_id, period, amount, due_date)
+        VALUES (v_p1, v_fee, '2026-04-01', 100000, '2026-04-05') RETURNING id INTO v_charge2;
+        PERFORM pg_temp.expect_error(format($q$UPDATE charges SET voided_at = now() WHERE id = %L$q$, v_charge2), '23514'); -- faltan motivo y autor
+        UPDATE charges SET voided_at = now(), void_reason = 'Cargo generado por error', voided_by = v_coord WHERE id = v_charge2;
+        SELECT balance INTO v_num FROM player_balances WHERE player_id = v_p1;
+        PERFORM pg_temp.assert_true(v_num = 0, 'un cargo anulado no cuenta en el saldo');
+        SELECT count(*) INTO v_count FROM charge_balances WHERE charge_id = v_charge2 AND status = 'VOIDED';
+        PERFORM pg_temp.assert_true(v_count = 1, 'charge_balances: estado VOIDED');
+        PERFORM pg_temp.expect_error(format($q$UPDATE charges SET void_reason = 'otro motivo' WHERE id = %L$q$, v_charge2), 'CT001');
+        PERFORM pg_temp.expect_error(format($q$INSERT INTO charge_adjustments (charge_id, kind, amount, reason, created_by) VALUES (%L, 'DISCOUNT', -1, 'x', %L)$q$, v_charge2, v_coord), 'CT004');
+        PERFORM pg_temp.expect_error(format($q$INSERT INTO payments (player_id, fee_id, charge_id, amount, method, paid_at, recorded_by) VALUES (%L, %L, %L, 1000, 'CASH', now(), %L)$q$, v_p1, v_fee, v_charge2, v_coord), '23514');
 
         ----------------------------------------------------------------------------------------------------------
         -- Auditoría e historial inmutables (regla crítica 3; RN-19)
