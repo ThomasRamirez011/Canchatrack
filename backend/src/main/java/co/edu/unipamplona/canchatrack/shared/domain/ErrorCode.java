@@ -28,6 +28,7 @@ public enum ErrorCode {
     AUTH_UNAUTHENTICATED(401, "No autenticado", "Se requieren credenciales válidas."),
     RESOURCE_NOT_FOUND(404, "Recurso no encontrado", "El recurso solicitado no existe."),
     VALIDATION_FAILED(422, "Validación fallida", "Los datos enviados no cumplen las reglas de validación."),
+    RESOURCE_STATE_CONFLICT(409, "Conflicto de estado del recurso", "El estado del recurso no permite la acción."),
     CONCURRENT_MODIFICATION(409, "Modificación concurrente", "El recurso cambió desde que fue leído (versión obsoleta)."),
     IDEMPOTENCY_KEY_REQUIRED(400, "Idempotency-Key requerida", "La operación exige la cabecera Idempotency-Key."),
     IDEMPOTENCY_KEY_REUSED(422, "Idempotency-Key reutilizada", "La clave ya se usó con una solicitud distinta."),

@@ -8,4 +8,7 @@ public interface GuardianDirectory {
 
     /** @return el id de la ficha de acudiente de la cuenta, o vacío si la cuenta no es de un acudiente */
     Optional<UUID> guardianIdOf(UUID userId);
+
+    /** @return si existe una ficha de acudiente con ese id (para validar referencias desde otros módulos) */
+    boolean exists(UUID guardianId);
 }

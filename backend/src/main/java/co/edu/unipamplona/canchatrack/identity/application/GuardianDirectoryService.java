@@ -20,4 +20,9 @@ public class GuardianDirectoryService implements GuardianDirectory {
     public Optional<UUID> guardianIdOf(UUID userId) {
         return userId == null ? Optional.empty() : guardians.findGuardianId(userId);
     }
+
+    @Override
+    public boolean exists(UUID guardianId) {
+        return guardianId != null && guardians.existsById(guardianId);
+    }
 }

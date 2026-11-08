@@ -28,6 +28,12 @@ public class JdbcGuardianRegistry implements GuardianRegistry {
     }
 
     @Override
+    public boolean existsById(UUID guardianId) {
+        Boolean exists = jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM guardians WHERE id = ?)", Boolean.class, guardianId);
+        return Boolean.TRUE.equals(exists);
+    }
+
+    @Override
     public boolean existsByDocument(IdDocumentType type, String normalizedNumber) {
         Boolean exists = jdbc.queryForObject(
                 "SELECT EXISTS (SELECT 1 FROM guardians WHERE document_type = ? AND document_number = ?)",

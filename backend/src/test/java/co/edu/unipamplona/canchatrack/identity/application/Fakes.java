@@ -125,6 +125,11 @@ final class Fakes {
         }
 
         @Override
+        public boolean existsById(UUID guardianId) {
+            return guardianIdByUser.containsValue(guardianId);
+        }
+
+        @Override
         public boolean existsByDocument(IdDocumentType type, String normalizedNumber) {
             return userByDocument.containsKey(type + ":" + normalizedNumber);
         }

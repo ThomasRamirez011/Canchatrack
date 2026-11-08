@@ -5,12 +5,15 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
+import co.edu.unipamplona.canchatrack.players.application.CallDetail;
+import co.edu.unipamplona.canchatrack.players.application.CallExceptionInfo;
 import co.edu.unipamplona.canchatrack.players.application.EnrollmentReceipt;
 import co.edu.unipamplona.canchatrack.players.application.EnrollmentSummary;
 import co.edu.unipamplona.canchatrack.players.application.PageResult;
 import co.edu.unipamplona.canchatrack.players.application.PlayerDetail;
 import co.edu.unipamplona.canchatrack.players.application.PlayerSummary;
 import co.edu.unipamplona.canchatrack.players.application.PlayerWithEnrollments;
+import co.edu.unipamplona.canchatrack.players.application.SeasonInfo;
 import co.edu.unipamplona.canchatrack.players.domain.CallInfo;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -90,6 +93,68 @@ public final class PlayersDtos {
             return new PlayerDetailResponse(p.id(), p.code(), p.firstName(), p.lastName(), p.documentType(),
                     p.documentNumber(), p.birthDate(), p.status().name(), p.createdAt(),
                     view.enrollments().stream().map(EnrollmentSummaryResponse::from).toList());
+        }
+    }
+
+    // --- Administración de temporadas y convocatorias (coordinador) ---
+
+    public record CreateSeasonRequest(
+            @NotBlank(message = "El nombre es obligatorio.") @Size(max = 100, message = "El nombre no puede superar 100 caracteres.") String name,
+            @NotNull(message = "La fecha de inicio es obligatoria.") Instant startAt,
+            @NotNull(message = "La fecha de fin es obligatoria.") Instant endAt) {
+    }
+
+    public record SeasonResponse(UUID id, String name, Instant startAt, Instant endAt, String status, Instant createdAt) {
+
+        static SeasonResponse from(SeasonInfo season) {
+            return new SeasonResponse(season.id(), season.name(), season.startAt(), season.endAt(),
+                    season.status().name(), season.createdAt());
+        }
+    }
+
+    public record CreateCallRequest(
+            @NotNull(message = "La temporada es obligatoria.") UUID seasonId,
+            @NotBlank(message = "El nombre es obligatorio.") @Size(max = 150, message = "El nombre no puede superar 150 caracteres.") String name,
+            @NotNull(message = "La fecha de apertura es obligatoria.") Instant startAt,
+            @NotNull(message = "La fecha de cierre es obligatoria.") Instant endAt,
+            @Size(max = 4000, message = "Las instrucciones no pueden superar 4000 caracteres.") String instructions) {
+    }
+
+    public record UpdateCallRequest(
+            @Size(max = 150, message = "El nombre no puede superar 150 caracteres.") String name,
+            Instant startAt,
+            Instant endAt,
+            @Size(max = 4000, message = "Las instrucciones no pueden superar 4000 caracteres.") String instructions,
+            @Size(max = 500, message = "El motivo no puede superar 500 caracteres.") String reason) {
+    }
+
+    public record CancelCallRequest(
+            @NotBlank(message = "El motivo es obligatorio.") @Size(max = 500, message = "El motivo no puede superar 500 caracteres.") String reason) {
+    }
+
+    public record GrantExceptionRequest(
+            @NotNull(message = "El acudiente es obligatorio.") UUID guardianId,
+            @NotBlank(message = "El motivo es obligatorio.") @Size(max = 500, message = "El motivo no puede superar 500 caracteres.") String reason,
+            @NotNull(message = "La fecha de vencimiento es obligatoria.") Instant expiresAt) {
+    }
+
+    public record CallDetailResponse(UUID id, UUID seasonId, String name, Instant startAt, Instant endAt,
+                                     String instructions, String status, boolean windowOpen, Instant createdAt,
+                                     Instant updatedAt) {
+
+        static CallDetailResponse from(CallDetail call) {
+            return new CallDetailResponse(call.id(), call.seasonId(), call.name(), call.startAt(), call.endAt(),
+                    call.instructions(), call.status().name(), call.windowOpen(), call.createdAt(), call.updatedAt());
+        }
+    }
+
+    public record CallExceptionResponse(UUID id, UUID callId, UUID guardianId, String reason, UUID grantedBy,
+                                        Instant grantedAt, Instant expiresAt, boolean active) {
+
+        static CallExceptionResponse from(CallExceptionInfo exception) {
+            return new CallExceptionResponse(exception.id(), exception.callId(), exception.guardianId(),
+                    exception.reason(), exception.grantedBy(), exception.grantedAt(), exception.expiresAt(),
+                    exception.active());
         }
     }
 }
