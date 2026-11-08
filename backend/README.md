@@ -48,6 +48,8 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
   de inscripciones con consentimientos (en `documents`) y consulta de jugadores filtrada por `PlayerAccessPolicy`.
 - `players` (administración, ver «Convocatorias y temporadas» abajo): el coordinador crea y activa temporadas; crea, edita,
   publica y cancela convocatorias y concede habilitaciones excepcionales con motivo (CU-01, RF-043, RF-044).
+- `players` (categorías, ver «Categorías» abajo): el coordinador define categorías con rango de año de nacimiento y cupo
+  (sin valores quemados: DP-01 sigue pendiente) y el sistema sugiere la categoría de un jugador (RF-046).
 - `audit`: puerto `AuditWriter` (`write` en la transacción de negocio; `writeIndependent` para intentos rechazados,
   p. ej. PA-01) y adaptador JDBC.
 
@@ -55,13 +57,14 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 
 | Qué | Cómo se verificó | Estado |
 |---|---|---|
-| Migraciones V1..V13 sobre PostgreSQL 16 real | `scripts/check-schema.sh` | Ejecutado: OK |
+| Migraciones V1..V14 sobre PostgreSQL 16 real | `scripts/check-schema.sh` | Ejecutado: OK |
 | Invariantes críticas (≈90 aserciones, incl. pagos, asistencia, unanimidad, auditoría) | `schema-invariants.sql`; se comprobó que **fallan** si se quitan los triggers | Ejecutado: OK |
 | `ErrorCode` coincide con DDS 13, `DomainException`, `AuditRecord` | `javac` + ejecución | Ejecutado: OK |
 | YAML (perfiles, compose), `pom.xml`, OpenAPI 3.1 | parseo / `openapi-spec-validator` | Ejecutado: OK |
 | Autenticación (V13, `identity`, JWT, `SecurityConfig`, `AuthIT`) | Migración e invariantes SQL en PostgreSQL 16 real (con mutaciones); dominio y casos de uso compilados y ejecutados con dobles en memoria | **Verificado:** `mvn test` (66 pruebas) y `mvn verify` (`AuthIT` incluida, con Testcontainers) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0 |
 | Inscripción (`players`, registro de acudientes, consentimientos, `EnrollmentIT`) | Todas las sentencias SQL de los adaptadores ejecutadas contra PostgreSQL 16 real; dominio y casos de uso compilados con `-Xlint:all` y ejecutados con dobles en memoria (58 comprobaciones); YAML OpenAPI validado | **Verificado:** `mvn test` y `mvn verify` (`EnrollmentIT` incluida, con Testcontainers) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0 |
 | Convocatorias y temporadas (`players`, `CallsAdminIT`) | Las sentencias SQL nuevas ejecutadas contra PostgreSQL 16 real con las migraciones V1..V13; servicios y reglas compilados y ejecutados con dobles en memoria (33 comprobaciones); YAML OpenAPI validado y referencias resueltas | **Pendiente de `mvn test` y `mvn verify` locales** (el código Spring, los controladores y `CallsAdminIT` no se pueden compilar en el entorno de desarrollo sin Maven Central) |
+| Categorías (V14, `players`, `CategoriesIT`) | Migración V14 y sus invariantes en PostgreSQL 16 real (`scripts/check-schema.sh`); todas las sentencias SQL nuevas ejecutadas contra esa base; servicios y reglas compilados y ejecutados con dobles en memoria (24 comprobaciones); OpenAPI validado con `openapi-spec-validator` | **Pendiente de `mvn test` y `mvn verify` locales** (el código Spring, los controladores y `CategoriesIT` no se pueden compilar en el entorno de desarrollo sin Maven Central) |
 | Código Spring (filtro, handler, seguridad, `JdbcAuditWriter`), `ArchitectureTest`, unitarias | `mvn test` en Windows 11, JDK 24 (compila con `--release 21`), Maven 3.10.0 | Ejecutado: OK (19 pruebas, 0 fallos) |
 | `*IT` con Testcontainers (`DatabaseSchemaIT`, `AuditWriterIT`) | `mvn verify`, Docker Desktop 4.98 / Engine 29.9.2 | Ejecutado: OK (7 pruebas, 0 fallos) |
 
@@ -236,9 +239,35 @@ rompe el documento. Código nuevo `RESOURCE_STATE_CONFLICT` (409) para transicio
 5. Los `@PreAuthorize` se evalúan después de validar el cuerpo: un usuario sin rol que envíe un cuerpo inválido recibe 422 y no
    403. No expone datos, pero conviene mover la autorización a `SecurityConfig` en una pasada transversal.
 
+## Categorías (players)
+
+**Por qué.** La decisión del comité asigna una categoría con cupo (RN-03, RN-04), pero el club aún no entregó rangos ni cupos
+(DP-01). Por eso no hay valores quemados: el coordinador las define por API y pueden cambiarse sin desplegar.
+
+| Endpoint | Acceso | Notas |
+|---|---|---|
+| `POST /api/v1/categories` | `COORDINATOR` | Nombre único, rango de años de nacimiento (1950-2100) y cupo (1-500). |
+| `GET /api/v1/categories`, `GET /api/v1/categories/{id}` | `COORDINATOR`, `COMMITTEE` | Incluyen `occupied` y `available`. Por defecto solo activas (`includeInactive=true` para todas). |
+| `PATCH /api/v1/categories/{id}` | `COORDINATOR` | Parcial. `clearNextCategory` quita el destino de ascenso. |
+| `GET /api/v1/players/{id}/category-suggestion` | `COORDINATOR`, `COMMITTEE` | Categoría activa que cubre el año de nacimiento, con su cupo; `suggested: null` si ninguna. |
+
+**Reglas.** Dos categorías **activas** no pueden cubrir el mismo año: la sugerencia sería ambigua. Lo impone la base con una
+restricción de exclusión (V14, `int4range … WITH &&` solo sobre activas, sin extensiones) y el servicio lo anticipa para nombrar
+la categoría en conflicto; si dos coordinadores chocan a la vez, la base responde y se informa igual como error de campo.
+Desactivar libera el rango; reactivar exige que siga libre. El cupo no puede bajar de los jugadores ya asignados. El destino de
+ascenso (`nextCategoryId`) no puede ser la misma categoría ni formar un ciclo. «Ocupado» cuenta las asignaciones vigentes de
+jugadores que siguen en proceso o activos: no cuentan retirados, rechazados ni con temporada cerrada. La sugerencia no obliga:
+el comité puede asignar otra categoría. Auditoría: `CATEGORY_CREATED`, `CATEGORY_UPDATED` (estado anterior y posterior).
+
+**Límites conocidos y pendientes (confirmar).**
+1. **Sin datos del club:** hasta que se resuelva DP-01 no hay categorías cargadas; el coordinador debe crearlas.
+2. **Las asignaciones aún no existen:** `occupied` vale 0 hasta el incremento de la decisión del comité (acta, categoría con
+   cupo, entrenador y panel de tres evaluadores), que es el siguiente.
+3. **Una categoría inactiva conserva su rango** (historial); no hay borrado.
+4. La sugerencia usa solo el **año** de nacimiento, como indica el DAD, no la fecha exacta.
+
 ## Siguiente paso
 
-Siguiente incremento de `players`: **decisión del comité** (acta, categoría con cupo, entrenador y panel de tres
-evaluadores; T-01/T-02), que además define el alcance de entrenador y evaluador en `PlayerAccessPolicy` y necesita las
-decisiones DP-01 (categorías y cupos). La **generación de cargos** (matrícula al aprobar la inscripción, mensualidades por mes)
+Siguiente incremento de `players`: **decisión del comité** (acta con soporte documental, categoría con cupo, entrenador y panel
+de tres evaluadores; T-01/T-02). Después, en uno aparte, el **alcance de entrenador y evaluador** en `PlayerAccessPolicy`. La **generación de cargos** (matrícula al aprobar la inscripción, mensualidades por mes)
 llega con el incremento de pagos. Después: Dockerfile multi-etapa, pipeline CI con quality gates, Swagger UI en `dev`.

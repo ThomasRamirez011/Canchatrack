@@ -97,6 +97,11 @@ $test$
         INSERT INTO calls (season_id, name, start_at, end_at) VALUES (v_season, 'Convocatoria 2026', '2026-01-01', '2026-02-01') RETURNING id INTO v_call;
         INSERT INTO categories (name, birth_year_min, birth_year_max, capacity) VALUES ('Sub-12', 2014, 2015, 20) RETURNING id INTO v_cat;
         PERFORM pg_temp.expect_error($q$INSERT INTO categories (name, birth_year_min, birth_year_max, capacity) VALUES ('Sin cupo', 2014, 2015, 0)$q$, '23514');
+        -- V14: sin rangos de nacimiento solapados entre categorías activas (la sugerencia sería ambigua)
+        PERFORM pg_temp.expect_error($q$INSERT INTO categories (name, birth_year_min, birth_year_max, capacity) VALUES ('Solapada', 2015, 2016, 20)$q$, '23P01');
+        INSERT INTO categories (name, birth_year_min, birth_year_max, capacity) VALUES ('Sub-14', 2012, 2013, 20);
+        INSERT INTO categories (name, birth_year_min, birth_year_max, capacity, active) VALUES ('Histórica', 2014, 2015, 20, false); -- inactiva: no bloquea
+        PERFORM pg_temp.expect_error($q$UPDATE categories SET active = true WHERE name = 'Histórica'$q$, '23P01'); -- reactivarla choca con Sub-12
 
         INSERT INTO players (first_name, last_name, document_type, document_number, birth_date)
         VALUES ('Ana', 'Pérez', 'TI', '1001', '2014-05-01') RETURNING id INTO v_p1;

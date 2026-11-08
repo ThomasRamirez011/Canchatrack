@@ -7,6 +7,8 @@ import java.util.UUID;
 
 import co.edu.unipamplona.canchatrack.players.application.CallDetail;
 import co.edu.unipamplona.canchatrack.players.application.CallExceptionInfo;
+import co.edu.unipamplona.canchatrack.players.application.CategoryInfo;
+import co.edu.unipamplona.canchatrack.players.application.CategorySuggestion;
 import co.edu.unipamplona.canchatrack.players.application.EnrollmentReceipt;
 import co.edu.unipamplona.canchatrack.players.application.EnrollmentSummary;
 import co.edu.unipamplona.canchatrack.players.application.PageResult;
@@ -155,6 +157,46 @@ public final class PlayersDtos {
             return new CallExceptionResponse(exception.id(), exception.callId(), exception.guardianId(),
                     exception.reason(), exception.grantedBy(), exception.grantedAt(), exception.expiresAt(),
                     exception.active());
+        }
+    }
+
+    // --- Categorías (coordinador escribe; coordinador y comité leen) ---
+
+    // Sin anotaciones de Bean Validation a propósito: CategoryRules es la única fuente de validación y acumula
+    // todos los errores de campo en un solo 422 (Bean Validation cortaría antes con solo los primeros).
+    public record CreateCategoryRequest(
+            String name,
+            Integer birthYearMin,
+            Integer birthYearMax,
+            Integer capacity,
+            UUID nextCategoryId) {
+    }
+
+    public record UpdateCategoryRequest(
+            String name,
+            Integer birthYearMin,
+            Integer birthYearMax,
+            Integer capacity,
+            UUID nextCategoryId,
+            Boolean clearNextCategory,
+            Boolean active) {
+    }
+
+    public record CategoryResponse(UUID id, String name, int birthYearMin, int birthYearMax, int capacity, int occupied,
+                                   int available, UUID nextCategoryId, boolean active) {
+
+        static CategoryResponse from(CategoryInfo category) {
+            return new CategoryResponse(category.id(), category.name(), category.birthYearMin(),
+                    category.birthYearMax(), category.capacity(), category.occupied(), category.available(),
+                    category.nextCategoryId(), category.active());
+        }
+    }
+
+    public record CategorySuggestionResponse(UUID playerId, int birthYear, CategoryResponse suggested) {
+
+        static CategorySuggestionResponse from(CategorySuggestion suggestion) {
+            return new CategorySuggestionResponse(suggestion.playerId(), suggestion.birthYear(),
+                    suggestion.suggested() == null ? null : CategoryResponse.from(suggestion.suggested()));
         }
     }
 }

@@ -99,6 +99,21 @@ class OpenApiContractTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void categoryEndpointsAreDocumentedAndKeepTheirPublicShape() throws Exception {
+        Map<String, Object> spec = load();
+        Map<String, Object> paths = (Map<String, Object>) spec.get("paths");
+        Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) spec.get("components")).get("schemas");
+
+        assertThat(paths.keySet()).contains("/categories", "/categories/{categoryId}", "/players/{playerId}/category-suggestion");
+        assertThat(((Map<String, Object>) paths.get("/categories")).keySet()).contains("get", "post");
+        assertThat(((Map<String, Object>) paths.get("/categories/{categoryId}")).keySet()).contains("get", "patch");
+        Map<String, Object> category = (Map<String, Object>) schemas.get("CategoryResponse");
+        assertThat(((Map<String, Object>) category.get("properties")).keySet())
+                .contains("id", "name", "birthYearMin", "birthYearMax", "capacity", "occupied", "available", "nextCategoryId", "active");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void playerStatusEnumMatchesTheDomain() throws Exception {
         Map<String, Object> components = (Map<String, Object>) load().get("components");
         Map<String, Object> schemas = (Map<String, Object>) components.get("schemas");

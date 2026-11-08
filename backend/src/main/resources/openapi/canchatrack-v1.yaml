@@ -26,6 +26,8 @@ tags:
     description: Temporadas deportivas (solo coordinador).
   - name: calls
     description: Convocatorias de inscripción. Consulta de abiertas para cualquier usuario; administración solo del coordinador.
+  - name: categories
+    description: Categorías por rango de año de nacimiento y cupo. Las define el club (DP-01); las administra el coordinador.
   - name: enrollments
     description: Radicación de inscripciones por el acudiente.
   - name: players
@@ -390,6 +392,105 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /categories:
+    post:
+      tags: [categories]
+      operationId: createCategory
+      summary: Crea una categoría (solo coordinador).
+      description: |
+        Rango de años de nacimiento y cupo parametrizables (RN-04; los valores del club están pendientes, DP-01). Dos
+        categorías activas no pueden cubrir el mismo año: lo impone una restricción de la base de datos (V14) y se
+        informa como error de campo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCategoryRequest' }
+      responses:
+        '201':
+          description: Categoría creada y activa.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CategoryResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    get:
+      tags: [categories]
+      operationId: listCategories
+      summary: Lista las categorías con su cupo ocupado (coordinador y comité).
+      description: La más joven primero. Por defecto solo activas.
+      parameters:
+        - { name: includeInactive, in: query, required: false, schema: { type: boolean, default: false } }
+      responses:
+        '200':
+          description: Categorías.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CategoryResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /categories/{categoryId}:
+    parameters:
+      - { name: categoryId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [categories]
+      operationId: getCategory
+      summary: Consulta una categoría (coordinador y comité).
+      responses:
+        '200':
+          description: Categoría.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CategoryResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [categories]
+      operationId: updateCategory
+      summary: Modifica una categoría (solo coordinador).
+      description: |
+        Parcial: un campo ausente no se toca; `clearNextCategory` quita el destino de ascenso. El cupo no puede ser menor
+        que los jugadores ya asignados. Desactivar libera el rango; reactivar exige que siga libre. El destino de
+        ascenso no puede formar un ciclo. Cada cambio queda auditado con estado anterior y posterior.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateCategoryRequest' }
+      responses:
+        '200':
+          description: Categoría actualizada (o sin cambios si los valores coinciden).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CategoryResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /players/{playerId}/category-suggestion:
+    get:
+      tags: [categories, players]
+      operationId: suggestCategory
+      summary: Categoría sugerida por año de nacimiento (coordinador y comité).
+      description: |
+        RF-046. Devuelve la categoría activa que cubre el año de nacimiento del jugador, con su cupo disponible, o
+        `suggested: null` si ninguna lo cubre. Es solo una sugerencia: la decisión es del Comité Técnico.
+      parameters:
+        - { name: playerId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Sugerencia.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CategorySuggestionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /enrollments:
     post:
       tags: [enrollments]
@@ -662,6 +763,51 @@ components:
         grantedAt: { type: string, format: date-time }
         expiresAt: { type: string, format: date-time }
         active: { type: boolean, description: 'Vigente ahora, según el reloj de la base de datos.' }
+    CreateCategoryRequest:
+      type: object
+      required: [name, birthYearMin, birthYearMax, capacity]
+      properties:
+        name: { type: string, maxLength: 80 }
+        birthYearMin: { type: integer, minimum: 1950, maximum: 2100 }
+        birthYearMax: { type: integer, minimum: 1950, maximum: 2100, description: No menor que birthYearMin. }
+        capacity: { type: integer, minimum: 1, maximum: 500 }
+        nextCategoryId: { type: [string, 'null'], format: uuid, description: Destino del ascenso. }
+    UpdateCategoryRequest:
+      type: object
+      description: Todos los campos son opcionales; al menos uno es obligatorio.
+      properties:
+        name: { type: string, maxLength: 80 }
+        birthYearMin: { type: integer, minimum: 1950, maximum: 2100 }
+        birthYearMax: { type: integer, minimum: 1950, maximum: 2100 }
+        capacity: { type: integer, minimum: 1, maximum: 500 }
+        nextCategoryId: { type: string, format: uuid }
+        clearNextCategory: { type: boolean, description: Quita el destino de ascenso; no se combina con nextCategoryId. }
+        active: { type: boolean }
+    CategoryResponse:
+      type: object
+      required: [id, name, birthYearMin, birthYearMax, capacity, occupied, available, active]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        birthYearMin: { type: integer }
+        birthYearMax: { type: integer }
+        capacity: { type: integer }
+        occupied:
+          type: integer
+          description: Asignaciones vigentes de jugadores en proceso o activos (no retirados, rechazados ni con temporada cerrada).
+        available: { type: integer }
+        nextCategoryId: { type: [string, 'null'], format: uuid }
+        active: { type: boolean }
+    CategorySuggestionResponse:
+      type: object
+      required: [playerId, birthYear]
+      properties:
+        playerId: { type: string, format: uuid }
+        birthYear: { type: integer }
+        suggested:
+          oneOf:
+            - { $ref: '#/components/schemas/CategoryResponse' }
+            - { type: 'null' }
     PlayerStatus:
       type: string
       description: Estados del expediente (DAD 3.2).
