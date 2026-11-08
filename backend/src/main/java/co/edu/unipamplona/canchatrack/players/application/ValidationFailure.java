@@ -20,10 +20,15 @@ final class ValidationFailure {
     }
 
     static DomainException of(List<FieldError> errors) {
+        return of(ErrorCode.VALIDATION_FAILED, errors);
+    }
+
+    /** Mismo cuerpo {@code errors:[{field,message}]} con un código de error más específico (p. ej. PANEL_INVALID). */
+    static DomainException of(ErrorCode code, List<FieldError> errors) {
         List<Map<String, String>> body = errors.stream()
                 .map(e -> Map.of("field", e.field(), "message", e.message()))
                 .toList();
-        return new DomainException(ErrorCode.VALIDATION_FAILED, null, Map.of("errors", body));
+        return new DomainException(code, null, Map.of("errors", body));
     }
 
     static DomainException of(String field, String message) {
