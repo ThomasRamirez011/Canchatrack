@@ -30,6 +30,10 @@ tags:
     description: Categorías por rango de año de nacimiento y cupo. Las define el club (DP-01); las administra el coordinador.
   - name: committee
     description: Decisión del Comité Técnico sobre inscripciones radicadas (categoría, entrenador, panel y acta).
+  - name: files
+    description: Archivos de soporte (comprobantes, actas). Se suben aparte y se referencian por id.
+  - name: payments
+    description: Tarifas, matrícula, cargos, pagos inmutables y estado de cuenta.
   - name: enrollments
     description: Radicación de inscripciones por el acudiente.
   - name: players
@@ -680,6 +684,230 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
+  /files:
+    post:
+      tags: [files]
+      operationId: uploadFile
+      summary: Sube un archivo de soporte (PDF, PNG o JPEG).
+      description: |
+        `multipart/form-data` con la parte `file`. Se valida el tamaño (`canchatrack.files.max-size`, 10 MB por
+        defecto), el tipo declarado y los primeros bytes del contenido; el nombre se sanea. El archivo es inmutable.
+        Su `id` se usa después como `minuteFileId` (acta) o `receiptFileId` (comprobante de pago).
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '201':
+          description: Archivo almacenado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FileResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422':
+          description: Formato, tamaño o contenido inválido (FILE_REJECTED).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /files/{fileId}:
+    get:
+      tags: [files]
+      operationId: downloadFile
+      summary: Descarga un archivo (quien lo subió, coordinador o comité).
+      parameters:
+        - { name: fileId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Contenido del archivo, como adjunto y con la cabecera nosniff.
+          content:
+            application/pdf: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+            image/jpeg: { schema: { type: string, format: binary } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /fees:
+    get:
+      tags: [payments]
+      operationId: listFees
+      summary: Lista tarifas (coordinador y comité), opcionalmente de una temporada.
+      parameters:
+        - { name: seasonId, in: query, required: false, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Tarifas.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/FeeResponse' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [payments]
+      operationId: createFee
+      summary: Crea una tarifa (solo coordinador).
+      description: |
+        Concepto ENROLLMENT, MONTHLY u OTHER; monto positivo con hasta dos decimales (COP). Los montos y el calendario
+        de cobro los define el club (DP-05): se cargan aquí sin cambiar código.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateFeeRequest' }
+      responses:
+        '201':
+          description: Tarifa creada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FeeResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /players/{playerId}/registration:
+    post:
+      tags: [payments, players]
+      operationId: startRegistration
+      summary: Inicia la matrícula (solo coordinador).
+      description: |
+        CATEGORY_ASSIGNED → PENDING_REGISTRATION. Genera el cargo de matrícula con el monto de la tarifa ENROLLMENT
+        indicada (el cargo conserva ese monto aunque la tarifa cambie después). Repetir con la misma tarifa no duplica el cargo.
+      parameters:
+        - { name: playerId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StartRegistrationRequest' }
+      responses:
+        '201':
+          description: Matrícula iniciada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RegistrationResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: El jugador no está en CATEGORY_ASSIGNED (PLAYER_STATE_CONFLICT).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /players/{playerId}/activation:
+    post:
+      tags: [payments, players]
+      operationId: activatePlayer
+      summary: Activa al jugador con la matrícula saldada (solo coordinador).
+      description: PENDING_REGISTRATION → ACTIVE. Si la matrícula tiene saldo pendiente responde 409 PLAYER_STATE_CONFLICT.
+      parameters:
+        - { name: playerId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Jugador activo.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RegistrationResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: El jugador no está pendiente de matrícula o la matrícula no está saldada (PLAYER_STATE_CONFLICT).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /players/{playerId}/payments:
+    post:
+      tags: [payments]
+      operationId: recordPayment
+      summary: Registra un pago aplicado a un cargo del jugador (solo coordinador).
+      description: |
+        Los pagos son inmutables (RN-16): un error se corrige anulando el pago y registrando el correcto. El monto no
+        puede superar lo que el cargo aún debe; el cargo no puede estar anulado ni saldado. `paidAt` por defecto es el
+        reloj del servidor y no puede ser futuro. `receiptFileId` debe ser un archivo ya subido.
+      parameters:
+        - { name: playerId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecordPaymentRequest' }
+      responses:
+        '201':
+          description: Pago registrado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /payments/{paymentId}/void:
+    post:
+      tags: [payments]
+      operationId: voidPayment
+      summary: Anula un pago con un asiento compensatorio y motivo (solo coordinador).
+      parameters:
+        - { name: paymentId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VoidPaymentRequest' }
+      responses:
+        '200':
+          description: Pago anulado, con voided verdadero y netAmount en cero.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /players/{playerId}/account:
+    get:
+      tags: [payments, players]
+      operationId: getAccount
+      summary: Estado de cuenta del jugador (coordinador, comité y acudiente vinculado).
+      description: Totales derivados (cargado, pagado, saldo), cargos con su saldo y pagos. Sin acceso responde 404.
+      parameters:
+        - { name: playerId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Estado de cuenta.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccountResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /billing/monthly:
+    post:
+      tags: [payments]
+      operationId: generateMonthlyCharges
+      summary: Genera el cargo mensual de todos los jugadores activos (solo coordinador).
+      description: |
+        `period` es el primer día del mes; `dueDate` no puede ser anterior. Idempotente por jugador, tarifa y periodo:
+        repetir la operación solo crea los cargos que falten.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MonthlyBillingRequest' }
+      responses:
+        '200':
+          description: Resultado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonthlyBillingResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
 components:
   securitySchemes:
     bearerAuth:
@@ -968,6 +1196,118 @@ components:
         playerId: { type: string, format: uuid }
         playerStatus: { $ref: '#/components/schemas/PlayerStatus' }
         minuteNumber: { type: string }
+    FileResponse:
+      type: object
+      required: [id, originalName, contentType, sizeBytes, sha256, uploadedAt]
+      properties:
+        id: { type: string, format: uuid }
+        originalName: { type: string }
+        contentType: { type: string }
+        sizeBytes: { type: integer, format: int64 }
+        sha256: { type: string }
+        uploadedAt: { type: string, format: date-time }
+    FeeConcept:
+      type: string
+      enum: [ENROLLMENT, MONTHLY, OTHER]
+    CreateFeeRequest:
+      type: object
+      properties:
+        seasonId: { type: string, format: uuid }
+        concept: { $ref: '#/components/schemas/FeeConcept' }
+        name: { type: string, maxLength: 120 }
+        amount: { type: number, multipleOf: 0.01 }
+        validFrom: { type: string, format: date }
+        validTo: { type: string, format: date }
+    FeeResponse:
+      type: object
+      required: [id, seasonId, concept, name, amount, currency, validFrom, active]
+      properties:
+        id: { type: string, format: uuid }
+        seasonId: { type: string, format: uuid }
+        concept: { $ref: '#/components/schemas/FeeConcept' }
+        name: { type: string }
+        amount: { type: number, multipleOf: 0.01 }
+        currency: { type: string, example: COP }
+        validFrom: { type: string, format: date }
+        validTo: { type: string, format: date }
+        active: { type: boolean }
+    StartRegistrationRequest:
+      type: object
+      properties:
+        feeId: { type: string, format: uuid, description: Tarifa de concepto ENROLLMENT. }
+        dueDate: { type: string, format: date }
+    RegistrationResponse:
+      type: object
+      required: [playerId, playerStatus]
+      properties:
+        playerId: { type: string, format: uuid }
+        playerStatus: { $ref: '#/components/schemas/PlayerStatus' }
+        chargeId: { type: string, format: uuid, description: Solo al iniciar la matrícula. }
+    MonthlyBillingRequest:
+      type: object
+      properties:
+        feeId: { type: string, format: uuid, description: Tarifa de concepto MONTHLY. }
+        period: { type: string, format: date, description: Primer día del mes. }
+        dueDate: { type: string, format: date }
+    MonthlyBillingResponse:
+      type: object
+      required: [players, created]
+      properties:
+        players: { type: integer }
+        created: { type: integer }
+    RecordPaymentRequest:
+      type: object
+      properties:
+        chargeId: { type: string, format: uuid }
+        amount: { type: number, multipleOf: 0.01 }
+        method: { type: string, enum: [CASH, TRANSFER, CARD, OTHER] }
+        reference: { type: string, maxLength: 100 }
+        paidAt: { type: string, format: date-time }
+        receiptFileId: { type: string, format: uuid }
+    VoidPaymentRequest:
+      type: object
+      properties:
+        reason: { type: string, maxLength: 2000 }
+    ChargeResponse:
+      type: object
+      required: [id, feeId, feeName, concept, dueDate, amount, adjusted, netAmount, applied, outstanding, status]
+      properties:
+        id: { type: string, format: uuid }
+        feeId: { type: string, format: uuid }
+        feeName: { type: string }
+        concept: { $ref: '#/components/schemas/FeeConcept' }
+        period: { type: string, format: date }
+        dueDate: { type: string, format: date }
+        amount: { type: number, multipleOf: 0.01 }
+        adjusted: { type: number, multipleOf: 0.01 }
+        netAmount: { type: number, multipleOf: 0.01 }
+        applied: { type: number, multipleOf: 0.01 }
+        outstanding: { type: number, multipleOf: 0.01 }
+        status: { type: string, enum: [PENDING, PARTIAL, SETTLED, VOIDED] }
+    PaymentResponse:
+      type: object
+      required: [id, playerId, chargeId, amount, netAmount, method, paidAt, voided]
+      properties:
+        id: { type: string, format: uuid }
+        playerId: { type: string, format: uuid }
+        chargeId: { type: string, format: uuid }
+        amount: { type: number, multipleOf: 0.01 }
+        netAmount: { type: number, multipleOf: 0.01 }
+        method: { type: string }
+        reference: { type: string }
+        paidAt: { type: string, format: date-time }
+        receiptFileId: { type: string, format: uuid }
+        voided: { type: boolean }
+    AccountResponse:
+      type: object
+      required: [playerId, charged, paid, balance, charges, payments]
+      properties:
+        playerId: { type: string, format: uuid }
+        charged: { type: number, multipleOf: 0.01 }
+        paid: { type: number, multipleOf: 0.01 }
+        balance: { type: number, multipleOf: 0.01 }
+        charges: { type: array, items: { $ref: '#/components/schemas/ChargeResponse' } }
+        payments: { type: array, items: { $ref: '#/components/schemas/PaymentResponse' } }
     PlayerStatus:
       type: string
       description: Estados del expediente (DAD 3.2).

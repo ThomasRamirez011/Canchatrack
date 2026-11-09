@@ -149,6 +149,34 @@ class OpenApiContractTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void paymentsAndFilesEndpointsAreDocumentedAndTheirResponsesMatchTheDtos() throws Exception {
+        Map<String, Object> spec = load();
+        Map<String, Object> paths = (Map<String, Object>) spec.get("paths");
+        Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) spec.get("components")).get("schemas");
+
+        assertThat(paths.keySet()).contains("/files", "/files/{fileId}", "/fees", "/players/{playerId}/registration",
+                "/players/{playerId}/activation", "/players/{playerId}/payments", "/payments/{paymentId}/void",
+                "/players/{playerId}/account", "/billing/monthly");
+        assertThat(((Map<String, Object>) paths.get("/fees")).keySet()).contains("get", "post");
+
+        String payments = "co.edu.unipamplona.canchatrack.payments.infrastructure.PaymentsDtos$";
+        String players = "co.edu.unipamplona.canchatrack.players.infrastructure.PlayersDtos$";
+        for (String dto : List.of(payments + "FeeResponse", payments + "ChargeResponse", payments + "PaymentResponse",
+                payments + "AccountResponse", payments + "CreateFeeRequest", payments + "RecordPaymentRequest",
+                payments + "VoidPaymentRequest", players + "RegistrationResponse", players + "StartRegistrationRequest",
+                players + "MonthlyBillingRequest", players + "MonthlyBillingResponse",
+                "co.edu.unipamplona.canchatrack.documents.infrastructure.FileController$FileResponse")) {
+            Class<?> type = Class.forName(dto);
+            Map<String, Object> documented = (Map<String, Object>) schemas.get(type.getSimpleName());
+            assertThat(documented).as("esquema %s", type.getSimpleName()).isNotNull();
+            List<String> actual = Arrays.stream(type.getRecordComponents()).map(java.lang.reflect.RecordComponent::getName).toList();
+            assertThat(((Map<String, Object>) documented.get("properties")).keySet())
+                    .as("campos de %s", type.getSimpleName()).containsExactlyInAnyOrderElementsOf(actual);
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void playerStatusEnumMatchesTheDomain() throws Exception {
         Map<String, Object> components = (Map<String, Object>) load().get("components");
         Map<String, Object> schemas = (Map<String, Object>) components.get("schemas");
