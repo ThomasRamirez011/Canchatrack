@@ -34,6 +34,10 @@ tags:
     description: Archivos de soporte (comprobantes, actas). Se suben aparte y se referencian por id.
   - name: payments
     description: Tarifas, matrícula, cargos, pagos inmutables y estado de cuenta.
+  - name: scheduling
+    description: Escenarios y agenda de entrenamientos y evaluaciones, con detección de cruces (RN-14).
+  - name: attendance
+    description: Asistencia por sesión con sincronización idempotente, cierre y corrección auditada (RN-15).
   - name: enrollments
     description: Radicación de inscripciones por el acudiente.
   - name: players
@@ -908,6 +912,224 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
+  /venues:
+    get:
+      tags: [scheduling]
+      operationId: listVenues
+      summary: Lista escenarios (coordinador, comité y entrenador).
+      parameters:
+        - { name: includeInactive, in: query, required: false, schema: { type: boolean, default: false } }
+      responses:
+        '200':
+          description: Escenarios.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/VenueResponse' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [scheduling]
+      operationId: createVenue
+      summary: Crea un escenario (solo coordinador).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateVenueRequest' }
+      responses:
+        '201':
+          description: Escenario creado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VenueResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /events:
+    get:
+      tags: [scheduling]
+      operationId: listEvents
+      summary: Lista eventos (coordinador y comité, todos; entrenador, solo los suyos).
+      parameters:
+        - { name: categoryId, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: from, in: query, required: false, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: false, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: Hasta 200 eventos ordenados por inicio.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/EventResponse' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [scheduling]
+      operationId: scheduleEvent
+      summary: Programa un entrenamiento o una evaluación (solo coordinador).
+      description: |
+        Valida que el evento sea a futuro, que el entrenador responsable tenga cuenta activa con rol COACH y que el
+        escenario esté activo. Antes de guardar se detectan cruces (RN-14) de escenario, entrenador y categoría
+        (los jugadores pertenecen a una sola categoría): si hay alguno responde 409 SCHEDULE_CONFLICT con la lista
+        `conflicts` (dimensión, evento, inicio y fin). Los partidos de torneo los administra el módulo de competencias.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ScheduleEventRequest' }
+      responses:
+        '201':
+          description: Evento confirmado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EventResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /events/{eventId}:
+    get:
+      tags: [scheduling]
+      operationId: getEvent
+      summary: Detalle de un evento (el entrenador solo ve los suyos; sin acceso responde 404).
+      parameters:
+        - { name: eventId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Evento.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EventResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /events/{eventId}/cancel:
+    post:
+      tags: [scheduling]
+      operationId: cancelEvent
+      summary: Cancela un evento confirmado con motivo (solo coordinador).
+      parameters:
+        - { name: eventId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CancelEventRequest' }
+      responses:
+        '200':
+          description: Evento cancelado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EventResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /events/{eventId}/attendance:
+    get:
+      tags: [attendance]
+      operationId: getAttendance
+      summary: Plantilla de la categoría con la marca de cada jugador.
+      parameters:
+        - { name: eventId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Asistencia de la sesión.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttendanceResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [attendance]
+      operationId: syncAttendance
+      summary: Sincroniza un lote de marcas (coordinador o entrenador del evento).
+      description: |
+        Cada marca lleva un `clientUuid` generado en el dispositivo. Reintentar con la misma `Idempotency-Key` devuelve el
+        resultado original (`replayed: true`) sin duplicar; una marca repetida (mismo `clientUuid` o mismo jugador en la
+        sesión) cuenta como duplicada. Las marcas inválidas o de jugadores fuera de la plantilla activa se rechazan una a
+        una y el resto se acepta. La sesión debe haber comenzado y no estar cerrada (409 ATTENDANCE_SESSION_CLOSED).
+      parameters:
+        - { name: eventId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SyncRequest' }
+      responses:
+        '200':
+          description: Resultado del lote.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SyncResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /events/{eventId}/attendance/close:
+    post:
+      tags: [attendance]
+      operationId: closeAttendance
+      summary: Cierra la sesión (coordinador o entrenador del evento).
+      description: Los jugadores de la plantilla sin marca quedan como ausentes y la sesión se bloquea para edición ordinaria (RN-15).
+      parameters:
+        - { name: eventId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Sesión cerrada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloseResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /events/{eventId}/attendance/corrections:
+    post:
+      tags: [attendance]
+      operationId: correctAttendance
+      summary: Corrige una marca de una sesión cerrada, con justificación y rastro.
+      parameters:
+        - { name: eventId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CorrectionRequest' }
+      responses:
+        '200':
+          description: Marca corregida.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CorrectionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /players/{playerId}/attendance:
+    get:
+      tags: [attendance, players]
+      operationId: getPlayerAttendance
+      summary: Asistencia acumulada del jugador (coordinador, comité y acudiente vinculado).
+      description: |
+        Sobre sesiones cerradas: porcentaje = (presentes + tardes) / (sesiones − excusas aceptadas). Una excusa aceptada
+        no cuenta a favor ni en contra; una no aceptada cuenta como falta. `percentage` es nulo si no hay sesiones que contar.
+      parameters:
+        - { name: playerId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Resumen.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SummaryResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 components:
   securitySchemes:
     bearerAuth:
@@ -1308,6 +1530,139 @@ components:
         balance: { type: number, multipleOf: 0.01 }
         charges: { type: array, items: { $ref: '#/components/schemas/ChargeResponse' } }
         payments: { type: array, items: { $ref: '#/components/schemas/PaymentResponse' } }
+    CreateVenueRequest:
+      type: object
+      properties:
+        name: { type: string, maxLength: 120 }
+        address: { type: string, maxLength: 250 }
+        reference: { type: string }
+    VenueResponse:
+      type: object
+      required: [id, name, active]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        address: { type: string }
+        reference: { type: string }
+        active: { type: boolean }
+    ScheduleEventRequest:
+      type: object
+      properties:
+        eventType: { type: string, enum: [TRAINING, EVALUATION] }
+        categoryId: { type: string, format: uuid }
+        venueId: { type: string, format: uuid }
+        headCoachId: { type: string, format: uuid }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        meetingAt: { type: string, format: date-time }
+        meetingPoint: { type: string, maxLength: 200 }
+        instructions: { type: string }
+    CancelEventRequest:
+      type: object
+      properties:
+        reason: { type: string, maxLength: 2000 }
+    EventResponse:
+      type: object
+      required: [id, eventType, categoryId, venueId, venueName, startAt, endAt, status]
+      properties:
+        id: { type: string, format: uuid }
+        eventType: { type: string }
+        categoryId: { type: string, format: uuid }
+        venueId: { type: string, format: uuid }
+        venueName: { type: string }
+        headCoachId: { type: string, format: uuid }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        meetingAt: { type: string, format: date-time }
+        meetingPoint: { type: string }
+        instructions: { type: string }
+        status: { type: string, enum: [CONFIRMED, CANCELLED, COMPLETED] }
+        cancellationReason: { type: string }
+    AttendanceStatus:
+      type: string
+      enum: [PRESENT, LATE, EXCUSED, ABSENT]
+    MarkRequest:
+      type: object
+      properties:
+        clientUuid: { type: string, format: uuid, description: Identificador generado en el dispositivo. }
+        playerId: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/AttendanceStatus' }
+        excuseAccepted: { type: boolean, default: false }
+        clientRecordedAt: { type: string, format: date-time }
+    SyncRequest:
+      type: object
+      properties:
+        records: { type: array, maxItems: 500, items: { $ref: '#/components/schemas/MarkRequest' } }
+    RejectionResponse:
+      type: object
+      required: [reason]
+      properties:
+        clientUuid: { type: string, format: uuid }
+        playerId: { type: string, format: uuid }
+        reason: { type: string }
+    SyncResponse:
+      type: object
+      required: [replayed, received, accepted, duplicates, rejected, rejections]
+      properties:
+        replayed: { type: boolean }
+        received: { type: integer }
+        accepted: { type: integer }
+        duplicates: { type: integer }
+        rejected: { type: integer }
+        rejections: { type: array, items: { $ref: '#/components/schemas/RejectionResponse' } }
+    RosterEntryResponse:
+      type: object
+      required: [playerId, code, firstName, lastName, excuseAccepted]
+      properties:
+        playerId: { type: string, format: uuid }
+        code: { type: string }
+        firstName: { type: string }
+        lastName: { type: string }
+        status: { $ref: '#/components/schemas/AttendanceStatus' }
+        excuseAccepted: { type: boolean }
+    AttendanceResponse:
+      type: object
+      required: [eventId, closed, entries]
+      properties:
+        eventId: { type: string, format: uuid }
+        closed: { type: boolean }
+        closedAt: { type: string, format: date-time }
+        entries: { type: array, items: { $ref: '#/components/schemas/RosterEntryResponse' } }
+    CloseResponse:
+      type: object
+      required: [eventId, closedAt, autoAbsent, total]
+      properties:
+        eventId: { type: string, format: uuid }
+        closedAt: { type: string, format: date-time }
+        autoAbsent: { type: integer }
+        total: { type: integer }
+    CorrectionRequest:
+      type: object
+      properties:
+        playerId: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/AttendanceStatus' }
+        excuseAccepted: { type: boolean, default: false }
+        reason: { type: string, maxLength: 2000 }
+    CorrectionResponse:
+      type: object
+      required: [recordId, playerId, status, excuseAccepted]
+      properties:
+        recordId: { type: string, format: uuid }
+        playerId: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/AttendanceStatus' }
+        excuseAccepted: { type: boolean }
+    SummaryResponse:
+      type: object
+      required: [playerId, sessions, present, late, excused, acceptedExcuses, absent]
+      properties:
+        playerId: { type: string, format: uuid }
+        sessions: { type: integer }
+        present: { type: integer }
+        late: { type: integer }
+        excused: { type: integer }
+        acceptedExcuses: { type: integer }
+        absent: { type: integer }
+        percentage: { type: [number, 'null'], description: Con un decimal; nulo si no hay sesiones que contar. }
     PlayerStatus:
       type: string
       description: Estados del expediente (DAD 3.2).

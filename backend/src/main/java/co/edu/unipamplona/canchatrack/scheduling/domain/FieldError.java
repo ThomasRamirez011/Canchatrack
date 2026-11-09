@@ -1,0 +1,5 @@
+package co.edu.unipamplona.canchatrack.scheduling.domain;
+
+/** Error de validación atribuible a un campo de la solicitud. */
+public record FieldError(String field, String message) {
+}
