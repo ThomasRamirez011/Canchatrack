@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import co.edu.unipamplona.canchatrack.identity.api.PlayerAccessPolicy;
+import co.edu.unipamplona.canchatrack.identity.api.PlayerData;
 import co.edu.unipamplona.canchatrack.identity.api.PlayerScope;
 import co.edu.unipamplona.canchatrack.players.domain.PlayerStatus;
 import co.edu.unipamplona.canchatrack.shared.domain.DomainException;
@@ -31,13 +32,26 @@ public class PlayerQueryService {
         this.access = access;
     }
 
-    /** Sin acceso y sin existencia responden igual (404): no se revela qué jugadores existen. */
+    /**
+     * Sin acceso y sin existencia responden igual (404): no se revela qué jugadores existen. Quien solo tiene acceso por
+     * clase de dato (entrenador titular, evaluador asignado) recibe los datos básicos: sin documento de identidad y sin
+     * inscripciones, que traen datos del acudiente.
+     */
     public PlayerWithEnrollments get(UUID userId, Set<String> roles, UUID playerId) {
-        if (!access.canAccess(userId, roles, playerId)) {
-            throw notFound();
+        if (access.canAccess(userId, roles, playerId)) {
+            PlayerDetail detail = players.findDetail(playerId).orElseThrow(PlayerQueryService::notFound);
+            return new PlayerWithEnrollments(detail, enrollments.findByPlayer(playerId));
         }
-        PlayerDetail detail = players.findDetail(playerId).orElseThrow(PlayerQueryService::notFound);
-        return new PlayerWithEnrollments(detail, enrollments.findByPlayer(playerId));
+        if (access.canView(userId, roles, playerId, PlayerData.BASIC)) {
+            PlayerDetail detail = players.findDetail(playerId).orElseThrow(PlayerQueryService::notFound);
+            return new PlayerWithEnrollments(basic(detail), List.of());
+        }
+        throw notFound();
+    }
+
+    static PlayerDetail basic(PlayerDetail d) {
+        return new PlayerDetail(d.id(), d.code(), d.firstName(), d.lastName(), null, null, d.birthDate(), d.status(),
+                d.createdAt());
     }
 
     public PageResult<PlayerSummary> list(UUID userId, Set<String> roles, String statusFilter, int page, int size) {

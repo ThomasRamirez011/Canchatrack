@@ -649,8 +649,9 @@ paths:
       operationId: listPlayers
       summary: Lista jugadores según el alcance del rol.
       description: |
-        Coordinador y comité técnico ven todos; el acudiente, solo los jugadores con vínculo vigente; entrenador y
-        evaluador reciben 403 hasta que se defina su alcance.
+        Coordinador y comité técnico ven todos; el acudiente, solo los jugadores con vínculo vigente; el entrenador y el
+        evaluador, solo los jugadores que entrenan (entrenador titular vigente) o evalúan (asignación vigente). Cualquier
+        otro rol recibe 403.
       parameters:
         - name: status
           in: query
@@ -680,7 +681,10 @@ paths:
       tags: [players]
       operationId: getPlayer
       summary: Expediente de un jugador con sus inscripciones.
-      description: 'Sin acceso y sin existencia responden igual (404): no se revela qué jugadores existen.'
+      description: |
+        Sin acceso y sin existencia responden igual (404): no se revela qué jugadores existen. El entrenador titular y el
+        evaluador asignado reciben solo los datos básicos: `documentType` y `documentNumber` se omiten y `enrollments`
+        va vacío (traen datos del acudiente).
       parameters:
         - name: playerId
           in: path
@@ -1322,7 +1326,7 @@ paths:
     get:
       tags: [attendance, players]
       operationId: getPlayerAttendance
-      summary: Asistencia acumulada del jugador (coordinador, comité y acudiente vinculado).
+      summary: Asistencia acumulada del jugador (coordinador, comité, acudiente vinculado y entrenador titular).
       description: |
         Sobre sesiones cerradas: porcentaje = (presentes + tardes) / (sesiones − excusas aceptadas). Una excusa aceptada
         no cuenta a favor ni en contra; una no aceptada cuenta como falta. `percentage` es nulo si no hay sesiones que contar.
@@ -1767,7 +1771,7 @@ paths:
       operationId: listPlayerMatches
       summary: Historial de partidos del jugador con convocatoria confirmada (RF-037).
       description: |
-        Acudiente (solo sus hijos), coordinador y comité. Incluye partidos cancelados para que el acudiente vea el cambio.
+        Acudiente (solo sus hijos), coordinador, comité y entrenador titular del jugador. Incluye partidos cancelados para que el acudiente vea el cambio.
         Nunca expone causas de no elegibilidad ni datos de salud.
       parameters:
         - { name: playerId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -2741,14 +2745,14 @@ components:
         submittedAt: { type: string, format: date-time }
     PlayerDetailResponse:
       type: object
-      required: [id, code, firstName, lastName, documentType, documentNumber, birthDate, status, createdAt, enrollments]
+      required: [id, code, firstName, lastName, birthDate, status, createdAt, enrollments]
       properties:
         id: { type: string, format: uuid }
         code: { type: string }
         firstName: { type: string }
         lastName: { type: string }
-        documentType: { type: string }
-        documentNumber: { type: string }
+        documentType: { type: string, description: Se omite para entrenador y evaluador. }
+        documentNumber: { type: string, description: Se omite para entrenador y evaluador. }
         birthDate: { type: string, format: date }
         status: { $ref: '#/components/schemas/PlayerStatus' }
         createdAt: { type: string, format: date-time }

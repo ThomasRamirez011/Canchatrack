@@ -417,7 +417,9 @@ class EnrollmentIT {
                 .get("items").findValuesAsText("id");
         assertThat(active).doesNotContain(mine, theirs);
 
-        getJson("/players", staffToken("COACH")).andExpect(status().isForbidden());
+        // el entrenador sin jugadores asignados lista vacío (su alcance está en StaffScopeIT), no los de otros
+        assertThat(body(getJson("/players?size=100", staffToken("COACH")).andExpect(status().isOk())).get("total").asLong())
+                .isEqualTo(0L);
         getJson("/players?status=NOPE", staffToken("COORDINATOR")).andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
         getJson("/players", null).andExpect(status().isUnauthorized());

@@ -34,6 +34,7 @@ import co.edu.unipamplona.canchatrack.documents.api.ParticipationClearance;
 import co.edu.unipamplona.canchatrack.identity.api.GuardianContacts;
 import co.edu.unipamplona.canchatrack.identity.api.GuardianDirectory;
 import co.edu.unipamplona.canchatrack.identity.api.PlayerAccessPolicy;
+import co.edu.unipamplona.canchatrack.identity.api.PlayerData;
 import co.edu.unipamplona.canchatrack.notifications.api.NotificationQueue;
 import co.edu.unipamplona.canchatrack.payments.api.AccountStanding;
 import co.edu.unipamplona.canchatrack.players.api.CategoryRoster;
@@ -400,7 +401,7 @@ public class CompetitionService {
     /** Partidos con convocatoria confirmada del jugador (RF-037); acudiente solo de sus hijos, personal según su alcance. */
     @Transactional(readOnly = true)
     public List<PlayerMatchView> history(CompetitionsActor actor, UUID playerId) {
-        if (!access.canAccess(actor.id(), actor.roles(), playerId)) {
+        if (!access.canView(actor.id(), actor.roles(), playerId, PlayerData.MATCHES)) {
             throw new DomainException(ErrorCode.RESOURCE_NOT_FOUND, "El jugador no existe.");
         }
         Set<UUID> authorized = clearance.authorizedMatchesOf(playerId);

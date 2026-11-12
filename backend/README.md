@@ -43,7 +43,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
   `ApiExceptionHandler` (`application/problem+json` con `code` y `correlationId`), `SecurityConfig` (sin estado; resource
   server JWT HS256; todo requiere token salvo health y login/refresh/logout; 401/403 también en `problem+json`; CORS por lista blanca, ver «CORS»).
 - `identity` (autenticación y autorización, ver «Autenticación» abajo): login, renovación con rotación, cierre de sesión,
-  `/auth/me`, alta de personal por el coordinador, bloqueo por intentos, `PlayerAccessPolicy` (acudiente-jugador).
+  `/auth/me`, alta de personal por el coordinador, bloqueo por intentos, `PlayerAccessPolicy` (acudiente-jugador y, por clase de dato, entrenador titular y evaluador asignado; ver «Alcance del personal deportivo»).
 - `players` (inscripción, ver «Inscripción» abajo): autorregistro de acudientes (en `identity`), convocatorias abiertas, radicación
   de inscripciones con consentimientos (en `documents`) y consulta de jugadores filtrada por `PlayerAccessPolicy`.
 - `players` (administración, ver «Convocatorias y temporadas» abajo): el coordinador crea y activa temporadas; crea, edita,
@@ -90,6 +90,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 | Procesador de notificaciones (`notifications`, `NotificationRulesTest`, `NotificationsIT`) | Sin migración nueva (usa V11). Las sentencias SQL del reclamo (CTE con `FOR UPDATE SKIP LOCKED` y arriendo), del registro de resultado (guardas de estado e intento) y de la evidencia (`ON CONFLICT DO NOTHING`, inmutabilidad) ejecutadas sobre PostgreSQL 16 real con migraciones V1..V17: dos sesiones simultáneas reclamaron 20 y 20 avisos sin solaparse, un segundo reclamo no devolvió nada mientras duraba el arriendo y un resultado tardío no pisó al registrado; dominio y casos de uso compilados con `javac -Xlint:all`; las 18 pruebas de `NotificationRulesTest` ejecutadas con un sustituto mínimo de JUnit y AssertJ; configuración, remitentes y programador comprobados de tipos con sustitutos de Spring; sintaxis de `NotificationsIT` y del adaptador JDBC analizada con el parser de `javac`. **No** se probó contra un servidor SMTP real | **Verificado:** `mvn verify` en BUILD SUCCESS a la primera en Windows 11, JDK 24, Maven 3.10.0, Docker Desktop (2026-11-12): 298 pruebas unitarias y 127 de integración, 0 fallos (`NotificationsIT`: 11) |
 | Documentos y vigencias (`documents`, `players`, `notifications`, `DocumentRulesTest`, `PlayerDocumentServiceTest`, `ExpiryAlertServiceTest`, `DocumentsIT`) | Sin migración nueva (usa V7). Todas las sentencias SQL del almacén (alta de tipo con arreglo `text[]` o `NULL`, numeración de versiones con subconsulta, vista de vigentes, trigger de solo inserción, documentos obligatorios faltantes, vencimientos en ventana con jugadores en curso, ventana general o del jugador, entrenador titular, archivo de salud) ejecutadas sobre PostgreSQL 16 real con V1..V17; dominio, aplicación y fachadas compilados con `javac -Xlint:all`; 16 pruebas de reglas y de servicio (ventana, vencimiento, acceso a salud, auditoría) y 3 de alertas ejecutadas con un sustituto mínimo de JUnit y AssertJ, más la plantilla de vencimiento en `NotificationRulesTest` (19 en total); OpenAPI validado (71 rutas, 116 esquemas, referencias resueltas). Controladores, adaptador JDBC y `DocumentsIT` **no** se compilaron contra Spring en el sandbox | **Verificado** el 12/11/2026 en el pipeline de GitHub Actions (PR #15): `mvn verify` en BUILD SUCCESS con 319 pruebas unitarias y 132 de integración, 0 fallos, incluidas `DocumentsIT` (5), `PaymentsIT` (4) y `OpenApiContractTest` (16); imagen Docker y smoke test en verde. La ejecución local en Windows 11 aportada por el usuario mostró 127 pruebas de integración, la cifra anterior a este incremento, así que no se cuenta como verificación de `DocumentsIT` |
 | CORS (`shared.security`, `CorsOriginsTest`, `CorsIT`) | Reglas de la lista blanca (`CorsOrigins`, `CorsProperties`): 8 pruebas unitarias ejecutadas con un sustituto mínimo de JUnit y AssertJ; los 3 archivos nuevos y el modificado pasan el análisis sintáctico y los YAML son válidos. `CorsConfig`, `SecurityConfig` y `CorsIT` no se compilaron contra Spring en el sandbox | **Verificado** el 12/11/2026 en el pipeline de GitHub Actions (PR #16): `mvn verify` en BUILD SUCCESS con 327 pruebas unitarias y 139 de integración, 0 fallos, incluidas `CorsOriginsTest` (8) y `CorsIT` (7); imagen Docker y smoke test en verde |
+| Alcance del personal deportivo (`identity`, `players`, `attendance`, `competitions`, `PlayerAccessServiceTest`, `PlayerQueryServiceTest`, `StaffScopeIT`) | Sin migración nueva. Las consultas de entrenador titular y evaluador vigentes y el filtro del listado ejecutados sobre PostgreSQL 16 real con V1..V17 (incluida la vigencia terminada); `PlayerAccessService` y `PlayerQueryService` compilados y 19 pruebas unitarias (12 de política, 7 de consulta) ejecutadas con un sustituto mínimo de JUnit y AssertJ; OpenAPI validado (71 rutas, 116 esquemas). Controladores, `JdbcPlayerStore`, `JdbcStaffAssignments` y `StaffScopeIT` no se compilaron contra Spring en el sandbox | **Verificado** el 12/11/2026 en el pipeline de GitHub Actions (PR #17): `mvn verify` en BUILD SUCCESS con 336 pruebas unitarias y 147 de integración, 0 fallos, incluidas `PlayerAccessServiceTest` (12), `PlayerQueryServiceTest` (7), `StaffScopeIT` (8) y `EnrollmentIT` (14); imagen Docker y smoke test en verde |
 | Contenedor e integración continua (`Dockerfile`, `.github/workflows/backend-ci.yml`) | El pipeline es su propia verificación: se ejecutó en GitHub Actions sobre el PR | **Verificado:** `mvn verify` (unitarias + integración con Testcontainers), construcción de la imagen y smoke test (health `UP`, login del coordinador de desarrollo, 401 sin token) en verde (2026-11-12). La primera ejecución falló por Docker Engine 29 (ver «Contenedor e integración continua») |
 | Código Spring (filtro, handler, seguridad, `JdbcAuditWriter`), `ArchitectureTest`, unitarias | `mvn test` en Windows 11, JDK 24 (compila con `--release 21`), Maven 3.10.0 | Ejecutado: OK (19 pruebas, 0 fallos) |
 | `*IT` con Testcontainers (`DatabaseSchemaIT`, `AuditWriterIT`) | `mvn verify`, Docker Desktop 4.98 / Engine 29.9.2 | Ejecutado: OK (7 pruebas, 0 fallos) |
@@ -217,6 +218,33 @@ verificación previa de 1 hora. Una solicitud de otro origen recibe 403 sin cabe
 autorizado sí las llevan para que el front pueda leer el error.
 
 **Supuestos a confirmar.** El dominio real del front y si habrá más de un origen (por ejemplo, vista previa de Figma Make).
+
+## Alcance del personal deportivo (identity, players, attendance, competitions)
+
+Hasta ahora el entrenador y el evaluador no veían a ningún jugador. `PlayerAccessPolicy` conserva `canAccess` (acceso completo:
+coordinador, comité y acudiente vinculado) y añade `canView(usuario, roles, jugador, PlayerData)`, el acceso **por clase de dato**.
+Los módulos que exponen pagos, documentos o contacto siguen usando `canAccess`, así que el personal deportivo no los ve.
+
+| Rol (con asignación vigente) | Datos básicos (`GET /players/{id}`) | Asistencia (`GET /players/{id}/attendance`) | Partidos (`GET /players/{id}/matches`) | Listado (`GET /players`) |
+|---|---|---|---|---|
+| Entrenador titular del jugador | Sí | Sí | Sí | Sus jugadores |
+| Integrante del panel de evaluación (rol `EVALUATOR` o `COACH`) | Sí | No (403/404) | No (403/404) | Sus jugadores evaluados |
+| Cualquiera de ellos sobre un jugador ajeno | 404 | 404 | 404 | No aparece |
+
+**Datos básicos** = código, nombre, fecha de nacimiento, estado y fecha de alta. Para estos roles `documentType` y `documentNumber`
+se omiten y `enrollments` va vacío (las inscripciones traen datos del acudiente). Pagos (`/account`), documentos y consentimientos
+siguen cerrados; los documentos de salud del entrenador titular ya los resolvía `documents`. Sin acceso y sin existencia responden igual (404).
+
+**Vigencia.** Entrenador titular = `category_assignments` vigente (`head_coach_id`); evaluador = `evaluator_assignments` vigente, ambas con
+el reloj de la base de datos. El acceso termina al cerrar la asignación o al cambiar al jugador de categoría. Los roles salen del token
+(15 min), como en el resto de la API. `identity` consulta esas dos tablas con SQL de solo lectura (`JdbcStaffAssignments`) para no depender de
+las clases de `players`; un cambio en ellas obliga a revisar esas dos consultas.
+
+**Supuestos a confirmar con el club.** (1) El evaluador solo ve datos básicos más su propia ronda (decisión del cliente en esta sesión).
+(2) El entrenador ve asistencia y partidos de sus jugadores, no el estado de mora. (3) Un usuario con rol de acudiente y de personal
+conserva el alcance de acudiente en el listado.
+
+**Pendiente.** Mora como «sí/no» para el entrenador (decisión de esta sesión: no); evaluaciones y asistencia del periodo dentro de la ronda del evaluador.
 
 ## Inscripción (players)
 
@@ -627,5 +655,5 @@ registro, despliegue, y que `main` exija el pipeline en verde (protección de ra
 ## Siguiente paso
 
 Siguiente incremento: avisos de agenda (correo al programar, reprogramar y cancelar sesiones y partidos, recordatorios a 24 h y 2 h e
-invitación `.ics`), luego sesiones recurrentes, alcance de entrenador y evaluador en `PlayerAccessPolicy` (requiere decidir qué datos ve cada rol),
+invitación `.ics`), luego sesiones recurrentes,
 exportaciones, seguridad (recuperación de contraseña, verificación de correo, límite de tasa) y puertas de calidad. CORS ya está resuelto. CU-10 y CU-11 quedan con plantilla provisional hasta que el club defina P-09.

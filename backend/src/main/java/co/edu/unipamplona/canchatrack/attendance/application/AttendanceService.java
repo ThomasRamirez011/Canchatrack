@@ -19,6 +19,7 @@ import co.edu.unipamplona.canchatrack.attendance.domain.FieldError;
 import co.edu.unipamplona.canchatrack.audit.api.AuditRecord;
 import co.edu.unipamplona.canchatrack.audit.api.AuditWriter;
 import co.edu.unipamplona.canchatrack.identity.api.PlayerAccessPolicy;
+import co.edu.unipamplona.canchatrack.identity.api.PlayerData;
 import co.edu.unipamplona.canchatrack.players.api.CategoryRoster;
 import co.edu.unipamplona.canchatrack.players.api.RosterPlayer;
 import co.edu.unipamplona.canchatrack.scheduling.api.EventDirectory;
@@ -185,7 +186,7 @@ public class AttendanceService {
     /** Asistencia acumulada del jugador. Sin acceso y sin existencia responden igual (404). */
     @Transactional(readOnly = true)
     public PlayerAttendanceSummary summary(UUID userId, Set<String> roles, UUID playerId) {
-        if (!access.canAccess(userId, roles, playerId)) {
+        if (!access.canView(userId, roles, playerId, PlayerData.ATTENDANCE)) {
             throw new DomainException(ErrorCode.RESOURCE_NOT_FOUND, "El jugador no existe.");
         }
         return store.summaryOf(playerId)

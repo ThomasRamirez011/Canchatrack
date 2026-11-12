@@ -9,6 +9,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 import co.edu.unipamplona.canchatrack.identity.api.PlayerAccessPolicy;
+import co.edu.unipamplona.canchatrack.identity.api.PlayerData;
 import co.edu.unipamplona.canchatrack.identity.api.PlayerScope;
 import co.edu.unipamplona.canchatrack.players.application.Fakes.InMemoryEnrollments;
 import co.edu.unipamplona.canchatrack.players.application.Fakes.InMemoryPlayers;
@@ -78,6 +79,55 @@ class PlayerQueryServiceTest {
 
         assertThat(view.player().code()).isEqualTo(seeded.code());
         assertThat(view.enrollments()).hasSize(1);
+    }
+
+    @Test
+    void staffWithOnlyBasicAccessGetsNoIdentityDocumentAndNoEnrollments() {
+        var seeded = players.seed("TI-9", PlayerStatus.ACTIVE, null);
+        UUID id = seeded.id();
+        enrollments.insert(id, UUID.randomUUID(), UUID.randomUUID(), null, someUser);
+        PlayerQueryService staff = new PlayerQueryService(players, enrollments, new PlayerAccessPolicy() {
+            @Override
+            public boolean canAccess(UUID userId, Set<String> roleCodes, UUID playerId) {
+                return false;
+            }
+
+            @Override
+            public boolean canView(UUID userId, Set<String> roleCodes, UUID playerId, PlayerData data) {
+                return data == PlayerData.BASIC && playerId.equals(id);
+            }
+
+            @Override
+            public PlayerScope scopeOf(Set<String> roleCodes) {
+                return PlayerScope.ASSIGNED_STAFF;
+            }
+        });
+
+        PlayerWithEnrollments view = staff.get(someUser, Set.of("COACH"), id);
+
+        assertThat(view.player().code()).isEqualTo(seeded.code());
+        assertThat(view.player().documentType()).isNull();
+        assertThat(view.player().documentNumber()).isNull();
+        assertThat(view.enrollments()).isEmpty();
+        assertThat(thrown(() -> staff.get(someUser, Set.of("COACH"), UUID.randomUUID())).getCode())
+                .isEqualTo(ErrorCode.RESOURCE_NOT_FOUND);
+    }
+
+    @Test
+    void assignedStaffMayList() {
+        PlayerQueryService staff = new PlayerQueryService(players, enrollments, new PlayerAccessPolicy() {
+            @Override
+            public boolean canAccess(UUID userId, Set<String> roleCodes, UUID playerId) {
+                return false;
+            }
+
+            @Override
+            public PlayerScope scopeOf(Set<String> roleCodes) {
+                return PlayerScope.ASSIGNED_STAFF;
+            }
+        });
+
+        assertThat(staff.list(someUser, Set.of("COACH"), null, 0, 20).items()).isEmpty();
     }
 
     @Test

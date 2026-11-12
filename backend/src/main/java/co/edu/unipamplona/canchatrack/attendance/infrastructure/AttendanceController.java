@@ -74,7 +74,7 @@ public class AttendanceController {
     }
 
     @GetMapping("/players/{playerId}/attendance")
-    @PreAuthorize("hasAnyRole('COORDINATOR', 'COMMITTEE', 'GUARDIAN')")
+    @PreAuthorize("hasAnyRole('COORDINATOR', 'COMMITTEE', 'GUARDIAN', 'COACH')")
     public SummaryResponse summary(@PathVariable UUID playerId) {
         AuthenticatedUser user = CurrentUser.require();
         return SummaryResponse.from(attendance.summary(user.id(), user.roles(), playerId));
