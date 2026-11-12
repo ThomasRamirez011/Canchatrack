@@ -41,7 +41,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
   bloquea decisiones (`CT003`), anulaciones y ajustes coherentes de pagos y cargos (`CT004`), justificación obligatoria si el concepto no es favorable.
 - `shared`: `ErrorCode` (los 14 códigos del DDS 13 + 9 adiciones), `DomainException`, `CorrelationIdFilter`,
   `ApiExceptionHandler` (`application/problem+json` con `code` y `correlationId`), `SecurityConfig` (sin estado; resource
-  server JWT HS256; todo requiere token salvo health y login/refresh/logout; 401/403 también en `problem+json`).
+  server JWT HS256; todo requiere token salvo health y login/refresh/logout; 401/403 también en `problem+json`; CORS por lista blanca, ver «CORS»).
 - `identity` (autenticación y autorización, ver «Autenticación» abajo): login, renovación con rotación, cierre de sesión,
   `/auth/me`, alta de personal por el coordinador, bloqueo por intentos, `PlayerAccessPolicy` (acudiente-jugador).
 - `players` (inscripción, ver «Inscripción» abajo): autorregistro de acudientes (en `identity`), convocatorias abiertas, radicación
@@ -89,6 +89,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 | Informe de temporada y cierre del expediente (V17, `reports`, `players`, `documents`, `SeasonClosureIT`, `SeasonReportRulesTest`, `SeasonReportPdfRendererTest`) | V17 y `schema-invariants.sql` sobre PostgreSQL 16 real (clave compuesta informe-jugador-temporada, un cierre vigente por temporada, reapertura de una sola vez, inmutabilidad); las siembras de `SeasonClosureIT` y todas las consultas del almacén (último cierre, asistencia, rondas, partidos, «cambió después del informe», inserciones con `RETURNING`) ejecutadas contra esa base con los triggers reales; dominio y casos de uso compilados con `javac -Xlint:all`; el PDF generado se comprobó con `qpdf --check`, `pypdf` y `pdftotext` (2 a 4 páginas, tildes y ñ, paréntesis y barras escapados, mismos bytes ante el mismo contenido) y las propiedades que afirma `SeasonReportPdfRendererTest` se reprodujeron sobre esos PDF; OpenAPI validado con `openapi-spec-validator` (65 rutas, 108 esquemas) | **Verificado:** `mvn test` y `mvn verify` (`SeasonClosureIT` incluida) en BUILD SUCCESS a la primera en Windows 11, JDK 24, Maven 3.10.0, Docker Desktop (2026-11-12) |
 | Procesador de notificaciones (`notifications`, `NotificationRulesTest`, `NotificationsIT`) | Sin migración nueva (usa V11). Las sentencias SQL del reclamo (CTE con `FOR UPDATE SKIP LOCKED` y arriendo), del registro de resultado (guardas de estado e intento) y de la evidencia (`ON CONFLICT DO NOTHING`, inmutabilidad) ejecutadas sobre PostgreSQL 16 real con migraciones V1..V17: dos sesiones simultáneas reclamaron 20 y 20 avisos sin solaparse, un segundo reclamo no devolvió nada mientras duraba el arriendo y un resultado tardío no pisó al registrado; dominio y casos de uso compilados con `javac -Xlint:all`; las 18 pruebas de `NotificationRulesTest` ejecutadas con un sustituto mínimo de JUnit y AssertJ; configuración, remitentes y programador comprobados de tipos con sustitutos de Spring; sintaxis de `NotificationsIT` y del adaptador JDBC analizada con el parser de `javac`. **No** se probó contra un servidor SMTP real | **Verificado:** `mvn verify` en BUILD SUCCESS a la primera en Windows 11, JDK 24, Maven 3.10.0, Docker Desktop (2026-11-12): 298 pruebas unitarias y 127 de integración, 0 fallos (`NotificationsIT`: 11) |
 | Documentos y vigencias (`documents`, `players`, `notifications`, `DocumentRulesTest`, `PlayerDocumentServiceTest`, `ExpiryAlertServiceTest`, `DocumentsIT`) | Sin migración nueva (usa V7). Todas las sentencias SQL del almacén (alta de tipo con arreglo `text[]` o `NULL`, numeración de versiones con subconsulta, vista de vigentes, trigger de solo inserción, documentos obligatorios faltantes, vencimientos en ventana con jugadores en curso, ventana general o del jugador, entrenador titular, archivo de salud) ejecutadas sobre PostgreSQL 16 real con V1..V17; dominio, aplicación y fachadas compilados con `javac -Xlint:all`; 16 pruebas de reglas y de servicio (ventana, vencimiento, acceso a salud, auditoría) y 3 de alertas ejecutadas con un sustituto mínimo de JUnit y AssertJ, más la plantilla de vencimiento en `NotificationRulesTest` (19 en total); OpenAPI validado (71 rutas, 116 esquemas, referencias resueltas). Controladores, adaptador JDBC y `DocumentsIT` **no** se compilaron contra Spring en el sandbox | **Verificado** el 12/11/2026 en el pipeline de GitHub Actions (PR #15): `mvn verify` en BUILD SUCCESS con 319 pruebas unitarias y 132 de integración, 0 fallos, incluidas `DocumentsIT` (5), `PaymentsIT` (4) y `OpenApiContractTest` (16); imagen Docker y smoke test en verde. La ejecución local en Windows 11 aportada por el usuario mostró 127 pruebas de integración, la cifra anterior a este incremento, así que no se cuenta como verificación de `DocumentsIT` |
+| CORS (`shared.security`, `CorsOriginsTest`, `CorsIT`) | Reglas de la lista blanca (`CorsOrigins`, `CorsProperties`): 8 pruebas unitarias ejecutadas con un sustituto mínimo de JUnit y AssertJ; los 3 archivos nuevos y el modificado pasan el análisis sintáctico y los YAML son válidos. `CorsConfig`, `SecurityConfig` y `CorsIT` **no** se compilaron contra Spring en el sandbox | **Pendiente:** `mvn verify` en Windows 11 y pipeline de GitHub Actions |
 | Contenedor e integración continua (`Dockerfile`, `.github/workflows/backend-ci.yml`) | El pipeline es su propia verificación: se ejecutó en GitHub Actions sobre el PR | **Verificado:** `mvn verify` (unitarias + integración con Testcontainers), construcción de la imagen y smoke test (health `UP`, login del coordinador de desarrollo, 401 sin token) en verde (2026-11-12). La primera ejecución falló por Docker Engine 29 (ver «Contenedor e integración continua») |
 | Código Spring (filtro, handler, seguridad, `JdbcAuditWriter`), `ArchitectureTest`, unitarias | `mvn test` en Windows 11, JDK 24 (compila con `--release 21`), Maven 3.10.0 | Ejecutado: OK (19 pruebas, 0 fallos) |
 | `*IT` con Testcontainers (`DatabaseSchemaIT`, `AuditWriterIT`) | `mvn verify`, Docker Desktop 4.98 / Engine 29.9.2 | Ejecutado: OK (7 pruebas, 0 fallos) |
@@ -194,6 +195,28 @@ poder probar sin configurar nada. **Nunca despliegue con el perfil por defecto (
 4. HS256 usa una clave simétrica: basta mientras un único servicio emite y valida. Si otro servicio debe validar sin poder
    emitir, migrar a RS256/ES256 sin cambiar el contrato.
 5. El origen (IP) de auditoría depende de `server.forward-headers-strategy` (activo en prod) detrás del proxy inverso.
+
+## CORS (shared.security)
+
+El front (Next.js) corre en otro origen que la API, así que el navegador exige CORS. La política es una **lista blanca exacta**,
+sin comodines y sin credenciales de navegador (la autenticación es el token en `Authorization`, nunca una cookie).
+
+| Propiedad / variable | Valor |
+|---|---|
+| `canchatrack.security.cors.allowed-origins` / `CORS_ALLOWED_ORIGINS` | Orígenes separados por coma (`https://app.club.example`). **Vacío por defecto**: sin orígenes no se emite ninguna cabecera CORS. |
+| Perfil `dev` | `http://localhost:3000` y `http://localhost:5173` si la variable no está definida. |
+| Perfil `prod` | Solo lo que traiga `CORS_ALLOWED_ORIGINS`; sin valor, el navegador bloquea las llamadas entre orígenes. |
+
+**Reglas.** Un origen es `esquema://host[:puerto]` sin ruta, barra final, consulta ni credenciales. Fuera de `localhost`,
+`127.0.0.1` y `[::1]` se exige `https`. Un valor inválido (incluido `*`) **impide arrancar** y el mensaje enumera todos los problemas.
+
+**Comportamiento.** Aplica a `/api/v1/**`. La verificación previa (`OPTIONS`) no exige token. Métodos `GET`, `POST`, `PUT`, `PATCH`,
+`DELETE`, `OPTIONS`; cabeceras de solicitud `Authorization`, `Content-Type`, `Accept`, `Idempotency-Key` y `X-Correlation-Id`;
+cabeceras legibles por el front `Content-Disposition` (descargas), `X-Correlation-Id`, `Retry-After` y `Location`; caché de la
+verificación previa de 1 hora. Una solicitud de otro origen recibe 403 sin cabeceras CORS; las respuestas 401/403 al origen
+autorizado sí las llevan para que el front pueda leer el error.
+
+**Supuestos a confirmar.** El dominio real del front y si habrá más de un origen (por ejemplo, vista previa de Figma Make).
 
 ## Inscripción (players)
 
@@ -604,5 +627,5 @@ registro, despliegue, y que `main` exija el pipeline en verde (protección de ra
 ## Siguiente paso
 
 Siguiente incremento: avisos de agenda (correo al programar, reprogramar y cancelar sesiones y partidos, recordatorios a 24 h y 2 h e
-invitación `.ics`), luego sesiones recurrentes, alcance de entrenador y evaluador en `PlayerAccessPolicy`, exportaciones, seguridad
-(CORS, recuperación de contraseña, verificación de correo) y puertas de calidad. CU-10 y CU-11 quedan con plantilla provisional hasta que el club defina P-09.
+invitación `.ics`), luego sesiones recurrentes, alcance de entrenador y evaluador en `PlayerAccessPolicy` (requiere decidir qué datos ve cada rol),
+exportaciones, seguridad (recuperación de contraseña, verificación de correo, límite de tasa) y puertas de calidad. CORS ya está resuelto. CU-10 y CU-11 quedan con plantilla provisional hasta que el club defina P-09.
