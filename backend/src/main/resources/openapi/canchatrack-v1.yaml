@@ -38,6 +38,8 @@ tags:
     description: Escenarios y agenda de entrenamientos y evaluaciones, con detección de cruces (RN-14).
   - name: attendance
     description: Asistencia por sesión con sincronización idempotente, cierre y corrección auditada (RN-15).
+  - name: evaluations
+    description: Rondas de evaluación, conceptos independientes de los tres evaluadores, unanimidad y ascenso de categoría.
   - name: enrollments
     description: Radicación de inscripciones por el acudiente.
   - name: players
@@ -1130,6 +1132,178 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /players/{playerId}/evaluation-rounds:
+    post:
+      tags: [evaluations]
+      operationId: openEvaluationRound
+      summary: Abre una ronda de evaluación sobre un periodo (solo coordinador).
+      description: |
+        Solo procede para un jugador ACTIVO con exactamente tres evaluadores vigentes (cuentas activas con rol admitido en
+        el panel). El jugador pasa a IN_EVALUATION y solo puede tener una ronda abierta. El vencimiento es obligatorio y futuro.
+      parameters:
+        - { name: playerId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OpenRoundRequest' }
+      responses:
+        '201':
+          description: Ronda abierta.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoundResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    get:
+      tags: [evaluations, players]
+      operationId: listEvaluationRounds
+      summary: Rondas del jugador, la más reciente primero, sin conceptos.
+      description: |
+        Coordinador y comité las ven siempre; un evaluador, solo las de los jugadores de su panel (si no, 404).
+      parameters:
+        - { name: playerId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Rondas.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RoundResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /evaluation-rounds/{roundId}:
+    get:
+      tags: [evaluations]
+      operationId: getEvaluationRound
+      summary: Detalle de una ronda con sus conceptos.
+      description: |
+        Coordinador y comité ven todos los conceptos y la vista previa de unanimidad (`outcome`). Un evaluador del panel ve
+        solo el suyo mientras la ronda está abierta y todos cuando se cierra (independencia de criterio).
+      parameters:
+        - { name: roundId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Ronda.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoundResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /evaluation-rounds/{roundId}/decision:
+    put:
+      tags: [evaluations]
+      operationId: decideEvaluation
+      summary: Emite o ajusta el concepto propio del evaluador (RN-08).
+      description: |
+        Solo un integrante del panel del jugador decide, y solo por sí mismo; la coordinación no puede emitir ni modificar
+        conceptos (RN-10). El concepto se registra sobre el periodo vigente de la ronda y puede ajustarse mientras esté abierta;
+        cada versión anterior queda en el historial. Un concepto FOLLOW_UP_REQUIRED o UNFAVORABLE exige `justification` y
+        `actions` (RN-11, código NEGATIVE_REASON_REQUIRED). Quien no integra el panel recibe PANEL_INVALID.
+      parameters:
+        - { name: roundId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DecisionRequest' }
+      responses:
+        '200':
+          description: Concepto registrado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DecisionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /evaluation-rounds/{roundId}/period:
+    put:
+      tags: [evaluations]
+      operationId: changeEvaluationPeriod
+      summary: Cambia el periodo de una ronda abierta con motivo (solo coordinador).
+      description: |
+        Los conceptos emitidos sobre el periodo anterior dejan de contar para la unanimidad (`current` falso) y los
+        evaluadores deben emitirlos de nuevo. Sin `dueAt` se conserva el vencimiento.
+      parameters:
+        - { name: roundId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChangePeriodRequest' }
+      responses:
+        '200':
+          description: Ronda con el periodo nuevo.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoundResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /evaluation-rounds/{roundId}/close:
+    post:
+      tags: [evaluations]
+      operationId: closeEvaluationRound
+      summary: Cierra la ronda según la unanimidad (solo coordinador).
+      description: |
+        Con tres conceptos favorables vigentes el ascenso queda aprobado (jugador en PROMOTION_APPROVED). Con alguno
+        desfavorable o con seguimiento, o con conceptos faltantes ya vencida la ronda, el jugador vuelve a ACTIVE y
+        `followUpPlan` es obligatorio (RN-12). Con conceptos faltantes y la ronda vigente responde 409.
+      parameters:
+        - { name: roundId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CloseRoundRequest' }
+      responses:
+        '200':
+          description: Ronda cerrada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoundResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /players/{playerId}/promotion:
+    post:
+      tags: [evaluations, players]
+      operationId: promotePlayer
+      summary: Ejecuta el ascenso aprobado a la categoría siguiente (solo coordinador).
+      description: |
+        Exige el jugador en PROMOTION_APPROVED y cupo en la categoría destino (CATEGORY_FULL si no). Sin
+        `targetCategoryId` se usa la categoría siguiente de la actual. La asignación anterior se cierra sin borrarse
+        (historial conservado) y el panel de evaluadores se mantiene.
+      parameters:
+        - { name: playerId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PromoteRequest' }
+      responses:
+        '200':
+          description: Ascenso ejecutado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PromotionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
 components:
   securitySchemes:
     bearerAuth:
@@ -1806,6 +1980,92 @@ components:
           - IDEMPOTENCY_KEY_REQUIRED
           - IDEMPOTENCY_KEY_REUSED
           - INTERNAL_ERROR
+    OpenRoundRequest:
+      type: object
+      required: [periodStart, periodEnd, dueAt]
+      properties:
+        periodStart: { type: string, format: date }
+        periodEnd: { type: string, format: date }
+        dueAt: { type: string, format: date-time, description: Vencimiento de la ronda; debe ser futuro. }
+    ChangePeriodRequest:
+      type: object
+      required: [periodStart, periodEnd, reason]
+      properties:
+        periodStart: { type: string, format: date }
+        periodEnd: { type: string, format: date }
+        dueAt: { type: string, format: date-time, description: Nuevo vencimiento; si se omite se conserva. }
+        reason: { type: string, maxLength: 2000 }
+    EvaluationVerdict:
+      type: string
+      enum: [FAVORABLE, FOLLOW_UP_REQUIRED, UNFAVORABLE]
+    DecisionRequest:
+      type: object
+      required: [verdict]
+      properties:
+        verdict: { $ref: '#/components/schemas/EvaluationVerdict' }
+        justification: { type: string, maxLength: 2000, description: Obligatoria si el concepto no es favorable. }
+        actions: { type: string, maxLength: 2000, description: Acciones concretas; obligatorias si el concepto no es favorable. }
+        criteria:
+          type: object
+          maxProperties: 40
+          additionalProperties: true
+          description: Criterios de la rúbrica del club (pendiente P-06); estructura libre.
+    DecisionResponse:
+      type: object
+      required: [id, roundId, evaluatorId, verdict, periodStart, periodEnd, current, decidedAt]
+      properties:
+        id: { type: string, format: uuid }
+        roundId: { type: string, format: uuid }
+        evaluatorId: { type: string, format: uuid }
+        verdict: { $ref: '#/components/schemas/EvaluationVerdict' }
+        justification: { type: string }
+        actions: { type: string }
+        criteria: { type: object, additionalProperties: true }
+        periodStart: { type: string, format: date }
+        periodEnd: { type: string, format: date }
+        current: { type: boolean, description: Verdadero si se emitió sobre el periodo vigente de la ronda. }
+        decidedAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    CloseRoundRequest:
+      type: object
+      properties:
+        followUpPlan: { type: string, maxLength: 2000, description: Obligatorio si la ronda no termina en ascenso. }
+    RoundResponse:
+      type: object
+      required: [id, playerId, periodStart, periodEnd, status]
+      properties:
+        id: { type: string, format: uuid }
+        playerId: { type: string, format: uuid }
+        periodStart: { type: string, format: date }
+        periodEnd: { type: string, format: date }
+        dueAt: { type: string, format: date-time }
+        status: { type: string, enum: [OPEN, CLOSED] }
+        result: { type: string, enum: [APPROVED, FOLLOW_UP], description: Solo en rondas cerradas. }
+        followUpPlan: { type: string }
+        closedAt: { type: string, format: date-time }
+        outcome:
+          type: string
+          enum: [PENDING, FOLLOW_UP, APPROVED]
+          description: Vista previa de la unanimidad. Solo coordinador y comité, y solo con la ronda abierta.
+        decisions:
+          type: array
+          description: Ausente en los listados.
+          items: { $ref: '#/components/schemas/DecisionResponse' }
+    PromoteRequest:
+      type: object
+      required: [headCoachId]
+      properties:
+        targetCategoryId: { type: string, format: uuid, description: Si se omite, la categoría siguiente de la actual. }
+        headCoachId: { type: string, format: uuid }
+    PromotionResponse:
+      type: object
+      required: [playerId, previousCategoryId, categoryId, categoryName, headCoachId]
+      properties:
+        playerId: { type: string, format: uuid }
+        previousCategoryId: { type: string, format: uuid }
+        categoryId: { type: string, format: uuid }
+        categoryName: { type: string }
+        headCoachId: { type: string, format: uuid }
   responses:
     BadRequest:
       description: Solicitud mal formada.
