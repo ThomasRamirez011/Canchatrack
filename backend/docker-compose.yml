@@ -1,5 +1,8 @@
 # PostgreSQL para desarrollo local:  docker compose up -d
 # Coincide con los valores por defecto de application-dev.yml.
+# Si el puerto 5432 está ocupado (p. ej. por un PostgreSQL instalado en Windows):
+#   $env:DB_PORT=5433; docker compose up -d      y luego      $env:DB_URL="jdbc:postgresql://localhost:5433/canchatrack"
+# Backend completo en contenedor (perfil dev, credenciales desechables):  docker compose --profile app up --build
 services:
   db:
     image: postgres:16-alpine
@@ -9,7 +12,7 @@ services:
       POSTGRES_USER: canchatrack
       POSTGRES_PASSWORD: canchatrack_dev
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - canchatrack-pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -18,5 +21,21 @@ services:
       timeout: 3s
       retries: 10
 
+  # Opcional (perfil `app`): el backend en su imagen de producción pero con el perfil dev. No usar fuera de la máquina local.
+  app:
+    profiles: ["app"]
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      DB_URL: jdbc:postgresql://db:5432/canchatrack
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    volumes:
+      - canchatrack-files:/data/files
+
 volumes:
   canchatrack-pgdata:
+  canchatrack-files:

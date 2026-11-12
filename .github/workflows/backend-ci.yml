@@ -1,0 +1,117 @@
+# Pipeline del backend: pruebas completas (unitarias + integración con Testcontainers) y construcción de la imagen con un
+# smoke test del contenedor. Solo corre cuando cambia backend/ o este archivo; el frontend (Figma Make) no lo dispara.
+name: backend-ci
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+  workflow_dispatch:
+
+# Una ejecución nueva sobre la misma rama cancela la anterior.
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: mvn verify (unitarias + integración)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+
+      # Docker Engine 29 exige API >= 1.40 y el docker-java de Testcontainers 1.21.x usa 1.32 por defecto.
+      # Mismo arreglo que en las máquinas de desarrollo: fijar la versión de la API.
+      - name: Compatibilidad de Testcontainers con Docker Engine 29
+        working-directory: .
+        run: echo "api.version=1.44" > ~/.docker-java.properties
+
+      # Surefire (*Test: dominio, ArchUnit, contrato OpenAPI) y Failsafe (*IT: PostgreSQL 16 real con Testcontainers).
+      # ubuntu-latest trae Docker, que Testcontainers necesita.
+      - name: Compilar y probar
+        run: mvn -B -ntp verify
+
+      - name: Subir informes de pruebas
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: informes-de-pruebas
+          path: |
+            backend/target/surefire-reports
+            backend/target/failsafe-reports
+          retention-days: 7
+
+  image:
+    name: imagen Docker + smoke test
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Construir la imagen
+        run: docker build -t canchatrack-backend:ci backend
+
+      - name: Smoke test del contenedor (perfil dev contra PostgreSQL 16)
+        run: |
+          set -euo pipefail
+          docker network create ci-net
+          docker run -d --name ci-db --network ci-net \
+            -e POSTGRES_DB=canchatrack -e POSTGRES_USER=canchatrack -e POSTGRES_PASSWORD=canchatrack_dev \
+            postgres:16-alpine
+          for i in $(seq 1 30); do
+            docker exec ci-db pg_isready -U canchatrack -d canchatrack >/dev/null 2>&1 && break
+            sleep 2
+          done
+          docker run -d --name ci-app --network ci-net -p 8080:8080 \
+            -e SPRING_PROFILES_ACTIVE=dev -e DB_URL=jdbc:postgresql://ci-db:5432/canchatrack \
+            canchatrack-backend:ci
+
+          status=""
+          for i in $(seq 1 60); do
+            status=$(curl -s http://localhost:8080/actuator/health || true)
+            echo "$status" | grep -q '"status":"UP"' && break
+            sleep 3
+          done
+          echo "health: $status"
+          echo "$status" | grep -q '"status":"UP"' || { docker logs ci-app | tail -80; exit 1; }
+
+          # Las migraciones corrieron y el coordinador de desarrollo puede iniciar sesión.
+          login=$(curl -s -o /tmp/login.json -w '%{http_code}' -X POST http://localhost:8080/api/v1/auth/login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"coordinador@canchatrack.local","password":"Dev-Only-Change-Me-1"}')
+          echo "login: $login"
+          [ "$login" = "200" ] || { cat /tmp/login.json; docker logs ci-app | tail -80; exit 1; }
+
+          # Sin token, la API responde 401 (seguridad activa en la imagen).
+          anon=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/v1/players)
+          echo "anónimo: $anon"
+          [ "$anon" = "401" ]
+
+      - name: Registros del contenedor si algo falló
+        if: failure()
+        run: docker logs ci-app 2>&1 | tail -150 || true
+
+      - name: Limpiar
+        if: always()
+        run: docker rm -f ci-app ci-db 2>/dev/null || true
