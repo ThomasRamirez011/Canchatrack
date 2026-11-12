@@ -177,6 +177,34 @@ class OpenApiContractTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void schedulingAndAttendanceEndpointsAreDocumentedAndTheirResponsesMatchTheDtos() throws Exception {
+        Map<String, Object> spec = load();
+        Map<String, Object> paths = (Map<String, Object>) spec.get("paths");
+        Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) spec.get("components")).get("schemas");
+
+        assertThat(paths.keySet()).contains("/venues", "/events", "/events/{eventId}", "/events/{eventId}/cancel",
+                "/events/{eventId}/attendance", "/events/{eventId}/attendance/close",
+                "/events/{eventId}/attendance/corrections", "/players/{playerId}/attendance");
+        assertThat(((Map<String, Object>) paths.get("/events/{eventId}/attendance")).keySet()).contains("get", "post");
+
+        String scheduling = "co.edu.unipamplona.canchatrack.scheduling.infrastructure.SchedulingDtos$";
+        String attendance = "co.edu.unipamplona.canchatrack.attendance.infrastructure.AttendanceDtos$";
+        for (String dto : List.of(scheduling + "CreateVenueRequest", scheduling + "VenueResponse", scheduling + "ScheduleEventRequest",
+                scheduling + "CancelEventRequest", scheduling + "EventResponse", attendance + "MarkRequest", attendance + "SyncRequest",
+                attendance + "SyncResponse", attendance + "RejectionResponse", attendance + "RosterEntryResponse",
+                attendance + "AttendanceResponse", attendance + "CloseResponse", attendance + "CorrectionRequest",
+                attendance + "CorrectionResponse", attendance + "SummaryResponse")) {
+            Class<?> type = Class.forName(dto);
+            Map<String, Object> documented = (Map<String, Object>) schemas.get(type.getSimpleName());
+            assertThat(documented).as("esquema %s", type.getSimpleName()).isNotNull();
+            List<String> actual = Arrays.stream(type.getRecordComponents()).map(java.lang.reflect.RecordComponent::getName).toList();
+            assertThat(((Map<String, Object>) documented.get("properties")).keySet())
+                    .as("campos de %s", type.getSimpleName()).containsExactlyInAnyOrderElementsOf(actual);
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void playerStatusEnumMatchesTheDomain() throws Exception {
         Map<String, Object> components = (Map<String, Object>) load().get("components");
         Map<String, Object> schemas = (Map<String, Object>) components.get("schemas");

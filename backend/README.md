@@ -56,6 +56,9 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
   firma del contenido; es lo que respalda actas y comprobantes.
 - `payments` + `players` (matrícula y pagos, ver «Pagos, matrícula y archivos»): tarifas, cargo de matrícula, pagos inmutables
   con anulación, estado de cuenta, activación del jugador con la matrícula saldada y cobro mensual idempotente (CU-04, RN-16).
+- `scheduling` + `attendance` (agenda y asistencia, ver «Agenda y asistencia»): escenarios, programación de entrenamientos y
+  evaluaciones con detección de cruces (RN-14), asistencia con sincronización idempotente, cierre y corrección auditada (RN-15)
+  y porcentaje por jugador (CU-05, CU-06).
 - `audit`: puerto `AuditWriter` (`write` en la transacción de negocio; `writeIndependent` para intentos rechazados,
   p. ej. PA-01) y adaptador JDBC.
 
@@ -73,6 +76,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 | Categorías (V14, `players`, `CategoriesIT`) | Migración V14 y sus invariantes en PostgreSQL 16 real (`scripts/check-schema.sh`); todas las sentencias SQL nuevas ejecutadas contra esa base; servicios y reglas compilados y ejecutados con dobles en memoria (24 comprobaciones); OpenAPI validado con `openapi-spec-validator` | **Verificado:** `mvn test` (168 pruebas) y `mvn verify` (59, `CategoriesIT` incluida) en BUILD SUCCESS, tras corregir en la primera corrida un 422 que Bean Validation cortaba antes de acumular todos los errores de campo |
 | Decisión del comité (`players`, `identity`/`documents` api, `CommitteeIT`) | Las sentencias SQL nuevas (bloqueo del jugador, cierre y alta de asignaciones, acta con asistentes `jsonb`, consulta de roles vigentes, fecha del club) ejecutadas contra PostgreSQL 16 real con V1..V14, incluido el cierre de un proceso anterior en otra transacción; reglas y servicio compilados y ejecutados con dobles en memoria (32 comprobaciones); OpenAPI validado | **Verificado:** `mvn test` y `mvn verify` (`CommitteeIT` incluida, con su caso de concurrencia de dos hilos y Testcontainers) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0 |
 | Pagos, matrícula y archivos (`payments`, `documents`, `players`, `PaymentsIT`) | Las sentencias SQL nuevas (tarifa, cargo idempotente, bloqueo del cargo, pago parcial y total, anulación única, saldo, matrícula saldada, violación de FK) ejecutadas contra PostgreSQL 16 real con V1..V14; reglas compiladas y ejecutadas con `javac` (comprobaciones de `PaymentRules` y `FileRules`); OpenAPI validado | **Verificado:** `mvn test` y `mvn verify` (`PaymentsIT` incluida, con Testcontainers) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0 |
+| Agenda y asistencia (`scheduling`, `attendance`, `players.api`, `AgendaIT`) | Las sentencias SQL nuevas (cruces por escenario, entrenador y categoría con intervalos semiabiertos, plantilla por asignación vigente, lote idempotente por clave, marcas duplicadas, cierre, bloqueo por `CT002`, corrección con rastro, porcentaje) ejecutadas contra PostgreSQL 16 real con V1..V14; reglas y servicios compilados con `-Xlint:all`; OpenAPI validado con `openapi-spec-validator` | Pendiente de `mvn test` y `mvn verify` del usuario |
 | Código Spring (filtro, handler, seguridad, `JdbcAuditWriter`), `ArchitectureTest`, unitarias | `mvn test` en Windows 11, JDK 24 (compila con `--release 21`), Maven 3.10.0 | Ejecutado: OK (19 pruebas, 0 fallos) |
 | `*IT` con Testcontainers (`DatabaseSchemaIT`, `AuditWriterIT`) | `mvn verify`, Docker Desktop 4.98 / Engine 29.9.2 | Ejecutado: OK (7 pruebas, 0 fallos) |
 
@@ -344,8 +348,36 @@ cargo mientras se valida el saldo, así dos pagos simultáneos no lo sobrepasan.
 **Pendiente.** Antivirus de archivos (el contrato de error `FILE_REJECTED` ya lo contempla), ajustes parciales de pagos y de cargos
 por API (el esquema los soporta), recordatorios de mora (`notifications`) y reportes de cartera.
 
+## Agenda y asistencia (scheduling, attendance)
+
+Alcance ligero: lo necesario para programar sesiones y pasar lista, también desde un dispositivo con conexión intermitente.
+
+| Endpoint | Acceso | Notas |
+|---|---|---|
+| `POST /api/v1/venues`, `GET /api/v1/venues` | `COORDINATOR` (GET también `COMMITTEE`, `COACH`) | Nombre único. |
+| `POST /api/v1/events` | `COORDINATOR` | Entrenamiento o evaluación, a futuro, con entrenador `COACH` y escenario activo. Cruce de escenario, entrenador o categoría: 409 `SCHEDULE_CONFLICT` con la lista `conflicts`. |
+| `GET /api/v1/events`, `GET /api/v1/events/{id}` | coordinador y comité (todos), entrenador (los suyos) | Filtros `categoryId`, `from`, `to`; máx. 200. |
+| `POST /api/v1/events/{id}/cancel` | `COORDINATOR` | Motivo obligatorio; libera el horario. |
+| `GET /api/v1/events/{id}/attendance` | coordinador, comité, entrenador del evento | Plantilla activa de la categoría con la marca de cada jugador. |
+| `POST /api/v1/events/{id}/attendance` | coordinador, entrenador del evento | Lote de marcas con `Idempotency-Key`; reintento = mismo resultado (`replayed`), marca repetida = duplicada, inválida o ajena a la plantilla = rechazada una a una. |
+| `POST /api/v1/events/{id}/attendance/close` | ídem | Los sin marca quedan ausentes; la sesión se bloquea (RN-15). |
+| `POST /api/v1/events/{id}/attendance/corrections` | ídem | Solo con la sesión cerrada, con justificación; deja rastro en `attendance_corrections` y en auditoría. |
+| `GET /api/v1/players/{id}/attendance` | coordinador, comité, acudiente vinculado | Porcentaje = (presentes + tardes) / (sesiones cerradas − excusas aceptadas), un decimal. |
+
+**Decisiones.** (1) RN-14 incluye al jugador: como cada jugador pertenece a una sola categoría, el cruce de categoría lo cubre.
+(2) Las solicitudes simultáneas de programación se serializan con bloqueos consultivos por escenario, entrenador y categoría, en orden
+fijo para no provocar interbloqueos. (3) La marca toma la sesión en modo compartido y el cierre en exclusivo: un cierre no se cruza
+con marcas en curso, y el trigger `CT002` sigue siendo la última defensa. (4) La plantilla se obtiene por `players.api.CategoryRoster`
+(asignación vigente y estado `ACTIVE` o `IN_EVALUATION`). (5) La fórmula del porcentaje no está definida en los documentos del club
+(DP pendiente): es una propuesta documentada. (6) Auditoría: `VENUE_CREATED`, `EVENT_SCHEDULED`, `EVENT_CANCELLED`,
+`ATTENDANCE_SESSION_CLOSED`, `ATTENDANCE_CORRECTED`.
+
+**Pendiente.** Reprogramar un evento (hoy se cancela y se crea otro), sesiones recurrentes (RF-014), partidos de torneo y
+convocatorias (`competitions`), notificaciones por correo e invitación `.ics` (RF-016 a RF-020), calendario con filtros por
+entrenador y escenario, y el alcance de entrenador y evaluador sobre los expedientes en `PlayerAccessPolicy`.
+
 ## Siguiente paso
 
-Siguiente incremento: **agenda y asistencia** (CU-05 y CU-06: sesiones sin cruces de sede ni de entrenador, asistencia idempotente y
-cierre de sesión) y el **alcance de entrenador y evaluador** en `PlayerAccessPolicy`. Después: evaluaciones, competencias, reportes y
-cierre de temporada, Dockerfile multi-etapa, pipeline CI con quality gates y Swagger UI en `dev`.
+Siguiente incremento: **evaluaciones** (CU-07 y CU-08: rondas con panel de tres conceptos, justificación de los no favorables y
+ascenso) y **partidos y convocatorias**. Después: reportes y cierre de temporada, auditoría consultable, alcance de entrenador y
+evaluador en `PlayerAccessPolicy`, Dockerfile multi-etapa, pipeline CI con quality gates y Swagger UI en `dev`.
