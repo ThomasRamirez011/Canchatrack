@@ -29,6 +29,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -61,6 +63,8 @@ class AgendaNotificationsIT {
     private JdbcTemplate jdbc;
     @Autowired
     private PasswordEncoder encoder;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
     @Autowired
     private ObjectMapper json;
     @Autowired
@@ -174,6 +178,19 @@ class AgendaNotificationsIT {
         return event;
     }
 
+    /**
+     * Mueve el evento sin que el trigger {@code set_updated_at} lo marque como modificado ahora: simula que el cambio de fecha
+     * ya ocurrió hace una semana, o que el reloj avanzó hasta el tramo siguiente del recordatorio. Un UPDATE normal dejaría
+     * {@code updated_at = now()}, que es justo lo que los recordatorios toman como "programado ahora".
+     */
+    private void moveAsIfItHadBeenLongAgo(UUID event, Instant start, int minutes) {
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            jdbc.execute("SET LOCAL session_replication_role = replica");
+            jdbc.update("UPDATE sports_events SET start_at = ?, end_at = ?, updated_at = now() - interval '7 days' WHERE id = ?",
+                    Timestamp.from(start), Timestamp.from(start.plus(minutes, ChronoUnit.MINUTES)), event);
+        });
+    }
+
     private List<Map<String, Object>> notices(UUID event, String type) {
         return jdbc.queryForList("""
                 SELECT recipient_email, status, subject, payload::text AS payload
@@ -238,9 +255,7 @@ class AgendaNotificationsIT {
         assertThat(notices(farAway, "EVENT_REMINDER")).isEmpty();
 
         // Al entrar en el tramo de 2 horas el evento de 20 horas recibe el segundo recordatorio, no uno repetido.
-        jdbc.update("UPDATE sports_events SET start_at = ?, end_at = ? WHERE id = ?",
-                Timestamp.from(Instant.now().plus(100, ChronoUnit.MINUTES)),
-                Timestamp.from(Instant.now().plus(190, ChronoUnit.MINUTES)), within24);
+        moveAsIfItHadBeenLongAgo(within24, Instant.now().plus(100, ChronoUnit.MINUTES), 90);
         reminders.sendDue();
         reminders.sendDue();
         assertThat(notices(within24, "EVENT_REMINDER")).hasSize(6);
@@ -392,7 +407,7 @@ class AgendaNotificationsIT {
         assertThat(invites.stream().map(e -> sequenceOf(e.calendar().content())).toList()).containsExactly(0, 1, 2, 3);
         OutboundEmail firstChange = invites.get(1);
         assertThat(firstChange.calendar().content()).contains("UID:" + event).contains("DTSTART:");
-        assertThat(firstChange.subject()).startsWith("REPROGRAMADO");
+        assertThat(firstChange.subject()).startsWith("Reprogramado: entrenamiento");
         assertThat(firstChange.body()).contains("REPROGRAMACIÓN").contains("Cancha en mantenimiento");
     }
 
@@ -418,8 +433,7 @@ class AgendaNotificationsIT {
         assertThat(notices(event, "EVENT_REMINDER")).hasSize(3);
 
         // Como si esa reprogramación se hubiera hecho hace una semana y ya faltaran 20 horas: sale el recordatorio de la nueva fecha.
-        jdbc.update("UPDATE sports_events SET start_at = ?, end_at = ?, updated_at = now() - interval '7 days' WHERE id = ?",
-                Timestamp.from(Instant.now().plus(20, ChronoUnit.HOURS)), Timestamp.from(Instant.now().plus(21, ChronoUnit.HOURS)), event);
+        moveAsIfItHadBeenLongAgo(event, Instant.now().plus(20, ChronoUnit.HOURS), 60);
         reminders.sendDue();
         reminders.sendDue();
         assertThat(notices(event, "EVENT_REMINDER")).hasSize(6);
