@@ -162,6 +162,7 @@ public class CompetitionService {
                 command.startAt(), command.endAt(), command.meetingAt(), command.meetingPoint(), command.instructions()),
                 actor.id(), actor.ip(), actor.userAgent());
         UUID id = store.insertMatch(eventId, command.tournamentId(), command.opponent().trim(), actor.id());
+        events.announce(eventId); // aviso al entrenador con la cita en su calendario; ya existe el rival
         MatchView match = store.findMatch(id).orElseThrow();
         audit.write(auditOf(ACTION_MATCH, ENTITY_MATCH, actor, id)
                 .after(Json.of("eventId", eventId, "type", type, "opponent", match.opponent(), "tournamentId", match.tournamentId(),

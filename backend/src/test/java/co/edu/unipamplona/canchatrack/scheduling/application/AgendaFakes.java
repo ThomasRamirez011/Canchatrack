@@ -15,6 +15,7 @@ import co.edu.unipamplona.canchatrack.identity.api.GuardianContacts;
 import co.edu.unipamplona.canchatrack.notifications.api.NotificationQueue;
 import co.edu.unipamplona.canchatrack.players.api.CategoryRoster;
 import co.edu.unipamplona.canchatrack.players.api.RosterPlayer;
+import co.edu.unipamplona.canchatrack.scheduling.api.MatchAudience;
 
 /** Dobles en memoria para probar los avisos de agenda sin base de datos. */
 final class AgendaFakes {
@@ -66,6 +67,16 @@ final class AgendaFakes {
                 }
             }
             return users;
+        }
+    }
+
+    /** Acudientes de los convocados confirmados de cada evento-partido. */
+    static final class FakeAudience implements MatchAudience {
+        final Map<UUID, Set<UUID>> confirmedGuardians = new HashMap<>();
+
+        @Override
+        public Set<UUID> confirmedGuardianUserIds(UUID eventId) {
+            return confirmedGuardians.getOrDefault(eventId, Set.of());
         }
     }
 
@@ -161,6 +172,11 @@ final class AgendaFakes {
         public List<EventView> findEvents(UUID categoryId, Instant from, Instant to, UUID coachId, int limit) {
             throw new UnsupportedOperationException();
         }
+    }
+
+    static EventView match(UUID categoryId, UUID coachId, Instant startAt) {
+        return new EventView(UUID.randomUUID(), "FRIENDLY_MATCH", categoryId, UUID.randomUUID(), "Cancha Municipal", coachId,
+                startAt, startAt.plusSeconds(5400), null, null, null, "CONFIRMED", null);
     }
 
     static EventView training(UUID categoryId, UUID coachId, Instant startAt) {

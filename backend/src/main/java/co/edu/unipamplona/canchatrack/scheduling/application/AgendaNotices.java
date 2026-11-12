@@ -12,11 +12,14 @@ import org.springframework.stereotype.Service;
 import co.edu.unipamplona.canchatrack.identity.api.GuardianContacts;
 import co.edu.unipamplona.canchatrack.notifications.api.NotificationQueue;
 import co.edu.unipamplona.canchatrack.players.api.CategoryRoster;
+import co.edu.unipamplona.canchatrack.scheduling.api.MatchAudience;
 
 /**
- * Avisos por correo de los entrenamientos y evaluaciones (RF-016, RF-018, RF-019, RF-020): al programar, al cancelar y como
- * recordatorio. Los destinatarios son los acudientes de los jugadores en actividad de la categoría y el entrenador
- * responsable. Se encolan en la transacción del llamador; un fallo de correo no deshace la programación (el procesador
+ * Avisos por correo de la agenda (RF-016, RF-017, RF-018, RF-019, RF-020): al programar, al cancelar, al reprogramar y como
+ * recordatorio. En un entrenamiento o una evaluación los destinatarios son los acudientes de los jugadores en actividad de la
+ * categoría y el entrenador responsable. En un <strong>partido</strong> las familias reciben el aviso de la convocatoria (de
+ * {@code competitions}), así que aquí el entrenador es el único destinatario de programación, cancelación y reprogramación,
+ * y el recordatorio va además a los acudientes de los convocados confirmados. Se encolan en la transacción del llamador; un fallo de correo no deshace la programación (el procesador
  * reintenta). El aviso no nombra jugadores —cada acudiente vería los de otras familias— ni lleva datos de salud (RN-17).
  */
 @Service
@@ -33,9 +36,11 @@ public class AgendaNotices {
     private final GuardianContacts guardians;
     private final NotificationQueue queue;
     private final AgendaSettings settings;
+    private final MatchAudience matchAudience;
 
     public AgendaNotices(SchedulingStore store, CategoryRoster roster, GuardianContacts guardians, NotificationQueue queue,
-                         AgendaSettings settings) {
+                         AgendaSettings settings, MatchAudience matchAudience) {
+        this.matchAudience = matchAudience;
         this.store = store;
         this.roster = roster;
         this.guardians = guardians;
@@ -82,8 +87,12 @@ public class AgendaNotices {
 
     private void enqueue(EventView event, String type, String subjectPrefix, String dedupScope, Set<UUID> extraRecipients,
                          Map<String, String> extra) {
-        Set<UUID> recipients = new LinkedHashSet<>(
-                guardians.guardianUserIdsOf(roster.activePlayerIds(event.categoryId())));
+        Set<UUID> recipients = new LinkedHashSet<>();
+        if (!isMatch(event)) {
+            recipients.addAll(guardians.guardianUserIdsOf(roster.activePlayerIds(event.categoryId())));
+        } else if (REMINDER.equals(type)) {
+            recipients.addAll(matchAudience.confirmedGuardianUserIds(event.id()));
+        }
         if (event.headCoachId() != null) {
             recipients.add(event.headCoachId());
         }
@@ -99,6 +108,7 @@ public class AgendaNotices {
         put(payload, "venueName", event.venueName());
         put(payload, "venueAddress", context.venueAddress());
         put(payload, "coachName", context.coachName());
+        put(payload, "opponent", context.opponent());
         put(payload, "startAt", event.startAt().toString());
         put(payload, "endAt", event.endAt().toString());
         put(payload, "meetingAt", event.meetingAt() == null ? null : event.meetingAt().toString());
@@ -121,8 +131,14 @@ public class AgendaNotices {
         return switch (event.eventType()) {
             case "TRAINING" -> "Entrenamiento";
             case "EVALUATION" -> "Sesión de evaluación";
+            case "FRIENDLY_MATCH" -> "Partido amistoso";
+            case "TOURNAMENT_MATCH" -> "Partido de torneo";
             default -> "Evento";
         };
+    }
+
+    private static boolean isMatch(EventView event) {
+        return "FRIENDLY_MATCH".equals(event.eventType()) || "TOURNAMENT_MATCH".equals(event.eventType());
     }
 
     private static String lower(String text) {

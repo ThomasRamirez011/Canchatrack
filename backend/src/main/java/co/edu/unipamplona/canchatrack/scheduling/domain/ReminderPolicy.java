@@ -25,6 +25,11 @@ public final class ReminderPolicy {
      * @throws IllegalArgumentException con todos los problemas juntos si el valor no es válido
      */
     public static List<Integer> parseHours(String raw) {
+        return parseHours(raw, "canchatrack.scheduling.reminders.hours");
+    }
+
+    /** @param property nombre de la propiedad que se interpreta, para que el mensaje señale la correcta */
+    public static List<Integer> parseHours(String raw, String property) {
         List<String> problems = new ArrayList<>();
         List<Integer> hours = new ArrayList<>();
         if (raw != null && !raw.isBlank()) {
@@ -46,7 +51,7 @@ public final class ReminderPolicy {
             problems.add("se admiten como máximo " + MAX_STAGES + " recordatorios");
         }
         if (!problems.isEmpty()) {
-            throw new IllegalArgumentException("canchatrack.scheduling.reminders.hours no es válido: " + String.join("; ", problems));
+            throw new IllegalArgumentException(property + " no es válido: " + String.join("; ", problems));
         }
         hours.sort(Integer::compare);
         return List.copyOf(hours);

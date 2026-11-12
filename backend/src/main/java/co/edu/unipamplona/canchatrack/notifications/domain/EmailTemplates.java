@@ -98,7 +98,7 @@ public final class EmailTemplates {
                 String category = valueOr(data.get("categoryName"), "su categoría");
                 defaultSubject = capitalize(label) + " programado · " + category;
                 body = "Hola,\n\nSe programó un " + label + " de la categoría " + category + ".\n" + eventDetails(data, zone);
-                calendar = invite(IcsCalendar.REQUEST, 0, data, capitalize(label) + " · " + category);
+                calendar = invite(IcsCalendar.REQUEST, 0, data, summary(label, category, data));
             }
             case EVENT_CANCELLED -> {
                 String label = eventLabel(data.get("eventType"));
@@ -111,7 +111,7 @@ public final class EmailTemplates {
                 }
                 sb.append("\n\n").append(link(data));
                 body = sb.toString().stripTrailing();
-                calendar = invite(IcsCalendar.CANCEL, sequenceOf(data, 1), data, "CANCELADO: " + capitalize(label) + " · " + category);
+                calendar = invite(IcsCalendar.CANCEL, sequenceOf(data, 1), data, "CANCELADO: " + summary(label, category, data));
             }
             case EVENT_RESCHEDULED -> {
                 String label = eventLabel(data.get("eventType"));
@@ -129,7 +129,7 @@ public final class EmailTemplates {
                 sb.append("\n\nNueva programación:\n").append(eventDetails(data, zone));
                 body = sb.toString();
                 calendar = invite(IcsCalendar.REQUEST, Math.max(1, sequenceOf(data, 1)), data,
-                        capitalize(label) + " · " + category);
+                        summary(label, category, data));
             }
             case MATCH_RESCHEDULED -> {
                 defaultSubject = "Partido reprogramado";
@@ -189,8 +189,16 @@ public final class EmailTemplates {
         return switch (eventType.trim()) {
             case "TRAINING" -> "entrenamiento";
             case "EVALUATION" -> "sesión de evaluación";
+            case "FRIENDLY_MATCH" -> "partido amistoso";
+            case "TOURNAMENT_MATCH" -> "partido de torneo";
             default -> "evento";
         };
+    }
+
+    /** Título de la cita del calendario; en un partido nombra al rival. */
+    private static String summary(String label, String category, Map<String, String> data) {
+        String rival = data.get("opponent") == null ? "" : " vs " + singleLine(data.get("opponent"));
+        return capitalize(label) + " · " + category + rival;
     }
 
     private static String capitalize(String text) {
@@ -200,6 +208,9 @@ public final class EmailTemplates {
     /** Fecha, escenario, entrenador, concentración, indicaciones y enlace; sin jugadores ni datos de salud (RN-17). */
     private static String eventDetails(Map<String, String> data, ZoneId zone) {
         StringBuilder sb = new StringBuilder("Fecha: ").append(range(data.get("startAt"), data.get("endAt"), zone)).append('.');
+        if (data.get("opponent") != null) {
+            sb.append("\nRival: ").append(singleLine(data.get("opponent"))).append('.');
+        }
         if (data.get("venueName") != null) {
             sb.append("\nEscenario: ").append(singleLine(data.get("venueName")));
             if (data.get("venueAddress") != null) {
@@ -259,7 +270,11 @@ public final class EmailTemplates {
             String address = data.get("venueAddress") == null ? null : singleLine(data.get("venueAddress"));
             String location = venue == null ? address : address == null ? venue : venue + ", " + address;
             StringBuilder description = new StringBuilder();
+            if (data.get("opponent") != null) {
+                description.append("Rival: ").append(singleLine(data.get("opponent")));
+            }
             if (data.get("coachName") != null) {
+                description.append(description.length() == 0 ? "" : "\n");
                 description.append("Entrenador: ").append(singleLine(data.get("coachName")));
             }
             if (data.get("instructions") != null) {

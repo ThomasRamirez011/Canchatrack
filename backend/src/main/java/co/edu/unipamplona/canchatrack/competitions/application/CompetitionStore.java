@@ -45,6 +45,9 @@ public interface CompetitionStore {
 
     List<CallupRow> callupsOf(UUID matchId);
 
+    /** Jugadores con convocatoria confirmada en el partido que corresponde a ese evento de agenda; vacío si no hay partido. */
+    List<UUID> confirmedPlayersOfEvent(UUID eventId);
+
     /** Filas existentes para esos jugadores en el partido, por jugador. */
     Map<UUID, CallupRow> callupsOf(UUID matchId, Collection<UUID> playerIds);
 

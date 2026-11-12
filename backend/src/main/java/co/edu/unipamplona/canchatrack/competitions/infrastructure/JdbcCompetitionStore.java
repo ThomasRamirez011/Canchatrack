@@ -196,6 +196,17 @@ public class JdbcCompetitionStore implements CompetitionStore {
     }
 
     @Override
+    public List<UUID> confirmedPlayersOfEvent(UUID eventId) {
+        return jdbc.query("""
+                SELECT c.player_id
+                FROM callup_entries c
+                         JOIN matches m ON m.id = c.match_id
+                WHERE m.event_id = ? AND c.status = 'CONFIRMED'
+                ORDER BY c.player_id
+                """, (rs, rowNum) -> rs.getObject("player_id", UUID.class), eventId);
+    }
+
+    @Override
     public Map<UUID, CallupRow> callupsOf(UUID matchId, Collection<UUID> playerIds) {
         Map<UUID, CallupRow> result = new LinkedHashMap<>();
         if (playerIds.isEmpty()) {

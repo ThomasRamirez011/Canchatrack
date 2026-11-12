@@ -87,4 +87,11 @@ class ReminderPolicyTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("máximo 5");
     }
+
+    @Test
+    void theErrorNamesTheConfiguredProperty() {
+        assertThatThrownBy(() -> ReminderPolicy.parseHours("x", "canchatrack.scheduling.reminders.match-hours"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("canchatrack.scheduling.reminders.match-hours");
+    }
 }

@@ -11,7 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import co.edu.unipamplona.canchatrack.scheduling.domain.ReminderPolicy;
 
 /**
- * Recordatorios de entrenamientos y evaluaciones (RF-019), por defecto 24 y 2 horas antes. Idempotente: el ámbito de
+ * Recordatorios de entrenamientos y evaluaciones (RF-019), por defecto 24 y 2 horas antes, y de partidos, por defecto 48 y 2. Idempotente: el ámbito de
  * deduplicación incluye el tramo, así que correr el proceso muchas veces dentro de la misma ventana no repite el correo.
  * Un evento programado o reprogramado dentro de un tramo no recibe ese recordatorio (el aviso de programación o de cambio ya
  * cubre la fecha). Tras una reprogramación los recordatorios vuelven a salir: su ámbito de deduplicación incluye la revisión.
@@ -32,14 +32,15 @@ public class EventReminderService {
     /** @return cuántos eventos tenían un recordatorio que corresponde ahora */
     @Transactional
     public int sendDue() {
-        List<Integer> hours = settings.reminderHours();
-        if (hours.isEmpty()) {
+        int farthest = settings.farthestHours();
+        if (farthest == 0) {
             return 0;
         }
         Instant now = store.now();
-        Instant horizon = now.plus(Duration.ofHours(hours.get(hours.size() - 1)));
+        Instant horizon = now.plus(Duration.ofHours(farthest));
         int due = 0;
         for (ReminderCandidate candidate : store.findUpcomingForReminders(now, horizon)) {
+            List<Integer> hours = settings.hoursFor(candidate.event().eventType());
             OptionalInt stage = ReminderPolicy.stage(now, candidate.event().startAt(), candidate.scheduledAt(), hours);
             if (stage.isPresent()) {
                 notices.reminder(candidate.event(), stage.getAsInt());

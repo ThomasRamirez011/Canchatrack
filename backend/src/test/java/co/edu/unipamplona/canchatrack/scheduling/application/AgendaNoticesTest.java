@@ -9,6 +9,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 import co.edu.unipamplona.canchatrack.scheduling.application.AgendaFakes.Enqueued;
+import co.edu.unipamplona.canchatrack.scheduling.application.AgendaFakes.FakeAudience;
 import co.edu.unipamplona.canchatrack.scheduling.application.AgendaFakes.FakeGuardians;
 import co.edu.unipamplona.canchatrack.scheduling.application.AgendaFakes.FakeRoster;
 import co.edu.unipamplona.canchatrack.scheduling.application.AgendaFakes.FakeStore;
@@ -28,12 +29,13 @@ class AgendaNoticesTest {
     private final FakeRoster roster = new FakeRoster();
     private final FakeGuardians guardians = new FakeGuardians();
     private final RecordingQueue queue = new RecordingQueue();
+    private final FakeAudience audience = new FakeAudience();
 
     private AgendaNotices notices(String appUrl) {
         roster.byCategory.put(category, List.of(player1, player2));
         guardians.guardianByPlayer.put(player1, guardianOfBoth);
         guardians.guardianByPlayer.put(player2, guardianOfOne);
-        return new AgendaNotices(store, roster, guardians, queue, new AgendaSettings(appUrl, List.of(2, 24)));
+        return new AgendaNotices(store, roster, guardians, queue, new AgendaSettings(appUrl, List.of(2, 24)), audience);
     }
 
     private EventView event() {
@@ -175,7 +177,7 @@ class AgendaNoticesTest {
 
     @Test
     void aCategoryWithoutPlayersStillNotifiesTheCoach() {
-        AgendaNotices empty = new AgendaNotices(store, roster, guardians, queue, new AgendaSettings("", List.of(2, 24)));
+        AgendaNotices empty = new AgendaNotices(store, roster, guardians, queue, new AgendaSettings("", List.of(2, 24)), audience);
 
         empty.scheduled(event());
 
@@ -184,13 +186,78 @@ class AgendaNoticesTest {
 
     @Test
     void noRecipientsMeansNothingIsQueued() {
-        AgendaNotices empty = new AgendaNotices(store, roster, guardians, queue, new AgendaSettings("", List.of(2, 24)));
+        AgendaNotices empty = new AgendaNotices(store, roster, guardians, queue, new AgendaSettings("", List.of(2, 24)), audience);
         EventView withoutCoach = new EventView(UUID.randomUUID(), "TRAINING", category, UUID.randomUUID(), "Cancha", null,
                 Instant.parse("2026-12-01T22:00:00Z"), Instant.parse("2026-12-01T23:30:00Z"), null, null, null, "CONFIRMED", null);
 
         empty.scheduled(withoutCoach);
 
         assertThat(queue.sent).isEmpty();
+    }
+
+    // ---------- partidos ----------
+
+    private EventView aMatch() {
+        store.context = new EventContext("Sub-12", "Calle 5 # 3-20", "Carlos Ruiz", "Club Rival");
+        return AgendaFakes.match(category, coach, Instant.parse("2026-12-05T20:00:00Z"));
+    }
+
+    @Test
+    void schedulingAMatchNotifiesOnlyTheCoachBecauseFamiliesHearAboutItFromTheCallup() {
+        EventView match = aMatch();
+
+        notices("").scheduled(match);
+
+        assertThat(queue.sent).hasSize(1);
+        Enqueued notice = queue.sent.get(0);
+        assertThat(notice.type()).isEqualTo("EVENT_SCHEDULED");
+        assertThat(notice.recipients()).containsExactly(coach);
+        assertThat(notice.subject()).isEqualTo("Partido amistoso programado · Sub-12");
+        assertThat(notice.payload().get("opponent")).isEqualTo("Club Rival");
+    }
+
+    @Test
+    void cancellingAMatchNotifiesOnlyTheCoach() {
+        EventView match = aMatch();
+
+        notices("").cancelled(match);
+
+        assertThat(queue.sent.get(0).recipients()).containsExactly(coach);
+        assertThat(queue.sent.get(0).type()).isEqualTo("EVENT_CANCELLED");
+    }
+
+    @Test
+    void reschedulingAMatchNotifiesBothCoachesAndNoFamily() {
+        UUID previousCoach = UUID.randomUUID();
+        EventView before = AgendaFakes.match(category, previousCoach, Instant.parse("2026-12-05T20:00:00Z"));
+        EventView after = new EventView(before.id(), "FRIENDLY_MATCH", category, before.venueId(), "Cancha Municipal", coach,
+                Instant.parse("2026-12-06T20:00:00Z"), Instant.parse("2026-12-06T21:30:00Z"), null, null, null, "CONFIRMED", null);
+        store.revisions.put(before.id(), 1);
+
+        notices("").rescheduled(before, after, "Cambio de cancha");
+
+        assertThat(queue.sent.get(0).recipients()).containsExactly(coach, previousCoach);
+    }
+
+    @Test
+    void aMatchReminderGoesToTheGuardiansOfTheConfirmedPlayersAndTheCoachOnly() {
+        EventView match = aMatch();
+        audience.confirmedGuardians.put(match.id(), java.util.Set.of(guardianOfOne));
+
+        notices("").reminder(match, 48);
+
+        Enqueued notice = queue.sent.get(0);
+        assertThat(notice.type()).isEqualTo("EVENT_REMINDER");
+        assertThat(notice.recipients()).containsExactly(guardianOfOne, coach);
+        assertThat(notice.dedupScope()).isEqualTo("reminder:48");
+        assertThat(notice.payload().get("opponent")).isEqualTo("Club Rival");
+    }
+
+    @Test
+    void aMatchWithoutConfirmedPlayersStillRemindsTheCoach() {
+        notices("").reminder(aMatch(), 2);
+
+        assertThat(queue.sent.get(0).recipients()).containsExactly(coach);
     }
 
     @Test
