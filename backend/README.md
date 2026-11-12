@@ -62,13 +62,14 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 - `evaluations` + `players` (evaluación y ascenso, ver «Evaluaciones y ascenso»): rondas de evaluación sobre un periodo, concepto independiente de cada uno de los tres evaluadores con justificación y acciones si no es favorable, cierre por unanimidad con plan de seguimiento y ascenso a la categoría siguiente con historial conservado (CU-07, CU-08, RN-08..RN-12).
 - `competitions` + `scheduling` + `documents` + `payments` (partidos y convocatorias, ver «Partidos y convocatorias»): torneos, partidos con agenda sin cruces, convocatoria con elegibilidad por jugador (activo, certificado médico, autorización y mora), confirmación del coordinador, avisos a acudientes, autorización por partido y resultado (CU-09, RN-06, RN-07, RN-13).
 - `audit`: puerto `AuditWriter` (`write` en la transacción de negocio; `writeIndependent` para intentos rechazados,
-  p. ej. PA-01) y adaptador JDBC.
+  p. ej. PA-01), adaptador JDBC y consulta de la bitácora con filtros y cursor (CU-14, ver «Auditoría y reportes»).
+- `reports` (ver «Auditoría y reportes»): cartera por categoría con exportación a CSV y resumen de temporada, como modelo de lectura.
 
 ## Estado de verificación (sé honesto con esto)
 
 | Qué | Cómo se verificó | Estado |
 |---|---|---|
-| Migraciones V1..V15 sobre PostgreSQL 16 real | `scripts/check-schema.sh` | Ejecutado: OK |
+| Migraciones V1..V16 sobre PostgreSQL 16 real | `scripts/check-schema.sh` | Ejecutado: OK |
 | Invariantes críticas (≈90 aserciones, incl. pagos, asistencia, unanimidad, auditoría) | `schema-invariants.sql`; se comprobó que **fallan** si se quitan los triggers | Ejecutado: OK |
 | `ErrorCode` coincide con DDS 13, `DomainException`, `AuditRecord` | `javac` + ejecución | Ejecutado: OK |
 | YAML (perfiles, compose), `pom.xml`, OpenAPI 3.1 | parseo / `openapi-spec-validator` | Ejecutado: OK |
@@ -81,6 +82,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 | Agenda y asistencia (`scheduling`, `attendance`, `players.api`, `AgendaIT`) | Las sentencias SQL nuevas (cruces por escenario, entrenador y categoría con intervalos semiabiertos, plantilla por asignación vigente, lote idempotente por clave, marcas duplicadas, cierre, bloqueo por `CT002`, corrección con rastro, porcentaje) ejecutadas contra PostgreSQL 16 real con V1..V14; reglas y servicios compilados con `-Xlint:all`; OpenAPI validado con `openapi-spec-validator` | **Verificado:** `mvn test` y `mvn verify` (`AgendaIT` incluida, con Testcontainers) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0 |
 | Evaluaciones y ascenso (`evaluations`, `players.api`, `EvaluationsIT`) | Las sentencias SQL nuevas (una sola ronda abierta por jugador con `ON CONFLICT DO NOTHING`, alta/ajuste de concepto con `ON CONFLICT DO UPDATE` y rastro en el historial, vigencia del concepto por periodo, cambio de periodo, cierre, bloqueo `CT003` tras el cierre, cierre de la categoría anterior y alta de la asignación `PROMOTION`) ejecutadas contra PostgreSQL 16 real con V1..V14; capas de dominio y aplicación compiladas con `-Xlint:all`; OpenAPI validado con `openapi-spec-validator` | **Verificado:** `mvn test` y `mvn verify` (`EvaluationsIT` incluida, con Testcontainers) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0, tras corregir en la primera corrida un nombre de esquema OpenAPI duplicado (`DecisionResponse`) |
 | Partidos y convocatorias (`competitions`, `scheduling.api`, `documents.api`, `payments.api`, `notifications.api`, `CompetitionsIT`) | V15 y `schema-invariants.sql` sobre PostgreSQL 16 real (`scripts/check-schema.sh`); las sentencias SQL nuevas (proyección del partido, alta o sobrescritura de la propuesta sin tocar confirmados, confirmación, resultado, historial, vigencia del certificado, autorización de participación, mora, aviso con deduplicación, autorización por partido idempotente) ejecutadas contra esa base; dominio y aplicación compilados con `-Xlint:all`, reglas ejecutadas con una comprobación de humo; sintaxis de todos los fuentes nuevos y de las pruebas analizada con el parser de `javac`; OpenAPI validado y sin nombres de esquema duplicados | **Pendiente de verificar con `mvn test` y `mvn verify`** (los `*IT` y la capa web no se pueden ejecutar fuera de Maven/Testcontainers) |
+| Auditoría y reportes (V16, `audit`, `reports`, `AuditQueryIT`, `ReportsIT`) | V16 y `schema-invariants.sql` sobre PostgreSQL 16 real (`scripts/check-schema.sh`); todas las sentencias SQL nuevas (filtros de auditoría, paginación por `(occurred_at, id)` con su plan sobre `ix_audit_events_occurred`, cartera con totales por categoría, plantilla, agenda, asistencia, partidos y recaudo) ejecutadas contra esa base con datos de ejemplo; el montaje de datos de `ReportsIT` y `AuditQueryIT` repetido con los triggers reales y las cifras esperadas comprobadas; dominio y casos de uso compilados con `javac -Xlint:all` y ejecutados con dobles en memoria (≈85 comprobaciones: mora, porcentaje, CSV, reglas, cursor, paginación, rastro de la consulta, exportación auditada, truncado y «hoy» en la zona del club); OpenAPI validado con `openapi-spec-validator` (60 rutas, 102 esquemas, sin nombres repetidos) | **Pendiente de verificar:** `mvn test` y `mvn verify` en la máquina del equipo |
 | Código Spring (filtro, handler, seguridad, `JdbcAuditWriter`), `ArchitectureTest`, unitarias | `mvn test` en Windows 11, JDK 24 (compila con `--release 21`), Maven 3.10.0 | Ejecutado: OK (19 pruebas, 0 fallos) |
 | `*IT` con Testcontainers (`DatabaseSchemaIT`, `AuditWriterIT`) | `mvn verify`, Docker Desktop 4.98 / Engine 29.9.2 | Ejecutado: OK (7 pruebas, 0 fallos) |
 
@@ -443,7 +445,37 @@ plantilla. (6) Toda operación sobre un partido bloquea su fila (`FOR UPDATE`): 
 revocación de la autorización por el acudiente, historial deportivo con asistencia y evaluaciones publicadas (RF-037 completo, llega con
 reportes), alcance de entrenador y evaluador en `PlayerAccessPolicy` (el entrenador aún no consulta el historial de un jugador) y la política de mora definitiva.
 
+## Auditoría y reportes (audit, reports)
+
+Alcance ligero y de solo lectura: consulta de la bitácora (CU-14, RF-051) y dos reportes de consulta (CU-12, RF-042). El informe PDF versionado por
+jugador (CU-10, RF-049) y el cierre o reapertura de la temporada (CU-11, RF-050, RN-18) **no** están en este incremento.
+
+| Endpoint | Acceso | Notas |
+|---|---|---|
+| `GET /api/v1/audit/events` | `COORDINATOR` | Filtros `action`, `entityType`, `entityId`, `actorId`, `outcome`, `from` (inclusivo), `to` (exclusivo); `limit` 1..200 (50) y `cursor`. Más reciente primero. |
+| `GET /api/v1/reports/receivables` | coordinador, comité | Cargos con saldo pendiente con jugador, acudiente principal, concepto, valor, pagado, saldo y días de mora; totales por categoría. Filtros `seasonId`, `categoryId`, `asOf`. |
+| `GET /api/v1/reports/receivables/export` | coordinador, comité | Mismo contenido en CSV (UTF-8 con BOM, abre en Excel). Queda auditado (`REPORT_EXPORTED`). |
+| `GET /api/v1/reports/season-summary?seasonId=` | coordinador, comité | Plantilla por categoría, eventos por tipo y estado, asistencia de sesiones cerradas, resultados de partidos y recaudo de la temporada. |
+
+**Decisiones.** (1) La paginación de auditoría es por claves `(occurred_at, id)` con cursor opaco, no por número de página: las páginas son estables aunque entren
+eventos nuevos y el costo no crece con la profundidad; V16 añade `ix_audit_events_occurred (occurred_at DESC, id DESC)`. (2) La primera página de cada búsqueda queda
+auditada como `AUDIT_QUERIED` (con los filtros, sin el contenido devuelto; DDS 12.2 «consultas administrativas de alta sensibilidad»); pedir las siguientes con el cursor
+no genera otro rastro. (3) La respuesta **no** incluye IP ni agente de usuario: quedan en la tabla para investigación, pero publicarlos es una política pendiente (DDS 12.3);
+`before` y `after` ya son resúmenes seguros, sin datos de salud ni secretos. (4) Solo el coordinador consulta la bitácora; el DAD menciona un «administrador autorizado»
+que el sistema aún no modela. (5) `reports` es un modelo de lectura: consulta con SQL de solo lectura tablas y vistas de otros módulos (`charge_balances`,
+`category_assignments`, `sports_events`…) sin depender de sus clases, así que `ArchitectureTest` se mantiene; el costo es que un cambio de esas tablas obliga a revisar
+`JdbcReportStore`. (6) Cartera = cargos `PENDING` o `PARTIAL` (los anulados y saldados no cuentan); los días de mora son los transcurridos desde el vencimiento hasta `asOf`
+(hoy en la zona del club por defecto), sin días de gracia. Un jugador sin categoría vigente aparece en «Sin categoría». `lines` se corta en 5000 filas
+(`truncated`), los totales por categoría siempre suman todo. (7) El porcentaje de asistencia usa la misma fórmula que el módulo de asistencia (se duplica en `reports.domain`
+para no acoplar módulos). (8) CSV seguro: los textos que empiezan por `=`, `+`, `-` o `@` se prefijan con `'` porque el acudiente escribe los nombres (inyección de fórmulas);
+respuesta con `Cache-Control: no-store`. (9) Las exportaciones que sustituyen las planillas (ERS 7.3) cubren hoy solo cartera; el CSV de plantilla, asistencia, convocatorias
+y seguimiento de evaluación, y el Excel (.xlsx) y el PDF, quedan pendientes.
+
+**Pendiente.** Informe de temporada por jugador en PDF con consecutivo y código de verificación (CU-10), cierre y reapertura de la temporada con su historial (CU-11),
+exportaciones restantes de ERS 7.3, política de publicación de IP y agente de usuario, rol de administrador autorizado, retención y archivo de la bitácora, y el historial
+deportivo completo por jugador (RF-037).
+
 ## Siguiente paso
 
-Siguiente incremento: **auditoría consultable (CU-14) y reportes básicos de temporada (CU-10..12)**. Después: procesador de notificaciones, alcance de entrenador y
-evaluador en `PlayerAccessPolicy`, Dockerfile multi-etapa, pipeline CI con quality gates y Swagger UI en `dev`.
+Siguiente incremento: **informe de temporada por jugador y cierre de temporada (CU-10, CU-11)** si el club define la plantilla del informe (P-09). Mientras tanto: procesador
+de notificaciones, alcance de entrenador y evaluador en `PlayerAccessPolicy`, Dockerfile multi-etapa, pipeline CI con quality gates, pruebas de carga con k6 y Swagger UI en `dev`.
