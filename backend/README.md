@@ -59,6 +59,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 - `scheduling` + `attendance` (agenda y asistencia, ver «Agenda y asistencia»): escenarios, programación de entrenamientos y
   evaluaciones con detección de cruces (RN-14), asistencia con sincronización idempotente, cierre y corrección auditada (RN-15)
   y porcentaje por jugador (CU-05, CU-06).
+- `evaluations` + `players` (evaluación y ascenso, ver «Evaluaciones y ascenso»): rondas de evaluación sobre un periodo, concepto independiente de cada uno de los tres evaluadores con justificación y acciones si no es favorable, cierre por unanimidad con plan de seguimiento y ascenso a la categoría siguiente con historial conservado (CU-07, CU-08, RN-08..RN-12).
 - `audit`: puerto `AuditWriter` (`write` en la transacción de negocio; `writeIndependent` para intentos rechazados,
   p. ej. PA-01) y adaptador JDBC.
 
@@ -76,7 +77,8 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 | Categorías (V14, `players`, `CategoriesIT`) | Migración V14 y sus invariantes en PostgreSQL 16 real (`scripts/check-schema.sh`); todas las sentencias SQL nuevas ejecutadas contra esa base; servicios y reglas compilados y ejecutados con dobles en memoria (24 comprobaciones); OpenAPI validado con `openapi-spec-validator` | **Verificado:** `mvn test` (168 pruebas) y `mvn verify` (59, `CategoriesIT` incluida) en BUILD SUCCESS, tras corregir en la primera corrida un 422 que Bean Validation cortaba antes de acumular todos los errores de campo |
 | Decisión del comité (`players`, `identity`/`documents` api, `CommitteeIT`) | Las sentencias SQL nuevas (bloqueo del jugador, cierre y alta de asignaciones, acta con asistentes `jsonb`, consulta de roles vigentes, fecha del club) ejecutadas contra PostgreSQL 16 real con V1..V14, incluido el cierre de un proceso anterior en otra transacción; reglas y servicio compilados y ejecutados con dobles en memoria (32 comprobaciones); OpenAPI validado | **Verificado:** `mvn test` y `mvn verify` (`CommitteeIT` incluida, con su caso de concurrencia de dos hilos y Testcontainers) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0 |
 | Pagos, matrícula y archivos (`payments`, `documents`, `players`, `PaymentsIT`) | Las sentencias SQL nuevas (tarifa, cargo idempotente, bloqueo del cargo, pago parcial y total, anulación única, saldo, matrícula saldada, violación de FK) ejecutadas contra PostgreSQL 16 real con V1..V14; reglas compiladas y ejecutadas con `javac` (comprobaciones de `PaymentRules` y `FileRules`); OpenAPI validado | **Verificado:** `mvn test` y `mvn verify` (`PaymentsIT` incluida, con Testcontainers) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0 |
-| Agenda y asistencia (`scheduling`, `attendance`, `players.api`, `AgendaIT`) | Las sentencias SQL nuevas (cruces por escenario, entrenador y categoría con intervalos semiabiertos, plantilla por asignación vigente, lote idempotente por clave, marcas duplicadas, cierre, bloqueo por `CT002`, corrección con rastro, porcentaje) ejecutadas contra PostgreSQL 16 real con V1..V14; reglas y servicios compilados con `-Xlint:all`; OpenAPI validado con `openapi-spec-validator` | Pendiente de `mvn test` y `mvn verify` del usuario |
+| Agenda y asistencia (`scheduling`, `attendance`, `players.api`, `AgendaIT`) | Las sentencias SQL nuevas (cruces por escenario, entrenador y categoría con intervalos semiabiertos, plantilla por asignación vigente, lote idempotente por clave, marcas duplicadas, cierre, bloqueo por `CT002`, corrección con rastro, porcentaje) ejecutadas contra PostgreSQL 16 real con V1..V14; reglas y servicios compilados con `-Xlint:all`; OpenAPI validado con `openapi-spec-validator` | **Verificado:** `mvn test` y `mvn verify` (`AgendaIT` incluida, con Testcontainers) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0 |
+| Evaluaciones y ascenso (`evaluations`, `players.api`, `EvaluationsIT`) | Las sentencias SQL nuevas (una sola ronda abierta por jugador con `ON CONFLICT DO NOTHING`, alta/ajuste de concepto con `ON CONFLICT DO UPDATE` y rastro en el historial, vigencia del concepto por periodo, cambio de periodo, cierre, bloqueo `CT003` tras el cierre, cierre de la categoría anterior y alta de la asignación `PROMOTION`) ejecutadas contra PostgreSQL 16 real con V1..V14; capas de dominio y aplicación compiladas con `-Xlint:all`; OpenAPI validado con `openapi-spec-validator` | **Verificado:** `mvn test` y `mvn verify` (`EvaluationsIT` incluida, con Testcontainers) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0, tras corregir en la primera corrida un nombre de esquema OpenAPI duplicado (`DecisionResponse`) |
 | Código Spring (filtro, handler, seguridad, `JdbcAuditWriter`), `ArchitectureTest`, unitarias | `mvn test` en Windows 11, JDK 24 (compila con `--release 21`), Maven 3.10.0 | Ejecutado: OK (19 pruebas, 0 fallos) |
 | `*IT` con Testcontainers (`DatabaseSchemaIT`, `AuditWriterIT`) | `mvn verify`, Docker Desktop 4.98 / Engine 29.9.2 | Ejecutado: OK (7 pruebas, 0 fallos) |
 
@@ -376,8 +378,35 @@ con marcas en curso, y el trigger `CT002` sigue siendo la última defensa. (4) L
 convocatorias (`competitions`), notificaciones por correo e invitación `.ics` (RF-016 a RF-020), calendario con filtros por
 entrenador y escenario, y el alcance de entrenador y evaluador sobre los expedientes en `PlayerAccessPolicy`.
 
+## Evaluaciones y ascenso (evaluations, players)
+
+Alcance ligero: el ciclo completo ronda → conceptos → cierre → ascenso, sin rúbrica configurable (DP-06 sigue pendiente).
+
+| Endpoint | Acceso | Notas |
+|---|---|---|
+| `POST /api/v1/players/{id}/evaluation-rounds` | `COORDINATOR` | Jugador `ACTIVE` con exactamente tres evaluadores vigentes (si no, 422 `PANEL_INVALID`). Pasa a `IN_EVALUATION`; solo una ronda abierta por jugador. `dueAt` obligatorio y futuro. |
+| `GET /api/v1/players/{id}/evaluation-rounds` | coordinador, comité; evaluador del panel | Sin conceptos. Quien no integra el panel recibe 404. |
+| `GET /api/v1/evaluation-rounds/{id}` | ídem | Coordinador y comité ven todos los conceptos y la vista previa `outcome`; el evaluador solo el suyo mientras la ronda está abierta. |
+| `PUT /api/v1/evaluation-rounds/{id}/decision` | `EVALUATOR`, `COACH`, `COMMITTEE` y además integrante del panel | Crea o ajusta el concepto propio. `FOLLOW_UP_REQUIRED` o `UNFAVORABLE` exigen `justification` y `actions` (422 `NEGATIVE_REASON_REQUIRED`). Ronda cerrada: 409 `ROUND_CLOSED`. |
+| `PUT /api/v1/evaluation-rounds/{id}/period` | `COORDINATOR` | Con motivo. Los conceptos del periodo anterior dejan de contar (`current` falso). |
+| `POST /api/v1/evaluation-rounds/{id}/close` | `COORDINATOR` | Tres favorables vigentes: `APPROVED` y jugador `PROMOTION_APPROVED`. Si no: `FOLLOW_UP`, `followUpPlan` obligatorio y jugador de vuelta a `ACTIVE`. Con conceptos faltantes y la ronda vigente: 409. |
+| `POST /api/v1/players/{id}/promotion` | `COORDINATOR` | Jugador `PROMOTION_APPROVED`. Sin `targetCategoryId` usa la categoría siguiente; exige cupo (409 `CATEGORY_FULL`) y entrenador `COACH`. Cierra la asignación anterior sin borrarla y conserva el panel. |
+
+**Decisiones.** (1) La unanimidad es una función pura (`EvaluationRules.outcome`): menos de tres conceptos vigentes = pendiente; tres
+favorables = aprobado; el resto = seguimiento (DDS 5.1). (2) El cierre lo ejecuta la coordinación y no el sistema al llegar el
+tercer concepto: así el evaluador puede ajustar su decisión hasta el «cierre formal» (DAD CU-07). (3) Un concepto pendiente al vencimiento
+cierra en seguimiento (RN-12); por eso `dueAt` es obligatorio. (4) La independencia de criterio se aplica en la lectura: un
+evaluador no ve los conceptos de los demás hasta que la ronda cierra. (5) RN-10 se cumple por ausencia de operación y por el trigger
+`CT003`: ni la coordinación ni nadie modifica un concepto emitido. (6) `evaluations` no toca las tablas de `players`: usa la
+fachada `players.api.EvaluationGateway` (estado del jugador, panel y categoría), que bloquea el expediente y serializa abrir, cerrar y ascender.
+(7) La auditoría guarda el sentido del concepto, no su texto (puede contener datos sensibles): `EVALUATION_ROUND_OPENED`,
+`EVALUATOR_DECISION_RECORDED`, `EVALUATION_PERIOD_CHANGED`, `EVALUATION_ROUND_CLOSED`, `PLAYER_PROMOTED`.
+
+**Pendiente.** Rúbrica versionada con criterios (P-06; hoy `criteria` es JSON libre), resumen de asistencia del periodo dentro de la ronda,
+notificación a los evaluadores, cierre automático al vencer la ronda (hoy lo hace la coordinación), soportes del concepto y alcance de
+evaluador y entrenador sobre los expedientes en `PlayerAccessPolicy`.
+
 ## Siguiente paso
 
-Siguiente incremento: **evaluaciones** (CU-07 y CU-08: rondas con panel de tres conceptos, justificación de los no favorables y
-ascenso) y **partidos y convocatorias**. Después: reportes y cierre de temporada, auditoría consultable, alcance de entrenador y
+Siguiente incremento: **partidos y convocatorias** (CU-09). Después: reportes y cierre de temporada, auditoría consultable, alcance de entrenador y
 evaluador en `PlayerAccessPolicy`, Dockerfile multi-etapa, pipeline CI con quality gates y Swagger UI en `dev`.

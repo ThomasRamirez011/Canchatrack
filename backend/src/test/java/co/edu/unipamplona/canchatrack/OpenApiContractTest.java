@@ -205,6 +205,35 @@ class OpenApiContractTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void evaluationEndpointsAreDocumentedAndSchemasMatchTheDtos() throws Exception {
+        Map<String, Object> spec = load();
+        Map<String, Object> paths = (Map<String, Object>) spec.get("paths");
+        Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) spec.get("components")).get("schemas");
+
+        assertThat(paths.keySet()).contains("/players/{playerId}/evaluation-rounds", "/evaluation-rounds/{roundId}",
+                "/evaluation-rounds/{roundId}/decision", "/evaluation-rounds/{roundId}/period",
+                "/evaluation-rounds/{roundId}/close", "/players/{playerId}/promotion");
+        Map<String, Object> decision = (Map<String, Object>) ((Map<String, Object>) paths.get("/evaluation-rounds/{roundId}/decision")).get("put");
+        assertThat(decision).doesNotContainKey("security");
+
+        Map<String, Object> verdict = (Map<String, Object>) schemas.get("EvaluationVerdict");
+        assertThat((List<String>) verdict.get("enum")).containsExactlyInAnyOrderElementsOf(
+                Arrays.stream(co.edu.unipamplona.canchatrack.evaluations.domain.Verdict.values()).map(Enum::name).toList());
+
+        String dtos = "co.edu.unipamplona.canchatrack.evaluations.infrastructure.EvaluationDtos$";
+        for (String name : List.of("OpenRoundRequest", "ChangePeriodRequest", "EvaluatorDecisionRequest", "CloseRoundRequest",
+                "PromoteRequest", "EvaluatorDecisionResponse", "RoundResponse", "PromotionResponse")) {
+            Class<?> type = Class.forName(dtos + name);
+            Map<String, Object> documented = (Map<String, Object>) schemas.get(name);
+            assertThat(documented).as("esquema %s", name).isNotNull();
+            List<String> actual = Arrays.stream(type.getRecordComponents()).map(java.lang.reflect.RecordComponent::getName).toList();
+            assertThat(((Map<String, Object>) documented.get("properties")).keySet())
+                    .as("campos de %s", name).containsExactlyInAnyOrderElementsOf(actual);
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void playerStatusEnumMatchesTheDomain() throws Exception {
         Map<String, Object> components = (Map<String, Object>) load().get("components");
         Map<String, Object> schemas = (Map<String, Object>) components.get("schemas");
