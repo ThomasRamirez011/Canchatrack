@@ -9,6 +9,9 @@ public enum PlayerScope {
     /** Solo los jugadores con vínculo vigente con el acudiente. */
     LINKED_GUARDIAN,
 
+    /** Solo los jugadores que el usuario entrena (entrenador titular vigente) o evalúa (evaluador asignado vigente). */
+    ASSIGNED_STAFF,
+
     /** Ninguno. */
     NONE
 }

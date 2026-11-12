@@ -148,7 +148,7 @@ public class CompetitionController {
     }
 
     @GetMapping("/players/{playerId}/matches")
-    @PreAuthorize("hasAnyRole('GUARDIAN', 'COORDINATOR', 'COMMITTEE')")
+    @PreAuthorize("hasAnyRole('GUARDIAN', 'COORDINATOR', 'COMMITTEE', 'COACH')")
     public List<PlayerMatchResponse> history(@PathVariable UUID playerId, HttpServletRequest http) {
         return competitions.history(actor(http), playerId).stream().map(PlayerMatchResponse::from).toList();
     }

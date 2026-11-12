@@ -35,6 +35,20 @@ public class JdbcPlayerStore implements PlayerStore {
                       AND (pg.valid_to IS NULL OR pg.valid_to > now()))
             """;
 
+    /** Jugadores que el usuario entrena (entrenador titular vigente) o evalúa (asignación vigente), con el reloj de la base. */
+    private static final String ASSIGNED_TO_USER = """
+            (EXISTS (SELECT 1 FROM category_assignments ca
+                     WHERE ca.player_id = p.id
+                       AND ca.head_coach_id = ?
+                       AND ca.valid_from <= now()
+                       AND (ca.valid_to IS NULL OR ca.valid_to > now()))
+             OR EXISTS (SELECT 1 FROM evaluator_assignments ea
+                        WHERE ea.player_id = p.id
+                          AND ea.evaluator_id = ?
+                          AND ea.valid_from <= now()
+                          AND (ea.valid_to IS NULL OR ea.valid_to > now())))
+            """;
+
     private final JdbcTemplate jdbc;
 
     public JdbcPlayerStore(JdbcTemplate jdbc) {
@@ -108,13 +122,19 @@ public class JdbcPlayerStore implements PlayerStore {
 
     @Override
     public PageResult<PlayerSummary> list(PlayerScope scope, UUID userId, PlayerStatus status, int page, int size) {
-        if (scope == PlayerScope.NONE || (scope == PlayerScope.LINKED_GUARDIAN && userId == null)) {
+        boolean needsUser = scope == PlayerScope.LINKED_GUARDIAN || scope == PlayerScope.ASSIGNED_STAFF;
+        if (scope == PlayerScope.NONE || (needsUser && userId == null)) {
             return new PageResult<>(List.of(), page, size, 0);
         }
         StringBuilder where = new StringBuilder(" WHERE TRUE");
         List<Object> args = new ArrayList<>();
         if (scope == PlayerScope.LINKED_GUARDIAN) {
             where.append(" AND ").append(LINKED_TO_USER);
+            args.add(userId);
+        }
+        if (scope == PlayerScope.ASSIGNED_STAFF) {
+            where.append(" AND ").append(ASSIGNED_TO_USER);
+            args.add(userId);
             args.add(userId);
         }
         if (status != null) {
