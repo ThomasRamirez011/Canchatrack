@@ -9,6 +9,7 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 
+import co.edu.unipamplona.canchatrack.scheduling.application.AgendaFakes.FakeAudience;
 import co.edu.unipamplona.canchatrack.scheduling.application.AgendaFakes.FakeGuardians;
 import co.edu.unipamplona.canchatrack.scheduling.application.AgendaFakes.FakeRoster;
 import co.edu.unipamplona.canchatrack.scheduling.application.AgendaFakes.FakeStore;
@@ -25,8 +26,11 @@ class EventReminderServiceTest {
     private final FakeGuardians guardians = new FakeGuardians();
 
     private EventReminderService service(List<Integer> hours) {
-        AgendaSettings settings = new AgendaSettings("", hours);
-        return new EventReminderService(store, new AgendaNotices(store, roster, guardians, queue, settings), settings);
+        return service(new AgendaSettings("", hours));
+    }
+
+    private EventReminderService service(AgendaSettings settings) {
+        return new EventReminderService(store, new AgendaNotices(store, roster, guardians, queue, settings, new FakeAudience()), settings);
     }
 
     private ReminderCandidate candidate(Duration untilStart, Duration createdBefore) {
@@ -69,5 +73,32 @@ class EventReminderServiceTest {
         assertThat(service(List.of()).sendDue()).isZero();
         assertThat(store.lastFrom).isNull();
         assertThat(queue.sent).isEmpty();
+    }
+
+    @Test
+    void matchesUseTheirOwnStagesAndTheFarthestOneSetsTheHorizon() {
+        Instant in40h = AgendaFakes.NOW.plus(Duration.ofHours(40));
+        Instant oldBaseline = in40h.minus(Duration.ofDays(7));
+        store.upcoming.add(new ReminderCandidate(AgendaFakes.match(category, coach, in40h), oldBaseline));   // 48 h: toca
+        store.upcoming.add(new ReminderCandidate(AgendaFakes.training(category, coach, in40h), oldBaseline)); // 24 h: aún no
+
+        int due = service(new AgendaSettings("", List.of(2, 24), List.of(2, 48))).sendDue();
+
+        assertThat(due).isEqualTo(1);
+        assertThat(store.lastTo).isEqualTo(AgendaFakes.NOW.plus(Duration.ofHours(48)));
+        assertThat(queue.sent).hasSize(1);
+        assertThat(queue.sent.get(0).dedupScope()).isEqualTo("reminder:48");
+    }
+
+    @Test
+    void settingsPickTheStagesByEventType() {
+        AgendaSettings settings = new AgendaSettings("", List.of(2, 24), List.of(2, 48));
+
+        assertThat(settings.hoursFor("TRAINING")).containsExactly(2, 24);
+        assertThat(settings.hoursFor("EVALUATION")).containsExactly(2, 24);
+        assertThat(settings.hoursFor("FRIENDLY_MATCH")).containsExactly(2, 48);
+        assertThat(settings.hoursFor("TOURNAMENT_MATCH")).containsExactly(2, 48);
+        assertThat(settings.farthestHours()).isEqualTo(48);
+        assertThat(new AgendaSettings("", List.of(1, 6)).hoursFor("FRIENDLY_MATCH")).containsExactly(1, 6);
     }
 }

@@ -508,6 +508,44 @@ class CompetitionsIT {
     }
 
     @Test
+    void theCoachGetsACalendarEntryWhenAMatchIsScheduledRescheduledAndCancelledAndNoFamilyIsNotifiedThatWay() throws Exception {
+        Club club = club();
+        Kid confirmed = fullKid(club);
+        UUID match = scheduleMatch(club);
+        propose(club, match, confirmed);
+        confirm(club, match, confirmed).andExpect(status().isOk());
+        UUID event = jdbc.queryForObject("SELECT event_id FROM matches WHERE id = ?", UUID.class, match);
+        String coachEmail = jdbc.queryForObject("SELECT email FROM users WHERE id = ?", String.class, club.coach().id());
+
+        assertThat(eventNoticeRecipients(event, "EVENT_SCHEDULED")).containsExactly(coachEmail);
+        JsonNode payload = json.readTree(jdbc.queryForObject(
+                "SELECT payload::text FROM notifications WHERE related_entity_id = ? AND notification_type = 'EVENT_SCHEDULED'",
+                String.class, event));
+        assertThat(payload.get("opponent").asText()).isEqualTo("Club Rival");
+        assertThat(payload.get("eventType").asText()).isEqualTo("FRIENDLY_MATCH");
+        assertThat(payload.has("playerName")).isFalse();
+
+        Instant start = Instant.parse(body(getJson("/matches/" + match, club.coordinator().token()).andExpect(status().isOk()))
+                .get("match").get("startAt").asText());
+        postJson("/matches/" + match + "/reschedule", rescheduleRequest(start.plusSeconds(1800), "Cambio de cancha"),
+                club.coordinator().token()).andExpect(status().isOk());
+        assertThat(eventNoticeRecipients(event, "EVENT_RESCHEDULED")).containsExactly(coachEmail);
+
+        postJson("/matches/" + match + "/cancel", Map.of("reason", "Lluvia"), club.coordinator().token()).andExpect(status().isOk());
+        assertThat(eventNoticeRecipients(event, "EVENT_CANCELLED")).containsExactly(coachEmail);
+        // La familia del confirmado solo recibe los avisos propios del partido.
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notifications WHERE related_entity_id = ? AND recipient_email = ?",
+                Long.class, event, confirmed.guardianEmail())).isZero();
+        assertThat(notifications(match, "MATCH_RESCHEDULED")).isEqualTo(1);
+        assertThat(notifications(match, "MATCH_CANCELLED")).isEqualTo(1);
+    }
+
+    private List<String> eventNoticeRecipients(UUID event, String type) {
+        return jdbc.queryForList("SELECT recipient_email FROM notifications WHERE related_entity_id = ? AND notification_type = ? ORDER BY 1",
+                String.class, event, type);
+    }
+
+    @Test
     void cancellingAMatchNotifiesConfirmedGuardiansAndBlocksFurtherChanges() throws Exception {
         Club club = club();
         Kid confirmed = fullKid(club);

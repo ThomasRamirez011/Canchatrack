@@ -21,10 +21,12 @@ public class MatchEventService implements MatchEventScheduling {
 
     private final SchedulingService scheduling;
     private final SchedulingStore store;
+    private final AgendaNotices notices;
 
-    public MatchEventService(SchedulingService scheduling, SchedulingStore store) {
+    public MatchEventService(SchedulingService scheduling, SchedulingStore store, AgendaNotices notices) {
         this.scheduling = scheduling;
         this.store = store;
+        this.notices = notices;
     }
 
     @Override
@@ -38,16 +40,23 @@ public class MatchEventService implements MatchEventScheduling {
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public void cancel(UUID eventId, String reason, UUID actorId, InetAddress ip, String userAgent) {
-        scheduling.cancelEvent(new SchedulingActor(actorId, ip, userAgent), eventId, reason);
+        notices.cancelled(scheduling.cancelEvent(new SchedulingActor(actorId, ip, userAgent), eventId, reason)); // solo al entrenador
     }
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public void reschedule(UUID eventId, MatchEventChange change, String reason, UUID actorId, InetAddress ip, String userAgent) {
-        scheduling.rescheduleOfTypes(new SchedulingActor(actorId, ip, userAgent), eventId,
+        Rescheduled changed = scheduling.rescheduleOfTypes(new SchedulingActor(actorId, ip, userAgent), eventId,
                 new RescheduleEventCommand(change.venueId(), change.headCoachId(), change.startAt(), change.endAt(),
                         change.meetingAt(), change.meetingPoint(), change.instructions(), reason),
                 SchedulingRules.MATCH_EVENT_TYPES);
+        notices.rescheduled(changed.before(), changed.after(), reason.trim()); // solo a los entrenadores: las familias avisan por competitions
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void announce(UUID eventId) {
+        store.findEvent(eventId).ifPresent(notices::scheduled);
     }
 
     @Override

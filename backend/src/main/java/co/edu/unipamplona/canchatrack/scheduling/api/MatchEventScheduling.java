@@ -35,6 +35,12 @@ public interface MatchEventScheduling {
      */
     void reschedule(UUID eventId, MatchEventChange change, String reason, UUID actorId, InetAddress ip, String userAgent);
 
+    /**
+     * Avisa al entrenador del partido recién creado (correo con invitación de calendario). Se llama después de registrar el
+     * partido, porque el aviso nombra al rival. Las familias no reciben nada aquí: avisan con la convocatoria.
+     */
+    void announce(UUID eventId);
+
     /** Marca el evento como realizado (al registrar el resultado). No hace nada si ya lo estaba. */
     void complete(UUID eventId);
 }

@@ -105,7 +105,7 @@ class AgendaNotificationsIT {
 
     /** Categoría con entrenador, escenario y dos jugadores: uno con su acudiente y otro con el mismo acudiente más otro. */
     private record Club(String coordinatorToken, String coachToken, UUID category, UUID venue, UUID coach, String coachEmail,
-                        String guardianEmail, String secondGuardianEmail) {
+                        String guardianEmail, String secondGuardianEmail, UUID anaPlayer) {
     }
 
     private Club club() throws Exception {
@@ -127,7 +127,7 @@ class AgendaNotificationsIT {
         link(p1, guardianUser, true);
         link(p2, guardianUser, true); // la misma acudiente de dos hijos: recibe un solo correo
         link(p2, secondGuardianUser, false);
-        return new Club(login(coordinatorEmail), login(coachEmail), category, venue, coach, coachEmail, guardianEmail, secondGuardianEmail);
+        return new Club(login(coordinatorEmail), login(coachEmail), category, venue, coach, coachEmail, guardianEmail, secondGuardianEmail, p1);
     }
 
     private UUID rosterPlayer(UUID category, UUID coach, String firstName) {
@@ -189,6 +189,22 @@ class AgendaNotificationsIT {
             jdbc.update("UPDATE sports_events SET start_at = ?, end_at = ?, updated_at = now() - interval '7 days' WHERE id = ?",
                     Timestamp.from(start), Timestamp.from(start.plus(minutes, ChronoUnit.MINUTES)), event);
         });
+    }
+
+    /** Partido amistoso programado hace una semana, con el jugador indicado ya confirmado en la convocatoria. */
+    private UUID matchLongAgo(Club club, Instant start, UUID confirmedPlayer) {
+        UUID event = jdbc.queryForObject("""
+                INSERT INTO sports_events (event_type, category_id, venue_id, start_at, end_at, created_at, updated_at)
+                VALUES ('FRIENDLY_MATCH', ?, ?, ?, ?, now() - interval '7 days', now() - interval '7 days') RETURNING id
+                """, UUID.class, club.category(), club.venue(), Timestamp.from(start), Timestamp.from(start.plus(90, ChronoUnit.MINUTES)));
+        jdbc.update("INSERT INTO event_participants (event_id, user_id, role) VALUES (?, ?, 'HEAD_COACH')", event, club.coach());
+        UUID match = jdbc.queryForObject("INSERT INTO matches (event_id, opponent, created_by) VALUES (?, 'Club Rival', ?) RETURNING id",
+                UUID.class, event, club.coach());
+        jdbc.update("""
+                INSERT INTO callup_entries (match_id, player_id, status, proposed_by, confirmed_by, confirmed_at)
+                VALUES (?, ?, 'CONFIRMED', ?, ?, now())
+                """, match, confirmedPlayer, club.coach(), club.coach());
+        return event;
     }
 
     private List<Map<String, Object>> notices(UUID event, String type) {
@@ -439,6 +455,43 @@ class AgendaNotificationsIT {
         assertThat(notices(event, "EVENT_REMINDER")).hasSize(6);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM notifications WHERE related_entity_id = ? AND notification_type = 'EVENT_REMINDER' AND payload->>'hoursBefore' = '24'",
                 Integer.class, event)).isEqualTo(6);
+    }
+
+    // ---------- partidos ----------
+
+    @Test
+    void aMatchIsRemindedToTheFamiliesOfTheConfirmedPlayersAndTheCoachFortyEightHoursAhead() throws Exception {
+        Club club = club();
+        UUID match = matchLongAgo(club, Instant.now().plus(40, ChronoUnit.HOURS), club.anaPlayer());
+        UUID training = scheduledLongAgo(club, Instant.now().plus(40, ChronoUnit.HOURS));
+
+        reminders.sendDue();
+        reminders.sendDue();
+
+        // Ana solo tiene a la madre; el padre está vinculado a otro jugador que no fue confirmado.
+        assertThat(recipients(match, "EVENT_REMINDER")).isEqualTo(sorted(club.guardianEmail(), club.coachEmail()));
+        JsonNode payload = json.readTree((String) notices(match, "EVENT_REMINDER").get(0).get("payload"));
+        assertThat(payload.get("hoursBefore").asText()).isEqualTo("48");
+        assertThat(payload.get("opponent").asText()).isEqualTo("Club Rival");
+        assertThat(payload.get("eventType").asText()).isEqualTo("FRIENDLY_MATCH");
+        // Un entrenamiento a la misma distancia aún no está en su primer tramo (24 h).
+        assertThat(notices(training, "EVENT_REMINDER")).isEmpty();
+    }
+
+    @Test
+    void theTwoHourMatchReminderStillGoesOutAfterTheFortyEightHourOne() throws Exception {
+        Club club = club();
+        UUID match = matchLongAgo(club, Instant.now().plus(40, ChronoUnit.HOURS), club.anaPlayer());
+        reminders.sendDue();
+        assertThat(notices(match, "EVENT_REMINDER")).hasSize(2);
+
+        moveAsIfItHadBeenLongAgo(match, Instant.now().plus(100, ChronoUnit.MINUTES), 90);
+        reminders.sendDue();
+        reminders.sendDue();
+
+        assertThat(notices(match, "EVENT_REMINDER")).hasSize(4);
+        assertThat(jdbc.queryForObject("SELECT count(DISTINCT dedup_key) FROM notifications WHERE related_entity_id = ? AND notification_type = 'EVENT_REMINDER'",
+                Integer.class, match)).isEqualTo(4);
     }
 
     // ---------- proveedor de correo de captura ----------

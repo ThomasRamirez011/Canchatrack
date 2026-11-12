@@ -249,6 +249,24 @@ class NotificationRulesTest {
     }
 
     @Test
+    void matchEmailsNameTheRivalAndTheCalendarEntryToo() {
+        Map<String, String> payload = eventPayload();
+        payload.put("eventType", "TOURNAMENT_MATCH");
+        payload.put("opponent", "Club Rival\nBcc: x@y.z");
+        payload.put("hoursBefore", "48");
+
+        OutboundEmail scheduled = EmailTemplates.render("EVENT_SCHEDULED", "a@b.co", null, payload, BOGOTA).orElseThrow();
+        OutboundEmail reminder = EmailTemplates.render("EVENT_REMINDER", "a@b.co", null, payload, BOGOTA).orElseThrow();
+
+        assertThat(scheduled.subject()).isEqualTo("Partido de torneo programado · Sub-12");
+        assertThat(scheduled.body()).contains("partido de torneo de la categoría Sub-12", "Rival: Club Rival Bcc: x@y.z.");
+        assertThat(scheduled.body().contains("\nBcc")).isFalse();
+        assertThat(scheduled.calendar().content()).contains("SUMMARY:Partido de torneo · Sub-12 vs Club Rival Bcc: x@y.z", "Rival: Club Rival");
+        assertThat(reminder.body()).contains("Faltan 48 horas para el partido de torneo", "Rival: Club Rival");
+        assertThat(reminder.calendar()).isNull();
+    }
+
+    @Test
     void reminderEmailSaysHowMuchTimeIsLeftAndHasNoInvitation() {
         Map<String, String> payload = eventPayload();
         payload.put("hoursBefore", "2");

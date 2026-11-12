@@ -57,7 +57,8 @@ canchatrack:
   app-url: ${APP_URL:} # dirección pública del front; se incluye como enlace en los correos de la agenda (vacía = sin enlace)
   scheduling:
     reminders:
-      hours: 24,2 # horas antes del evento en que sale un recordatorio (RF-019); 1..168, hasta 5 valores
+      hours: 24,2 # horas antes de un entrenamiento o evaluación en que sale un recordatorio (RF-019); 1..168, hasta 5 valores
+      match-hours: 48,2 # lo mismo para los partidos
       interval: PT5M # cada cuánto se revisan los eventos próximos
   security:
     jwt:
