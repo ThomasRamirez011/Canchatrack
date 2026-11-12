@@ -11,6 +11,7 @@ public final class SchedulingRules {
 
     /** Los partidos de torneo los administra {@code competitions}; aquí solo entrenamientos y evaluaciones. */
     public static final Set<String> EVENT_TYPES = Set.of("TRAINING", "EVALUATION");
+    public static final Set<String> MATCH_EVENT_TYPES = Set.of("FRIENDLY_MATCH", "TOURNAMENT_MATCH");
     public static final Duration MAX_DURATION = Duration.ofHours(12);
     public static final int MAX_NAME = 120;
     public static final int MAX_ADDRESS = 250;
@@ -35,9 +36,15 @@ public final class SchedulingRules {
 
     public static List<FieldError> eventViolations(String eventType, Instant startAt, Instant endAt, Instant meetingAt,
                                                    String meetingPoint, String instructions, Instant now) {
+        return eventViolations(EVENT_TYPES, eventType, startAt, endAt, meetingAt, meetingPoint, instructions, now);
+    }
+
+    /** Igual que la anterior pero con el conjunto de tipos admitido (los partidos usan {@link #MATCH_EVENT_TYPES}). */
+    public static List<FieldError> eventViolations(Set<String> allowedTypes, String eventType, Instant startAt, Instant endAt,
+                                                   Instant meetingAt, String meetingPoint, String instructions, Instant now) {
         List<FieldError> errors = new ArrayList<>();
-        if (eventType == null || !EVENT_TYPES.contains(eventType.trim().toUpperCase())) {
-            errors.add(new FieldError("eventType", "El tipo debe ser uno de: " + String.join(", ", EVENT_TYPES.stream().sorted().toList()) + "."));
+        if (eventType == null || !allowedTypes.contains(eventType.trim().toUpperCase())) {
+            errors.add(new FieldError("eventType", "El tipo debe ser uno de: " + String.join(", ", allowedTypes.stream().sorted().toList()) + "."));
         }
         if (startAt == null) {
             errors.add(new FieldError("startAt", "La hora de inicio es obligatoria."));

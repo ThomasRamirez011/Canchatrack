@@ -234,6 +234,38 @@ class OpenApiContractTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void competitionEndpointsAreDocumentedAndSchemasMatchTheDtos() throws Exception {
+        Map<String, Object> spec = load();
+        Map<String, Object> paths = (Map<String, Object>) spec.get("paths");
+        Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) spec.get("components")).get("schemas");
+
+        assertThat(paths.keySet()).contains("/tournaments", "/matches", "/matches/{matchId}", "/matches/{matchId}/cancel",
+                "/matches/{matchId}/callup", "/matches/{matchId}/callup/{playerId}", "/matches/{matchId}/callup/confirm",
+                "/matches/{matchId}/players/{playerId}/authorization", "/matches/{matchId}/result",
+                "/players/{playerId}/matches");
+
+        Map<String, Object> causes = (Map<String, Object>) schemas.get("IneligibilityCause");
+        assertThat((List<String>) causes.get("enum")).containsExactlyInAnyOrder(
+                co.edu.unipamplona.canchatrack.competitions.domain.Eligibility.NOT_ACTIVE,
+                co.edu.unipamplona.canchatrack.competitions.domain.Eligibility.MEDICAL_CERTIFICATE_INVALID,
+                co.edu.unipamplona.canchatrack.competitions.domain.Eligibility.AUTHORIZATION_INVALID,
+                co.edu.unipamplona.canchatrack.competitions.domain.Eligibility.ARREARS);
+
+        String dtos = "co.edu.unipamplona.canchatrack.competitions.infrastructure.CompetitionDtos$";
+        for (String name : List.of("CreateTournamentRequest", "TournamentResponse", "ScheduleMatchRequest", "CancelMatchRequest",
+                "MatchResponse", "CallupPlayersRequest", "CallupResponse", "MatchDetailResponse", "PlayerResultRequest",
+                "MatchResultRequest", "MatchAuthorizationResponse", "PlayerMatchResponse")) {
+            Class<?> type = Class.forName(dtos + name);
+            Map<String, Object> documented = (Map<String, Object>) schemas.get(name);
+            assertThat(documented).as("esquema %s", name).isNotNull();
+            List<String> actual = Arrays.stream(type.getRecordComponents()).map(java.lang.reflect.RecordComponent::getName).toList();
+            assertThat(((Map<String, Object>) documented.get("properties")).keySet())
+                    .as("campos de %s", name).containsExactlyInAnyOrderElementsOf(actual);
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void playerStatusEnumMatchesTheDomain() throws Exception {
         Map<String, Object> components = (Map<String, Object>) load().get("components");
         Map<String, Object> schemas = (Map<String, Object>) components.get("schemas");

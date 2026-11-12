@@ -40,6 +40,8 @@ tags:
     description: Asistencia por sesión con sincronización idempotente, cierre y corrección auditada (RN-15).
   - name: evaluations
     description: Rondas de evaluación, conceptos independientes de los tres evaluadores, unanimidad y ascenso de categoría.
+  - name: competitions
+    description: Torneos, partidos, convocatoria con elegibilidad (RN-06, RN-07), autorización del acudiente y resultados.
   - name: enrollments
     description: Radicación de inscripciones por el acudiente.
   - name: players
@@ -1304,6 +1306,279 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
+  /tournaments:
+    post:
+      tags: [competitions]
+      operationId: createTournament
+      summary: Registra un torneo de la temporada (solo coordinador, RF-031).
+      description: |
+        Nombre único por temporada. Categoría, escenario y reglamento son opcionales: un torneo puede abarcar varias
+        categorías. Si declara categoría, sus partidos deben ser de esa categoría; si declara fechas, los partidos deben
+        jugarse dentro de ellas.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTournamentRequest' }
+      responses:
+        '201':
+          description: Torneo registrado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TournamentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    get:
+      tags: [competitions]
+      operationId: listTournaments
+      summary: Lista los torneos (coordinador, comité y entrenadores).
+      parameters:
+        - { name: seasonId, in: query, required: false, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Torneos ordenados por fecha de inicio.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TournamentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /matches:
+    post:
+      tags: [competitions]
+      operationId: scheduleMatch
+      summary: Programa un partido (solo coordinador, RN-13, RF-032).
+      description: |
+        Crea el evento deportivo del partido (amistoso si no hay torneo, de torneo si lo hay) con las mismas reglas de
+        agenda que un entrenamiento: escenario, entrenador responsable y categoría no pueden cruzarse con otro evento
+        (RN-14, 409 SCHEDULE_CONFLICT con los eventos en conflicto).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ScheduleMatchRequest' }
+      responses:
+        '201':
+          description: Partido programado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MatchResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    get:
+      tags: [competitions]
+      operationId: listMatches
+      summary: Lista partidos. Coordinador y comité ven todos; el entrenador, solo los suyos.
+      parameters:
+        - { name: categoryId, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: tournamentId, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: from, in: query, required: false, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: false, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: Partidos ordenados por inicio (máximo 200).
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/MatchResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /matches/{matchId}:
+    get:
+      tags: [competitions]
+      operationId: getMatch
+      summary: Detalle del partido con su convocatoria (coordinador, comité y entrenador responsable).
+      description: |
+        El entrenador que no es responsable del partido recibe 404. La convocatoria incluye el estado de cada jugador, la
+        causa de no elegibilidad y el detalle de requisitos; son datos del personal y nunca se muestran al acudiente.
+      parameters:
+        - { name: matchId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Partido y convocatoria.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MatchDetailResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /matches/{matchId}/cancel:
+    post:
+      tags: [competitions]
+      operationId: cancelMatch
+      summary: Cancela un partido confirmado con motivo (solo coordinador).
+      description: |
+        Queda auditado y se avisa a los acudientes de los jugadores con convocatoria confirmada. Un partido ya realizado
+        o cancelado responde 409.
+      parameters:
+        - { name: matchId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CancelMatchRequest' }
+      responses:
+        '200':
+          description: Partido cancelado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MatchResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /matches/{matchId}/callup:
+    post:
+      tags: [competitions]
+      operationId: proposeCallup
+      summary: Propone jugadores para el partido (entrenador responsable o coordinador, RF-033).
+      description: |
+        Cada jugador se evalúa contra RN-06 y RN-07: activo en la categoría, certificado médico vigente el día del
+        partido, autorización de participación vigente y política de mora. Quien no cumple queda en `NOT_ELIGIBLE` con la
+        causa (`PLAYER_NOT_ACTIVE`, `MEDICAL_CERTIFICATE_INVALID`, `PARTICIPATION_AUTHORIZATION_INVALID` o
+        `ARREARS_POLICY`) y no se convoca. Proponer de nuevo re-evalúa; los ya confirmados no cambian. Solo antes de que
+        el partido comience.
+      parameters:
+        - { name: matchId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CallupPlayersRequest' }
+      responses:
+        '200':
+          description: Estado de cada jugador propuesto.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CallupResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /matches/{matchId}/callup/{playerId}:
+    delete:
+      tags: [competitions]
+      operationId: removeCallup
+      summary: Quita a un jugador de la convocatoria (entrenador responsable o coordinador).
+      description: Idempotente. Si el jugador estaba confirmado, se avisa a sus acudientes.
+      parameters:
+        - { name: matchId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: playerId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204':
+          description: Jugador retirado de la convocatoria.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /matches/{matchId}/callup/confirm:
+    post:
+      tags: [competitions]
+      operationId: confirmCallup
+      summary: Confirma la convocatoria de los jugadores propuestos (solo coordinador).
+      description: |
+        Vuelve a evaluar a cada jugador. Si alguno ya no cumple, nada se confirma y responde 409 `CALLUP_NOT_ELIGIBLE`
+        con `players: [{playerId, causes}]`. Solo se confirman jugadores en `PROPOSED` (otro estado responde 409 con
+        `players`). Al confirmar se avisa a los acudientes, sin datos de salud (RF-035).
+      parameters:
+        - { name: matchId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CallupPlayersRequest' }
+      responses:
+        '200':
+          description: Estado de los jugadores indicados.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CallupResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /matches/{matchId}/players/{playerId}/authorization:
+    post:
+      tags: [competitions]
+      operationId: authorizeMatchParticipation
+      summary: El acudiente autoriza la participación o el desplazamiento de su hijo (RF-034).
+      description: |
+        Solo el acudiente con vínculo vigente con el jugador, y solo si el jugador tiene convocatoria confirmada
+        (en otro caso 404, para no revelar propuestas ni causas de no elegibilidad). Idempotente: repetirla responde 200
+        con `recordedNow: false`.
+      parameters:
+        - { name: matchId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: playerId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Autorización vigente.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MatchAuthorizationResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /matches/{matchId}/result:
+    put:
+      tags: [competitions]
+      operationId: recordMatchResult
+      summary: Registra el resultado, los minutos y los goles (entrenador responsable o coordinador, RF-036).
+      description: |
+        Desde que el partido comienza. Los jugadores deben tener convocatoria confirmada y la suma de goles individuales
+        no puede superar los goles a favor. El partido pasa a `COMPLETED`. Un resultado ya registrado solo se corrige
+        con `reason`, y la corrección queda auditada con el marcador anterior.
+      parameters:
+        - { name: matchId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MatchResultRequest' }
+      responses:
+        '200':
+          description: Partido con el resultado registrado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MatchDetailResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /players/{playerId}/matches:
+    get:
+      tags: [competitions, players]
+      operationId: listPlayerMatches
+      summary: Historial de partidos del jugador con convocatoria confirmada (RF-037).
+      description: |
+        Acudiente (solo sus hijos), coordinador y comité. Incluye partidos cancelados para que el acudiente vea el cambio.
+        Nunca expone causas de no elegibilidad ni datos de salud.
+      parameters:
+        - { name: playerId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Partidos del más reciente al más antiguo.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PlayerMatchResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 components:
   securitySchemes:
     bearerAuth:
@@ -2066,6 +2341,153 @@ components:
         categoryId: { type: string, format: uuid }
         categoryName: { type: string }
         headCoachId: { type: string, format: uuid }
+    CreateTournamentRequest:
+      type: object
+      properties:
+        seasonId: { type: string, format: uuid }
+        name: { type: string, maxLength: 150 }
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date }
+        categoryId: { type: string, format: uuid }
+        venueId: { type: string, format: uuid }
+        rules: { type: string, maxLength: 2000, description: Reglamento del torneo. }
+    TournamentResponse:
+      type: object
+      required: [id, seasonId, name]
+      properties:
+        id: { type: string, format: uuid }
+        seasonId: { type: string, format: uuid }
+        name: { type: string }
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date }
+        categoryId: { type: string, format: uuid }
+        venueId: { type: string, format: uuid }
+        rules: { type: string }
+    ScheduleMatchRequest:
+      type: object
+      properties:
+        tournamentId: { type: string, format: uuid, description: Sin torneo el partido es amistoso. }
+        categoryId: { type: string, format: uuid }
+        venueId: { type: string, format: uuid }
+        headCoachId: { type: string, format: uuid }
+        opponent: { type: string, maxLength: 150 }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        meetingAt: { type: string, format: date-time }
+        meetingPoint: { type: string, maxLength: 200 }
+        instructions: { type: string, maxLength: 2000 }
+    CancelMatchRequest:
+      type: object
+      properties:
+        reason: { type: string, maxLength: 2000 }
+    MatchResponse:
+      type: object
+      required: [id, eventId, categoryId, venueId, venueName, opponent, startAt, endAt, status]
+      properties:
+        id: { type: string, format: uuid }
+        eventId: { type: string, format: uuid }
+        tournamentId: { type: string, format: uuid }
+        tournamentName: { type: string }
+        categoryId: { type: string, format: uuid }
+        venueId: { type: string, format: uuid }
+        venueName: { type: string }
+        headCoachId: { type: string, format: uuid }
+        opponent: { type: string }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        meetingAt: { type: string, format: date-time }
+        meetingPoint: { type: string }
+        instructions: { type: string }
+        status: { type: string, enum: [CONFIRMED, CANCELLED, COMPLETED] }
+        cancellationReason: { type: string }
+        scoreFor: { type: integer, minimum: 0 }
+        scoreAgainst: { type: integer, minimum: 0 }
+        resultNotes: { type: string }
+        resultRecordedAt: { type: string, format: date-time }
+    CallupPlayersRequest:
+      type: object
+      properties:
+        playerIds:
+          type: array
+          minItems: 1
+          maxItems: 40
+          items: { type: string, format: uuid }
+    CallupStatus:
+      type: string
+      enum: [PROPOSED, CONFIRMED, NOT_ELIGIBLE, REMOVED]
+    IneligibilityCause:
+      type: string
+      enum: [PLAYER_NOT_ACTIVE, MEDICAL_CERTIFICATE_INVALID, PARTICIPATION_AUTHORIZATION_INVALID, ARREARS_POLICY]
+    CallupResponse:
+      type: object
+      required: [playerId, status, authorized]
+      properties:
+        playerId: { type: string, format: uuid }
+        playerCode: { type: string }
+        firstName: { type: string }
+        lastName: { type: string }
+        status: { $ref: '#/components/schemas/CallupStatus' }
+        ineligibilityCode: { $ref: '#/components/schemas/IneligibilityCause' }
+        eligibility:
+          type: object
+          description: Cumplimiento de cada requisito al evaluar. Solo personal; nunca contiene datos de salud.
+          properties:
+            active: { type: boolean }
+            medicalCertificate: { type: boolean }
+            participationAuthorization: { type: boolean }
+            arrearsClear: { type: boolean }
+        proposedAt: { type: string, format: date-time }
+        confirmedAt: { type: string, format: date-time }
+        authorized: { type: boolean, description: El acudiente ya autorizó este partido. }
+        minutesPlayed: { type: integer, minimum: 0, maximum: 150 }
+        goals: { type: integer, minimum: 0, maximum: 99 }
+        observations: { type: string }
+    MatchDetailResponse:
+      type: object
+      required: [match, callups]
+      properties:
+        match: { $ref: '#/components/schemas/MatchResponse' }
+        callups:
+          type: array
+          items: { $ref: '#/components/schemas/CallupResponse' }
+    PlayerResultRequest:
+      type: object
+      properties:
+        playerId: { type: string, format: uuid }
+        minutesPlayed: { type: integer, minimum: 0, maximum: 150 }
+        goals: { type: integer, minimum: 0, maximum: 99 }
+        observations: { type: string, maxLength: 1000 }
+    MatchResultRequest:
+      type: object
+      properties:
+        scoreFor: { type: integer, minimum: 0, maximum: 99 }
+        scoreAgainst: { type: integer, minimum: 0, maximum: 99 }
+        resultNotes: { type: string, maxLength: 2000 }
+        reason: { type: string, maxLength: 2000, description: Obligatorio al corregir un resultado ya registrado. }
+        players:
+          type: array
+          items: { $ref: '#/components/schemas/PlayerResultRequest' }
+    MatchAuthorizationResponse:
+      type: object
+      required: [matchId, playerId, recordedNow]
+      properties:
+        matchId: { type: string, format: uuid }
+        playerId: { type: string, format: uuid }
+        recordedNow: { type: boolean, description: false si la autorización ya existía. }
+    PlayerMatchResponse:
+      type: object
+      required: [matchId, opponent, startAt, matchStatus, authorized]
+      properties:
+        matchId: { type: string, format: uuid }
+        opponent: { type: string }
+        tournamentName: { type: string }
+        startAt: { type: string, format: date-time }
+        matchStatus: { type: string, enum: [CONFIRMED, CANCELLED, COMPLETED] }
+        authorized: { type: boolean }
+        minutesPlayed: { type: integer }
+        goals: { type: integer }
+        scoreFor: { type: integer }
+        scoreAgainst: { type: integer }
   responses:
     BadRequest:
       description: Solicitud mal formada.

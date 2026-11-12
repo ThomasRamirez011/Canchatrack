@@ -150,6 +150,12 @@ public class JdbcSchedulingStore implements SchedulingStore {
     }
 
     @Override
+    public void complete(UUID eventId) {
+        jdbc.update("UPDATE sports_events SET status = 'COMPLETED', optimistic_version = optimistic_version + 1 WHERE id = ? AND status = 'CONFIRMED'",
+                eventId);
+    }
+
+    @Override
     public void cancel(UUID eventId, String reason) {
         jdbc.update("UPDATE sports_events SET status = 'CANCELLED', cancellation_reason = ?, optimistic_version = optimistic_version + 1 WHERE id = ?",
                 reason, eventId);
