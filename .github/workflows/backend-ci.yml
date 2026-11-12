@@ -40,6 +40,12 @@ jobs:
           cache: maven
           cache-dependency-path: backend/pom.xml
 
+      # Docker Engine 29 exige API >= 1.40 y el docker-java de Testcontainers 1.21.x usa 1.32 por defecto.
+      # Mismo arreglo que en las máquinas de desarrollo: fijar la versión de la API.
+      - name: Compatibilidad de Testcontainers con Docker Engine 29
+        working-directory: .
+        run: echo "api.version=1.44" > ~/.docker-java.properties
+
       # Surefire (*Test: dominio, ArchUnit, contrato OpenAPI) y Failsafe (*IT: PostgreSQL 16 real con Testcontainers).
       # ubuntu-latest trae Docker, que Testcontainers necesita.
       - name: Compilar y probar
