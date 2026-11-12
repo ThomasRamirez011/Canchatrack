@@ -120,9 +120,9 @@ class AgendaNotificationsIT {
         UUID secondGuardianUser = user(secondGuardianEmail, "Padre de prueba", "GUARDIAN");
         UUID p1 = rosterPlayer(category, coach, "Ana");
         UUID p2 = rosterPlayer(category, coach, "Luis");
-        link(p1, guardianUser);
-        link(p2, guardianUser); // la misma acudiente de dos hijos: recibe un solo correo
-        link(p2, secondGuardianUser);
+        link(p1, guardianUser, true);
+        link(p2, guardianUser, true); // la misma acudiente de dos hijos: recibe un solo correo
+        link(p2, secondGuardianUser, false);
         return new Club(login(coordinatorEmail), category, venue, coach, coachEmail, guardianEmail, secondGuardianEmail);
     }
 
@@ -144,12 +144,12 @@ class AgendaNotificationsIT {
         return player;
     }
 
-    private void link(UUID player, UUID guardianUser) {
+    private void link(UUID player, UUID guardianUser, boolean primary) {
         UUID guardian = jdbc.query("SELECT id FROM guardians WHERE user_id = ?", (rs, i) -> rs.getObject("id", UUID.class), guardianUser)
                 .stream().findFirst().orElseGet(() -> jdbc.queryForObject(
                         "INSERT INTO guardians (user_id, document_type, document_number) VALUES (?, 'CC', ?) RETURNING id",
                         UUID.class, guardianUser, "cc-" + UUID.randomUUID().toString().substring(0, 20)));
-        jdbc.update("INSERT INTO player_guardians (player_id, guardian_id, is_primary) VALUES (?, ?, true)", player, guardian);
+        jdbc.update("INSERT INTO player_guardians (player_id, guardian_id, is_primary) VALUES (?, ?, ?)", player, guardian, primary);
     }
 
     private UUID schedule(Club club, Instant start) throws Exception {
