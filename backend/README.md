@@ -60,6 +60,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
   evaluaciones con detección de cruces (RN-14), asistencia con sincronización idempotente, cierre y corrección auditada (RN-15)
   y porcentaje por jugador (CU-05, CU-06).
 - `evaluations` + `players` (evaluación y ascenso, ver «Evaluaciones y ascenso»): rondas de evaluación sobre un periodo, concepto independiente de cada uno de los tres evaluadores con justificación y acciones si no es favorable, cierre por unanimidad con plan de seguimiento y ascenso a la categoría siguiente con historial conservado (CU-07, CU-08, RN-08..RN-12).
+- `competitions` + `scheduling` + `documents` + `payments` (partidos y convocatorias, ver «Partidos y convocatorias»): torneos, partidos con agenda sin cruces, convocatoria con elegibilidad por jugador (activo, certificado médico, autorización y mora), confirmación del coordinador, avisos a acudientes, autorización por partido y resultado (CU-09, RN-06, RN-07, RN-13).
 - `audit`: puerto `AuditWriter` (`write` en la transacción de negocio; `writeIndependent` para intentos rechazados,
   p. ej. PA-01) y adaptador JDBC.
 
@@ -67,7 +68,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 
 | Qué | Cómo se verificó | Estado |
 |---|---|---|
-| Migraciones V1..V14 sobre PostgreSQL 16 real | `scripts/check-schema.sh` | Ejecutado: OK |
+| Migraciones V1..V15 sobre PostgreSQL 16 real | `scripts/check-schema.sh` | Ejecutado: OK |
 | Invariantes críticas (≈90 aserciones, incl. pagos, asistencia, unanimidad, auditoría) | `schema-invariants.sql`; se comprobó que **fallan** si se quitan los triggers | Ejecutado: OK |
 | `ErrorCode` coincide con DDS 13, `DomainException`, `AuditRecord` | `javac` + ejecución | Ejecutado: OK |
 | YAML (perfiles, compose), `pom.xml`, OpenAPI 3.1 | parseo / `openapi-spec-validator` | Ejecutado: OK |
@@ -79,6 +80,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 | Pagos, matrícula y archivos (`payments`, `documents`, `players`, `PaymentsIT`) | Las sentencias SQL nuevas (tarifa, cargo idempotente, bloqueo del cargo, pago parcial y total, anulación única, saldo, matrícula saldada, violación de FK) ejecutadas contra PostgreSQL 16 real con V1..V14; reglas compiladas y ejecutadas con `javac` (comprobaciones de `PaymentRules` y `FileRules`); OpenAPI validado | **Verificado:** `mvn test` y `mvn verify` (`PaymentsIT` incluida, con Testcontainers) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0 |
 | Agenda y asistencia (`scheduling`, `attendance`, `players.api`, `AgendaIT`) | Las sentencias SQL nuevas (cruces por escenario, entrenador y categoría con intervalos semiabiertos, plantilla por asignación vigente, lote idempotente por clave, marcas duplicadas, cierre, bloqueo por `CT002`, corrección con rastro, porcentaje) ejecutadas contra PostgreSQL 16 real con V1..V14; reglas y servicios compilados con `-Xlint:all`; OpenAPI validado con `openapi-spec-validator` | **Verificado:** `mvn test` y `mvn verify` (`AgendaIT` incluida, con Testcontainers) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0 |
 | Evaluaciones y ascenso (`evaluations`, `players.api`, `EvaluationsIT`) | Las sentencias SQL nuevas (una sola ronda abierta por jugador con `ON CONFLICT DO NOTHING`, alta/ajuste de concepto con `ON CONFLICT DO UPDATE` y rastro en el historial, vigencia del concepto por periodo, cambio de periodo, cierre, bloqueo `CT003` tras el cierre, cierre de la categoría anterior y alta de la asignación `PROMOTION`) ejecutadas contra PostgreSQL 16 real con V1..V14; capas de dominio y aplicación compiladas con `-Xlint:all`; OpenAPI validado con `openapi-spec-validator` | **Verificado:** `mvn test` y `mvn verify` (`EvaluationsIT` incluida, con Testcontainers) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0, tras corregir en la primera corrida un nombre de esquema OpenAPI duplicado (`DecisionResponse`) |
+| Partidos y convocatorias (`competitions`, `scheduling.api`, `documents.api`, `payments.api`, `notifications.api`, `CompetitionsIT`) | V15 y `schema-invariants.sql` sobre PostgreSQL 16 real (`scripts/check-schema.sh`); las sentencias SQL nuevas (proyección del partido, alta o sobrescritura de la propuesta sin tocar confirmados, confirmación, resultado, historial, vigencia del certificado, autorización de participación, mora, aviso con deduplicación, autorización por partido idempotente) ejecutadas contra esa base; dominio y aplicación compilados con `-Xlint:all`, reglas ejecutadas con una comprobación de humo; sintaxis de todos los fuentes nuevos y de las pruebas analizada con el parser de `javac`; OpenAPI validado y sin nombres de esquema duplicados | **Pendiente de verificar con `mvn test` y `mvn verify`** (los `*IT` y la capa web no se pueden ejecutar fuera de Maven/Testcontainers) |
 | Código Spring (filtro, handler, seguridad, `JdbcAuditWriter`), `ArchitectureTest`, unitarias | `mvn test` en Windows 11, JDK 24 (compila con `--release 21`), Maven 3.10.0 | Ejecutado: OK (19 pruebas, 0 fallos) |
 | `*IT` con Testcontainers (`DatabaseSchemaIT`, `AuditWriterIT`) | `mvn verify`, Docker Desktop 4.98 / Engine 29.9.2 | Ejecutado: OK (7 pruebas, 0 fallos) |
 
@@ -406,7 +408,42 @@ fachada `players.api.EvaluationGateway` (estado del jugador, panel y categoría)
 notificación a los evaluadores, cierre automático al vencer la ronda (hoy lo hace la coordinación), soportes del concepto y alcance de
 evaluador y entrenador sobre los expedientes en `PlayerAccessPolicy`.
 
+## Partidos y convocatorias (competitions)
+
+Alcance ligero: torneo → partido → convocatoria → autorización del acudiente → resultado, sin generación de PDF ni calendario de torneos.
+
+| Endpoint | Acceso | Notas |
+|---|---|---|
+| `POST /api/v1/tournaments` | `COORDINATOR` | Nombre único por temporada; categoría, escenario y reglamento opcionales (RF-031). |
+| `GET /api/v1/tournaments?seasonId=` | coordinador, comité, entrenador | |
+| `POST /api/v1/matches` | `COORDINATOR` | Crea el evento con las reglas de agenda (RN-14, 409 `SCHEDULE_CONFLICT`). Amistoso si no hay torneo; si lo hay, misma categoría y dentro de sus fechas. |
+| `GET /api/v1/matches`, `GET /api/v1/matches/{id}` | coordinador y comité: todos; entrenador: los suyos | El detalle incluye la convocatoria con causa y requisitos (solo personal). |
+| `POST /api/v1/matches/{id}/cancel` | `COORDINATOR` | Con motivo, auditado; avisa a los acudientes de los confirmados. `/events/{id}/cancel` rechaza partidos (409). |
+| `POST /api/v1/matches/{id}/callup` | entrenador responsable o coordinador | Evalúa a cada jugador; el que no cumple queda `NOT_ELIGIBLE` con su causa y no se convoca. Repetir re-evalúa. |
+| `DELETE /api/v1/matches/{id}/callup/{playerId}` | entrenador responsable o coordinador | Idempotente; avisa si estaba confirmado. |
+| `POST /api/v1/matches/{id}/callup/confirm` | `COORDINATOR` | Vuelve a evaluar. Si alguno ya no cumple: 409 `CALLUP_NOT_ELIGIBLE` con `players:[{playerId, causes}]` y no se confirma nada. |
+| `POST /api/v1/matches/{id}/players/{playerId}/authorization` | `GUARDIAN` vinculado | Solo con convocatoria confirmada (si no, 404). Idempotente (`recordedNow`). |
+| `PUT /api/v1/matches/{id}/result` | entrenador responsable o coordinador | Desde el inicio del partido. Minutos y goles por convocado confirmado; goles individuales ≤ marcador. Corregir exige `reason`. |
+| `GET /api/v1/players/{id}/matches` | acudiente (sus hijos), coordinador, comité | Historial de partidos con convocatoria confirmada (RF-037, parte de partidos). |
+
+**Decisiones.** (1) La elegibilidad (RN-06, RN-07) se compone con fachadas de los módulos dueños de cada dato: `players.api.CategoryRoster`
+(activo en la categoría), `documents.api.ParticipationClearance` (certificado médico vigente el día del partido y autorización de
+participación vigente), `payments.api.AccountStanding` (mora) — `competitions` no lee esas tablas. (2) Mora: cargo vigente vencido
+más allá de `canchatrack.payments.arrears-grace-days` (0 por defecto) con saldo pendiente; la política definitiva sigue en DP-05.
+(3) En `callup_entries.eligibility` solo se guarda si cada requisito se cumple, nunca contenido de salud (RN-17); el acudiente no ve causas
+ni requisitos. (4) El partido es un evento de `scheduling`: `scheduling.api.MatchEventScheduling` reutiliza la programación y la
+cancelación (cruces, auditoría) cambiando solo los tipos admitidos; `competitions` lee el evento como proyección de solo lectura.
+(5) Los avisos se encolan en `notifications` (tabla `notifications`, `PENDING`, deduplicados) en la misma transacción; el payload es solo de
+plantilla. (6) Toda operación sobre un partido bloquea su fila (`FOR UPDATE`): proponer, confirmar y registrar el resultado se serializan.
+(7) V15 es aditiva: `tournaments.category_id|venue_id|rules` y `callup_entries.goals`.
+(8) Auditoría: `TOURNAMENT_CREATED`, `MATCH_SCHEDULED`, `CALLUP_PROPOSED`, `CALLUP_REMOVED`, `CALLUP_CONFIRMED`, `MATCH_AUTHORIZED`,
+`MATCH_CANCELLED`, `MATCH_RESULT_RECORDED`, `MATCH_RESULT_CORRECTED` (más `EVENT_SCHEDULED`/`EVENT_CANCELLED` de agenda).
+
+**Pendiente.** Procesador que envía los avisos `PENDING` (módulo `notifications`), reprogramación de partidos (hoy se cancela y se crea otro),
+revocación de la autorización por el acudiente, historial deportivo con asistencia y evaluaciones publicadas (RF-037 completo, llega con
+reportes), alcance de entrenador y evaluador en `PlayerAccessPolicy` (el entrenador aún no consulta el historial de un jugador) y la política de mora definitiva.
+
 ## Siguiente paso
 
-Siguiente incremento: **partidos y convocatorias** (CU-09). Después: reportes y cierre de temporada, auditoría consultable, alcance de entrenador y
+Siguiente incremento: **auditoría consultable (CU-14) y reportes básicos de temporada (CU-10..12)**. Después: procesador de notificaciones, alcance de entrenador y
 evaluador en `PlayerAccessPolicy`, Dockerfile multi-etapa, pipeline CI con quality gates y Swagger UI en `dev`.

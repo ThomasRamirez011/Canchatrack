@@ -66,9 +66,18 @@ public class SchedulingService {
 
     @Transactional
     public EventView schedule(SchedulingActor actor, ScheduleEventCommand command) {
+        return scheduleOfTypes(actor, command, SchedulingRules.EVENT_TYPES);
+    }
+
+    /**
+     * Programa un evento de alguno de los tipos admitidos. Es público (y no de paquete) porque el proxy transaccional de
+     * Spring solo intercepta de forma fiable los métodos públicos; los partidos entran por {@link MatchEventService}.
+     */
+    @Transactional
+    public EventView scheduleOfTypes(SchedulingActor actor, ScheduleEventCommand command, Set<String> allowedTypes) {
         Instant now = store.now();
-        List<FieldError> errors = new ArrayList<>(SchedulingRules.eventViolations(command.eventType(), command.startAt(),
-                command.endAt(), command.meetingAt(), command.meetingPoint(), command.instructions(), now));
+        List<FieldError> errors = new ArrayList<>(SchedulingRules.eventViolations(allowedTypes, command.eventType(),
+                command.startAt(), command.endAt(), command.meetingAt(), command.meetingPoint(), command.instructions(), now));
         if (command.categoryId() == null) {
             errors.add(new FieldError("categoryId", "La categoría es obligatoria."));
         }
@@ -120,6 +129,17 @@ public class SchedulingService {
 
     @Transactional
     public EventView cancel(SchedulingActor actor, UUID eventId, String reason) {
+        EventView current = store.findEvent(eventId).orElseThrow(SchedulingService::notFound);
+        if (SchedulingRules.MATCH_EVENT_TYPES.contains(current.eventType())) {
+            throw new DomainException(ErrorCode.RESOURCE_STATE_CONFLICT,
+                    "Los partidos se cancelan desde su propio recurso (/matches/{id}/cancel) para avisar a los acudientes.");
+        }
+        return cancelEvent(actor, eventId, reason);
+    }
+
+    /** Cancela cualquier evento confirmado con motivo; {@link #cancel} lo usa tras descartar los partidos. */
+    @Transactional
+    public EventView cancelEvent(SchedulingActor actor, UUID eventId, String reason) {
         ValidationFailure.throwIfAny(SchedulingRules.cancellationViolations(reason));
         String status = store.lockStatus(eventId).orElseThrow(SchedulingService::notFound);
         if (!"CONFIRMED".equals(status)) {

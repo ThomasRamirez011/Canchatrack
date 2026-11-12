@@ -38,6 +38,9 @@ public interface SchedulingStore {
 
     void cancel(UUID eventId, String reason);
 
+    /** CONFIRMED → COMPLETED; no toca eventos en otro estado. */
+    void complete(UUID eventId);
+
     /** @param coachId si no es nulo, solo los eventos de los que es entrenador responsable */
     List<EventView> findEvents(UUID categoryId, Instant from, Instant to, UUID coachId, int limit);
 }
