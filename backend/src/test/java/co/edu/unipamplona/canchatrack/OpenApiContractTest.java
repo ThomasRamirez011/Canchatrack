@@ -266,6 +266,54 @@ class OpenApiContractTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void auditAndReportEndpointsAreDocumentedAndSchemasMatchTheDtos() throws Exception {
+        Map<String, Object> spec = load();
+        Map<String, Object> paths = (Map<String, Object>) spec.get("paths");
+        Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) spec.get("components")).get("schemas");
+
+        assertThat(paths.keySet()).contains("/audit/events", "/reports/receivables", "/reports/receivables/export",
+                "/reports/season-summary");
+
+        // Los límites de la consulta de auditoría documentados son los del dominio.
+        Map<String, Object> audit = (Map<String, Object>) ((Map<String, Object>) paths.get("/audit/events")).get("get");
+        List<Map<String, Object>> parameters = (List<Map<String, Object>>) audit.get("parameters");
+        Map<String, Object> limit = (Map<String, Object>) parameters.stream().filter(p -> "limit".equals(p.get("name")))
+                .findFirst().orElseThrow().get("schema");
+        assertThat(limit.get("maximum")).isEqualTo(co.edu.unipamplona.canchatrack.audit.domain.AuditQueryRules.MAX_LIMIT);
+        assertThat(limit.get("default")).isEqualTo(co.edu.unipamplona.canchatrack.audit.domain.AuditQueryRules.DEFAULT_LIMIT);
+        Map<String, Object> eventProperties = (Map<String, Object>) ((Map<String, Object>) schemas.get("AuditEventResponse")).get("properties");
+        assertThat((List<String>) ((Map<String, Object>) eventProperties.get("outcome")).get("enum"))
+                .containsExactlyInAnyOrderElementsOf(co.edu.unipamplona.canchatrack.audit.domain.AuditQueryRules.OUTCOMES);
+
+        // La exportación declara CSV y la consulta, JSON.
+        Map<String, Object> export = (Map<String, Object>) ((Map<String, Object>) paths.get("/reports/receivables/export")).get("get");
+        Map<String, Object> ok = (Map<String, Object>) ((Map<String, Object>) export.get("responses")).get("200");
+        assertThat(((Map<String, Object>) ok.get("content")).keySet()).containsExactly("text/csv");
+
+        record Group(String dtos, List<String> names) {
+        }
+        List<Group> groups = List.of(
+                new Group("co.edu.unipamplona.canchatrack.audit.infrastructure.AuditDtos$",
+                        List.of("AuditEventResponse", "AuditEventPageResponse")),
+                new Group("co.edu.unipamplona.canchatrack.reports.infrastructure.ReportDtos$",
+                        List.of("ReceivableLineResponse", "CategoryReceivableResponse", "ReceivablesReportResponse",
+                                "SeasonInfoResponse", "SeasonRosterLineResponse", "SeasonEventCountResponse",
+                                "SeasonAttendanceResponse", "SeasonMatchesResponse", "SeasonBillingResponse",
+                                "SeasonSummaryResponse")));
+        for (Group group : groups) {
+            for (String name : group.names()) {
+                Class<?> type = Class.forName(group.dtos() + name);
+                Map<String, Object> documented = (Map<String, Object>) schemas.get(name);
+                assertThat(documented).as("esquema %s", name).isNotNull();
+                List<String> actual = Arrays.stream(type.getRecordComponents()).map(java.lang.reflect.RecordComponent::getName).toList();
+                assertThat(((Map<String, Object>) documented.get("properties")).keySet())
+                        .as("campos de %s", name).containsExactlyInAnyOrderElementsOf(actual);
+            }
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void playerStatusEnumMatchesTheDomain() throws Exception {
         Map<String, Object> components = (Map<String, Object>) load().get("components");
         Map<String, Object> schemas = (Map<String, Object>) components.get("schemas");

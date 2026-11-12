@@ -46,6 +46,10 @@ tags:
     description: Radicación de inscripciones por el acudiente.
   - name: players
     description: Consulta de jugadores según el rol y el vínculo con el acudiente.
+  - name: audit
+    description: Consulta de la bitácora de auditoría (CU-14, RF-051), solo para la coordinación.
+  - name: reports
+    description: Cartera por categoría con exportación a CSV y resumen de temporada (CU-10 a CU-12).
 paths:
   /auth/login:
     post:
@@ -1579,6 +1583,110 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /audit/events:
+    get:
+      tags: [audit]
+      operationId: searchAuditEvents
+      summary: Consulta la bitácora de auditoría (CU-14, RF-051). Solo coordinador.
+      description: |
+        Eventos del más reciente al más antiguo con filtros opcionales combinables. Sirve para reconstruir el historial de
+        decisiones, cambios de categoría, conceptos, correcciones y cambios de estado: filtre por `entityType` y `entityId`
+        (por ejemplo `player`) o por `action` (`PLAYER_CATEGORY_ASSIGNED`, `EVALUATOR_DECISION_RECORDED`,
+        `ATTENDANCE_CORRECTED`, `PLAYER_PROMOTED`…).
+
+        Paginación por cursor: la respuesta trae `nextCursor` mientras haya más; envíelo en `cursor` para pedir la
+        siguiente página. `from` es inclusivo y `to` exclusivo. La primera página de cada búsqueda queda registrada como
+        `AUDIT_QUERIED` (con los filtros, sin el contenido devuelto). Los resúmenes `before` y `after` no contienen datos
+        de salud ni secretos, y la respuesta no incluye IP ni agente de usuario.
+      parameters:
+        - { name: action, in: query, required: false, schema: { type: string, maxLength: 80 } }
+        - { name: entityType, in: query, required: false, schema: { type: string, maxLength: 60 } }
+        - { name: entityId, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: actorId, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: outcome, in: query, required: false, schema: { type: string, enum: [SUCCESS, DENIED, FAILURE] } }
+        - { name: from, in: query, required: false, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: false, schema: { type: string, format: date-time } }
+        - { name: limit, in: query, required: false, description: 'Tamaño de página, 1 a 200 (50 por defecto).', schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { name: cursor, in: query, required: false, description: Valor opaco de `nextCursor`., schema: { type: string } }
+      responses:
+        '200':
+          description: Página de eventos.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuditEventPageResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /reports/receivables:
+    get:
+      tags: [reports]
+      operationId: getReceivablesReport
+      summary: Cartera por categoría (RF-042). Coordinador y comité.
+      description: |
+        Cargos con saldo pendiente (pendientes o con pago parcial; los anulados y saldados no cuentan), con jugador,
+        acudiente principal, concepto, valor neto, pagado, saldo y días de mora al día `asOf` (hoy en la zona del club por
+        defecto). `categories` suma todos los cargos por categoría; `lines` se corta en 5000 filas y entonces `truncated`
+        es verdadero. Un jugador sin categoría vigente aparece en «Sin categoría».
+      parameters:
+        - { name: seasonId, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: categoryId, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: asOf, in: query, required: false, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: Reporte de cartera.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReceivablesReportResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /reports/receivables/export:
+    get:
+      tags: [reports]
+      operationId: exportReceivablesReport
+      summary: Exporta la cartera a CSV, que abre en Excel (RF-042). Coordinador y comité.
+      description: |
+        Mismos filtros y contenido de `lines` que `/reports/receivables`, con encabezados en español. UTF-8 con marca BOM
+        para que Excel respete las tildes; los textos que empezarían por `=`, `+`, `-` o `@` se prefijan con `'` para
+        evitar inyección de fórmulas. Cada exportación queda auditada (`REPORT_EXPORTED`). Respuesta sin caché.
+      parameters:
+        - { name: seasonId, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: categoryId, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: asOf, in: query, required: false, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: Archivo CSV (`cartera-AAAA-MM-DD.csv`).
+          content:
+            text/csv:
+              schema: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /reports/season-summary:
+    get:
+      tags: [reports]
+      operationId: getSeasonSummary
+      summary: Resumen de una temporada (CU-10 a CU-12). Coordinador y comité.
+      description: |
+        Plantilla por categoría, eventos por tipo y estado, asistencia de las sesiones cerradas, resultados de los partidos
+        completados y recaudo, todo delimitado por la ventana de la temporada. `seasonId` es obligatorio. El informe PDF
+        versionado por jugador y el cierre o reapertura de la temporada no forman parte de este incremento.
+      parameters:
+        - { name: seasonId, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Resumen de la temporada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeasonSummaryResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
 components:
   securitySchemes:
     bearerAuth:
@@ -2488,6 +2596,141 @@ components:
         goals: { type: integer }
         scoreFor: { type: integer }
         scoreAgainst: { type: integer }
+    AuditEventResponse:
+      type: object
+      required: [id, occurredAt, action, entityType, outcome]
+      properties:
+        id: { type: string, format: uuid }
+        occurredAt: { type: string, format: date-time }
+        actorId: { type: string, format: uuid, description: Nulo para el sistema o intentos anónimos. }
+        actorRole: { type: string }
+        action: { type: string, description: Código estable de la operación. }
+        entityType: { type: string }
+        entityId: { type: string, format: uuid }
+        outcome: { type: string, enum: [SUCCESS, DENIED, FAILURE] }
+        before: { type: object, additionalProperties: true, description: Resumen seguro del estado anterior. }
+        after: { type: object, additionalProperties: true, description: Resumen seguro del estado posterior. }
+        reason: { type: string }
+        correlationId: { type: string }
+    AuditEventPageResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AuditEventResponse' }
+        nextCursor: { type: string, description: Presente mientras haya más eventos. }
+    ReceivableLineResponse:
+      type: object
+      required: [playerId, playerCode, playerName, categoryName, concept, feeName, dueDate, amount, applied, outstanding, daysOverdue, status]
+      properties:
+        playerId: { type: string, format: uuid }
+        playerCode: { type: string }
+        playerName: { type: string }
+        categoryId: { type: string, format: uuid }
+        categoryName: { type: string }
+        guardianName: { type: string, description: Acudiente principal vigente, si lo hay. }
+        concept: { type: string, enum: [ENROLLMENT, MONTHLY, OTHER] }
+        feeName: { type: string }
+        period: { type: string, format: date }
+        dueDate: { type: string, format: date }
+        amount: { type: number, description: Valor neto del cargo (con descuentos y ajustes). }
+        applied: { type: number }
+        outstanding: { type: number }
+        daysOverdue: { type: integer, minimum: 0 }
+        status: { type: string, enum: [PENDING, PARTIAL] }
+    CategoryReceivableResponse:
+      type: object
+      required: [categoryName, players, charged, applied, outstanding, overdue]
+      properties:
+        categoryId: { type: string, format: uuid, description: Nulo para jugadores sin categoría vigente. }
+        categoryName: { type: string }
+        players: { type: integer }
+        charged: { type: number }
+        applied: { type: number }
+        outstanding: { type: number }
+        overdue: { type: number, description: Parte del saldo cuyo vencimiento es anterior a `asOf`. }
+    ReceivablesReportResponse:
+      type: object
+      required: [asOf, generatedAt, lines, categories, truncated]
+      properties:
+        asOf: { type: string, format: date }
+        generatedAt: { type: string, format: date-time }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/ReceivableLineResponse' }
+        categories:
+          type: array
+          items: { $ref: '#/components/schemas/CategoryReceivableResponse' }
+        truncated: { type: boolean }
+    SeasonInfoResponse:
+      type: object
+      required: [id, name, status, startAt, endAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        status: { type: string, enum: [PLANNED, ACTIVE, CLOSED] }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+    SeasonRosterLineResponse:
+      type: object
+      required: [categoryName, capacity, players]
+      properties:
+        categoryId: { type: string, format: uuid }
+        categoryName: { type: string }
+        capacity: { type: integer }
+        players: { type: integer, description: Jugadores con asignación vigente en algún momento de la temporada. }
+    SeasonEventCountResponse:
+      type: object
+      required: [eventType, status, total]
+      properties:
+        eventType: { type: string, enum: [TRAINING, EVALUATION, FRIENDLY_MATCH, TOURNAMENT_MATCH] }
+        status: { type: string, enum: [CONFIRMED, CANCELLED, COMPLETED] }
+        total: { type: integer }
+    SeasonAttendanceResponse:
+      type: object
+      required: [sessionsClosed, present, late, excused, acceptedExcuses, absent]
+      properties:
+        sessionsClosed: { type: integer }
+        present: { type: integer }
+        late: { type: integer }
+        excused: { type: integer }
+        acceptedExcuses: { type: integer }
+        absent: { type: integer }
+        percentage: { type: number, description: '(presentes + tardes) / (registros - excusas aceptadas), un decimal. Nulo si no hay registros que contar.' }
+    SeasonMatchesResponse:
+      type: object
+      required: [played, wins, draws, losses, goalsFor, goalsAgainst]
+      properties:
+        played: { type: integer }
+        wins: { type: integer }
+        draws: { type: integer }
+        losses: { type: integer }
+        goalsFor: { type: integer }
+        goalsAgainst: { type: integer }
+    SeasonBillingResponse:
+      type: object
+      required: [charged, applied, outstanding, overdue]
+      properties:
+        charged: { type: number }
+        applied: { type: number }
+        outstanding: { type: number }
+        overdue: { type: number, description: Saldo con vencimiento anterior a hoy (zona del club). }
+    SeasonSummaryResponse:
+      type: object
+      required: [season, generatedAt, roster, events, attendance, matches, billing]
+      properties:
+        season: { $ref: '#/components/schemas/SeasonInfoResponse' }
+        generatedAt: { type: string, format: date-time }
+        roster:
+          type: array
+          items: { $ref: '#/components/schemas/SeasonRosterLineResponse' }
+        events:
+          type: array
+          items: { $ref: '#/components/schemas/SeasonEventCountResponse' }
+        attendance: { $ref: '#/components/schemas/SeasonAttendanceResponse' }
+        matches: { $ref: '#/components/schemas/SeasonMatchesResponse' }
+        billing: { $ref: '#/components/schemas/SeasonBillingResponse' }
   responses:
     BadRequest:
       description: Solicitud mal formada.
