@@ -17,8 +17,10 @@ public final class EmailTemplates {
     public static final String MATCH_CALLUP = "MATCH_CALLUP";
     public static final String MATCH_CALLUP_REMOVED = "MATCH_CALLUP_REMOVED";
     public static final String MATCH_CANCELLED = "MATCH_CANCELLED";
+    public static final String DOCUMENT_EXPIRY = "DOCUMENT_EXPIRY";
 
     private static final DateTimeFormatter WHEN = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
+    private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd/MM/yyyy");
     private static final int MAX_VALUE = 200;
     private static final int MAX_SUBJECT = 150;
     private static final String SIGNATURE = "\n\nClub CanchaTrack\nEste es un aviso automático; no responda a este correo.";
@@ -70,6 +72,20 @@ public final class EmailTemplates {
                 }
                 body = sb.toString();
             }
+            case DOCUMENT_EXPIRY -> {
+                defaultSubject = "Documento por vencer";
+                String document = valueOr(data.get("documentName"), "Un documento");
+                StringBuilder sb = new StringBuilder("Hola,\n\nEl documento «").append(document).append("» de ")
+                        .append(player).append(" vence el ").append(date(data.get("expiresOn")));
+                String days = data.get("daysLeft");
+                if (days != null && days.trim().matches("\\d{1,3}")) {
+                    String n = days.trim();
+                    sb.append(n.equals("0") ? " (es hoy)" : " (faltan " + n + (n.equals("1") ? " día)" : " días)"));
+                }
+                sb.append(".\n\nCárguelo actualizado en el sistema antes de esa fecha: con el documento vencido el jugador "
+                        + "no puede ser convocado a partidos.");
+                body = sb.toString();
+            }
             default -> {
                 return Optional.empty();
             }
@@ -89,6 +105,17 @@ public final class EmailTemplates {
 
     private static String valueOr(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : singleLine(value);
+    }
+
+    private static String date(String isoDate) {
+        if (isoDate == null || isoDate.isBlank()) {
+            return "la fecha por confirmar";
+        }
+        try {
+            return DATE.format(java.time.LocalDate.parse(isoDate.trim()));
+        } catch (DateTimeParseException e) {
+            return singleLine(isoDate);
+        }
     }
 
     private static String when(String instant, ZoneId zone) {

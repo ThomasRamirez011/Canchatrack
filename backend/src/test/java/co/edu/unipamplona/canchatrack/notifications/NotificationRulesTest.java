@@ -126,6 +126,25 @@ class NotificationRulesTest {
     }
 
     @Test
+    void documentExpiryNoticeNamesTheDocumentThePlayerAndTheDateButNothingClinical() {
+        Map<String, String> payload = Map.of("playerName", "Ana Gómez", "documentName", "Certificado médico",
+                "expiresOn", "2026-12-01", "daysLeft", "7");
+
+        OutboundEmail email = EmailTemplates.render("DOCUMENT_EXPIRY", "padre@example.com", "Documento por vencer", payload, BOGOTA)
+                .orElseThrow();
+
+        assertThat(email.subject()).isEqualTo("Documento por vencer");
+        assertThat(email.body()).contains("Certificado médico", "Ana Gómez", "01/12/2026", "faltan 7 días");
+        assertThat(EmailTemplates.render("DOCUMENT_EXPIRY", "a@b.co", null, Map.of("daysLeft", "1", "expiresOn", "2026-12-01"), BOGOTA)
+                .orElseThrow().body()).contains("faltan 1 día)");
+        assertThat(EmailTemplates.render("DOCUMENT_EXPIRY", "a@b.co", null, Map.of("daysLeft", "0"), BOGOTA)
+                .orElseThrow().body()).contains("es hoy");
+        // Un valor que no es un número de días no se copia al correo tal cual.
+        assertThat(EmailTemplates.render("DOCUMENT_EXPIRY", "a@b.co", null, Map.of("daysLeft", "7\nBcc: x@y.z"), BOGOTA)
+                .orElseThrow().body().contains("Bcc")).isFalse();
+    }
+
+    @Test
     void unknownTypesAndMissingRecipientsAreNotRendered() {
         assertThat(EmailTemplates.render("NO_SUCH_TYPE", "a@b.co", "s", Map.of(), BOGOTA)).isEmpty();
         assertThat(EmailTemplates.render(null, "a@b.co", "s", Map.of(), BOGOTA)).isEmpty();

@@ -160,6 +160,17 @@ class PaymentsIT {
         assertThat(settled.get("charges").get(0).get("status").asText()).isEqualTo("SETTLED");
         postJson("/players/" + player + "/payments", Map.of("chargeId", chargeId, "amount", 1, "method", "CASH"), coordinator)
                 .andExpect(status().isConflict());
+
+        // Con la matrícula saldada pero sin el certificado médico obligatorio tampoco se activa (RF-048, CA-02).
+        JsonNode missing = body(postJson("/players/" + player + "/activation", null, coordinator).andExpect(status().isConflict()));
+        assertThat(missing.get("missingDocuments").get(0).asText()).isEqualTo("Certificado médico");
+        UUID medicalCertificate = jdbc.queryForObject("SELECT id FROM document_types WHERE code = 'MEDICAL_CERTIFICATE'", UUID.class);
+        mvc.perform(multipart(API + "/players/" + player + "/documents")
+                .file(new MockMultipartFile("file", "certificado.pdf", "application/pdf", PDF))
+                .param("documentTypeId", medicalCertificate.toString())
+                .param("expiresOn", LocalDate.now().plusDays(200).toString())
+                .header("Authorization", "Bearer " + coordinator)).andExpect(status().isCreated());
+
         JsonNode active = body(postJson("/players/" + player + "/activation", null, coordinator).andExpect(status().isOk()));
         assertThat(active.get("playerStatus").asText()).isEqualTo("ACTIVE");
 

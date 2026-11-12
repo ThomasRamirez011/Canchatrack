@@ -32,6 +32,8 @@ tags:
     description: Decisión del Comité Técnico sobre inscripciones radicadas (categoría, entrenador, panel y acta).
   - name: files
     description: Archivos de soporte (comprobantes, actas). Se suben aparte y se referencian por id.
+  - name: documents
+    description: Catálogo de documentos, ventanas de carga, versiones inmutables, vigencias y alertas de vencimiento (CU-13). Los documentos de salud tienen acceso restringido y auditado.
   - name: payments
     description: Tarifas, matrícula, cargos, pagos inmutables y estado de cuenta.
   - name: scheduling
@@ -742,6 +744,203 @@ paths:
             image/png: { schema: { type: string, format: binary } }
             image/jpeg: { schema: { type: string, format: binary } }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /document-types:
+    get:
+      tags: [documents]
+      operationId: listDocumentTypes
+      summary: Lista los tipos de documento que el club exige (cualquier usuario autenticado).
+      description: Solo la coordinación puede pedir también los desactivados (`includeInactive=true`); para los demás roles el parámetro se ignora.
+      parameters:
+        - { name: includeInactive, in: query, required: false, schema: { type: boolean, default: false } }
+      responses:
+        '200':
+          description: Catálogo, los obligatorios primero.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/DocumentTypeResponse' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [documents]
+      operationId: createDocumentType
+      summary: Crea un tipo de documento (solo coordinador).
+      description: |
+        El código es estable (`MAYUSCULAS_CON_GUION_BAJO`) y no cambia después, igual que `containsHealthData`: ya habrá
+        versiones que dependen de ellos. `validityDays` solo aplica si el documento vence; si se indica y el usuario no
+        da la fecha de vencimiento, esta se calcula como emisión + días. Sin `allowedContentTypes` se admiten PDF, PNG y JPEG.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateDocumentTypeRequest' }
+      responses:
+        '201':
+          description: Tipo creado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentTypeResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /document-types/{typeId}:
+    patch:
+      tags: [documents]
+      operationId: updateDocumentType
+      summary: Modifica o desactiva un tipo de documento (solo coordinador).
+      description: Los campos ausentes no cambian. Un tipo no se borra, se desactiva. Una lista vacía de `allowedContentTypes` quita la restricción propia del tipo.
+      parameters:
+        - { name: typeId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateDocumentTypeRequest' }
+      responses:
+        '200':
+          description: Tipo actualizado (o sin cambios).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentTypeResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /document-windows:
+    get:
+      tags: [documents]
+      operationId: listDocumentWindows
+      summary: Lista las ventanas de carga (solo coordinador), las más recientes primero.
+      parameters:
+        - { name: documentTypeId, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: playerId, in: query, required: false, schema: { type: string, format: uuid }, description: 'Incluye también las generales.' }
+      responses:
+        '200':
+          description: Ventanas.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/DocumentWindowResponse' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [documents]
+      operationId: openDocumentWindow
+      summary: Habilita la carga de un tipo de documento durante un periodo (solo coordinador).
+      description: |
+        Sin `playerId` la ventana es general (todos los jugadores). Es lo que permite al acudiente cargar una versión nueva
+        cuando el documento vigente aún no vence (RN-05). Queda auditada.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OpenDocumentWindowRequest' }
+      responses:
+        '201':
+          description: Ventana creada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentWindowResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /players/{playerId}/documents:
+    get:
+      tags: [documents]
+      operationId: listPlayerDocuments
+      summary: Estado de cada documento del jugador y si quien consulta puede cargar una versión ahora.
+      description: |
+        Coordinación, acudiente vinculado, entrenador titular de la categoría y comité. Los documentos de salud solo los
+        ven la coordinación, el entrenador titular y el acudiente (RF-009): el comité no los recibe en la lista.
+        Quien no puede ver al jugador recibe 404.
+      parameters:
+        - { name: playerId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Un elemento por tipo de documento activo visible.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/PlayerDocumentResponse' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [documents]
+      operationId: uploadPlayerDocument
+      summary: Carga una versión nueva de un documento del jugador (acudiente vinculado o coordinación).
+      description: |
+        `multipart/form-data`: `file` y `documentTypeId` (obligatorios); `issuedOn`, `expiresOn` (AAAA-MM-DD) y `notes`.
+        Cada carga es una versión nueva e inmutable: nada se reemplaza ni se borra (RF-008). El acudiente puede cargar la
+        primera versión siempre, y las siguientes solo con una ventana habilitada o cuando el vigente está vencido o vence
+        en 30 días o menos (RN-05); si no, 409 `DOCUMENT_UPLOAD_NOT_ALLOWED`. Un documento que vence exige fecha de
+        vencimiento futura (o una vigencia definida en el tipo).
+      parameters:
+        - { name: playerId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, documentTypeId]
+              properties:
+                file: { type: string, format: binary }
+                documentTypeId: { type: string, format: uuid }
+                issuedOn: { type: string, format: date }
+                expiresOn: { type: string, format: date }
+                notes: { type: string, maxLength: 500 }
+      responses:
+        '201':
+          description: Versión registrada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentVersionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: No hay ventana habilitada ni vencimiento próximo (DOCUMENT_UPLOAD_NOT_ALLOWED).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /players/{playerId}/document-types/{typeId}/versions:
+    get:
+      tags: [documents]
+      operationId: listDocumentVersions
+      summary: Historial completo de un tipo de documento del jugador, la versión más reciente primero.
+      description: Mismas reglas de acceso que el listado. La consulta de un documento de salud queda auditada (`DOCUMENT_HEALTH_VIEWED`).
+      parameters:
+        - { name: playerId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: typeId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Versiones.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/DocumentVersionResponse' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /players/{playerId}/documents/versions/{versionId}/file:
+    get:
+      tags: [documents]
+      operationId: downloadDocumentVersion
+      summary: Descarga el archivo de una versión.
+      description: |
+        Mismas reglas de acceso que el listado. Un documento de salud solo lo descargan la coordinación, el entrenador
+        titular y el acudiente, y cada descarga queda auditada. Se entrega como adjunto, sin caché y con `nosniff`. El
+        mismo archivo tampoco se entrega al comité por `GET /files/{id}`.
+      parameters:
+        - { name: playerId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: versionId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Contenido del archivo.
+          content:
+            application/pdf: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+            image/jpeg: { schema: { type: string, format: binary } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
   /fees:
     get:
@@ -2139,6 +2338,98 @@ components:
         playerId: { type: string, format: uuid }
         playerStatus: { $ref: '#/components/schemas/PlayerStatus' }
         minuteNumber: { type: string }
+    DocumentStatus:
+      type: string
+      description: MISSING sin versión; VALID vigente; EXPIRING_SOON vence en 30 días o menos; EXPIRED vencido.
+      enum: [MISSING, VALID, EXPIRING_SOON, EXPIRED]
+    CreateDocumentTypeRequest:
+      type: object
+      required: [code, name]
+      properties:
+        code: { type: string, pattern: '^[A-Z][A-Z0-9_]{1,39}$' }
+        name: { type: string, maxLength: 120 }
+        mandatory: { type: boolean, default: true }
+        requiresExpiry: { type: boolean, default: false }
+        validityDays: { type: integer, minimum: 1, maximum: 3650, nullable: true }
+        containsHealthData: { type: boolean, default: false }
+        maxSizeBytes: { type: integer, format: int64, nullable: true }
+        allowedContentTypes:
+          type: array
+          items: { type: string, enum: [application/pdf, image/png, image/jpeg] }
+    UpdateDocumentTypeRequest:
+      type: object
+      properties:
+        name: { type: string, maxLength: 120 }
+        mandatory: { type: boolean }
+        requiresExpiry: { type: boolean }
+        validityDays: { type: integer, minimum: 1, maximum: 3650 }
+        maxSizeBytes: { type: integer, format: int64 }
+        allowedContentTypes:
+          type: array
+          items: { type: string, enum: [application/pdf, image/png, image/jpeg] }
+        active: { type: boolean }
+    DocumentTypeResponse:
+      type: object
+      required: [id, code, name, mandatory, requiresExpiry, containsHealthData, allowedContentTypes, active]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        mandatory: { type: boolean }
+        requiresExpiry: { type: boolean }
+        validityDays: { type: integer, nullable: true }
+        containsHealthData: { type: boolean }
+        maxSizeBytes: { type: integer, format: int64, nullable: true }
+        allowedContentTypes: { type: array, items: { type: string } }
+        active: { type: boolean }
+    OpenDocumentWindowRequest:
+      type: object
+      required: [documentTypeId, opensAt, closesAt]
+      properties:
+        documentTypeId: { type: string, format: uuid }
+        playerId: { type: string, format: uuid, nullable: true, description: 'Sin jugador la ventana es general.' }
+        opensAt: { type: string, format: date-time }
+        closesAt: { type: string, format: date-time }
+        reason: { type: string, maxLength: 500 }
+    DocumentWindowResponse:
+      type: object
+      required: [id, documentTypeId, opensAt, closesAt, openedBy, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        documentTypeId: { type: string, format: uuid }
+        playerId: { type: string, format: uuid, nullable: true }
+        opensAt: { type: string, format: date-time }
+        closesAt: { type: string, format: date-time }
+        reason: { type: string, nullable: true }
+        openedBy: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+    DocumentVersionResponse:
+      type: object
+      required: [id, playerId, documentTypeId, versionNumber, fileName, contentType, sizeBytes, uploadedBy, uploadedAt]
+      properties:
+        id: { type: string, format: uuid }
+        playerId: { type: string, format: uuid }
+        documentTypeId: { type: string, format: uuid }
+        versionNumber: { type: integer }
+        fileName: { type: string }
+        contentType: { type: string }
+        sizeBytes: { type: integer, format: int64 }
+        issuedOn: { type: string, format: date, nullable: true }
+        expiresOn: { type: string, format: date, nullable: true }
+        notes: { type: string, nullable: true }
+        uploadedBy: { type: string, format: uuid }
+        uploadedAt: { type: string, format: date-time }
+    PlayerDocumentResponse:
+      type: object
+      required: [type, status, uploadAllowed]
+      properties:
+        type: { $ref: '#/components/schemas/DocumentTypeResponse' }
+        current:
+          nullable: true
+          allOf:
+            - { $ref: '#/components/schemas/DocumentVersionResponse' }
+        status: { $ref: '#/components/schemas/DocumentStatus' }
+        uploadAllowed: { type: boolean, description: '¿Puede quien consulta cargar una versión ahora?' }
     FileResponse:
       type: object
       required: [id, originalName, contentType, sizeBytes, sha256, uploadedAt]
@@ -2526,6 +2817,7 @@ components:
           - CONCURRENT_MODIFICATION
           - IDEMPOTENCY_KEY_REQUIRED
           - IDEMPOTENCY_KEY_REUSED
+          - DOCUMENT_UPLOAD_NOT_ALLOWED
           - INTERNAL_ERROR
     OpenRoundRequest:
       type: object
