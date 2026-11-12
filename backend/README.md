@@ -52,6 +52,10 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
   (sin valores quemados: DP-01 sigue pendiente) y el sistema sugiere la categoría de un jugador (RF-046).
 - `players` (comité, ver «Decisión del comité» abajo): el Comité Técnico asigna categoría, entrenador titular y panel de tres
   evaluadores (T-01) o rechaza con motivo (T-02), respaldado por un acta; cupo bajo concurrencia y auditoría (UC-02, RN-03, RF-045).
+- `documents` (archivos, ver «Pagos, matrícula y archivos»): carga y descarga de PDF/PNG/JPEG con validación de tamaño, tipo y
+  firma del contenido; es lo que respalda actas y comprobantes.
+- `payments` + `players` (matrícula y pagos, ver «Pagos, matrícula y archivos»): tarifas, cargo de matrícula, pagos inmutables
+  con anulación, estado de cuenta, activación del jugador con la matrícula saldada y cobro mensual idempotente (CU-04, RN-16).
 - `audit`: puerto `AuditWriter` (`write` en la transacción de negocio; `writeIndependent` para intentos rechazados,
   p. ej. PA-01) y adaptador JDBC.
 
@@ -68,6 +72,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 | Convocatorias y temporadas (`players`, `CallsAdminIT`) | Las sentencias SQL nuevas ejecutadas contra PostgreSQL 16 real con las migraciones V1..V13; servicios y reglas compilados y ejecutados con dobles en memoria (33 comprobaciones); YAML OpenAPI validado y referencias resueltas | **Verificado:** `mvn test` (143 pruebas) y `mvn verify` (50, `CallsAdminIT` incluida, con Testcontainers) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0 |
 | Categorías (V14, `players`, `CategoriesIT`) | Migración V14 y sus invariantes en PostgreSQL 16 real (`scripts/check-schema.sh`); todas las sentencias SQL nuevas ejecutadas contra esa base; servicios y reglas compilados y ejecutados con dobles en memoria (24 comprobaciones); OpenAPI validado con `openapi-spec-validator` | **Verificado:** `mvn test` (168 pruebas) y `mvn verify` (59, `CategoriesIT` incluida) en BUILD SUCCESS, tras corregir en la primera corrida un 422 que Bean Validation cortaba antes de acumular todos los errores de campo |
 | Decisión del comité (`players`, `identity`/`documents` api, `CommitteeIT`) | Las sentencias SQL nuevas (bloqueo del jugador, cierre y alta de asignaciones, acta con asistentes `jsonb`, consulta de roles vigentes, fecha del club) ejecutadas contra PostgreSQL 16 real con V1..V14, incluido el cierre de un proceso anterior en otra transacción; reglas y servicio compilados y ejecutados con dobles en memoria (32 comprobaciones); OpenAPI validado | **Verificado:** `mvn test` y `mvn verify` (`CommitteeIT` incluida, con su caso de concurrencia de dos hilos y Testcontainers) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0 |
+| Pagos, matrícula y archivos (`payments`, `documents`, `players`, `PaymentsIT`) | Las sentencias SQL nuevas (tarifa, cargo idempotente, bloqueo del cargo, pago parcial y total, anulación única, saldo, matrícula saldada, violación de FK) ejecutadas contra PostgreSQL 16 real con V1..V14; reglas compiladas y ejecutadas con `javac` (comprobaciones de `PaymentRules` y `FileRules`); OpenAPI validado | **Verificado:** `mvn test` y `mvn verify` (`PaymentsIT` incluida, con Testcontainers) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0 |
 | Código Spring (filtro, handler, seguridad, `JdbcAuditWriter`), `ArchitectureTest`, unitarias | `mvn test` en Windows 11, JDK 24 (compila con `--release 21`), Maven 3.10.0 | Ejecutado: OK (19 pruebas, 0 fallos) |
 | `*IT` con Testcontainers (`DatabaseSchemaIT`, `AuditWriterIT`) | `mvn verify`, Docker Desktop 4.98 / Engine 29.9.2 | Ejecutado: OK (7 pruebas, 0 fallos) |
 
@@ -306,8 +311,7 @@ Auditoría: `PLAYER_CATEGORY_ASSIGNED`, `PLAYER_ENROLLMENT_REJECTED` (estado ant
 **Límites conocidos y pendientes (confirmar).**
 1. **Valores provisionales (DP-01):** roles del panel y excepción de cupo son configurables porque el club no ha definido la
    composición real del panel (el sistema solo distingue COACH, EVALUATOR y COMMITTEE, no «preparador físico»).
-2. **El acta se adjunta por referencia:** aún no hay endpoint de carga de archivos (módulo `documents`), así que `minuteFileId`
-   debe apuntar a un `stored_files` existente. Cuando llegue la carga, se sube primero y luego se decide.
+2. **El acta se adjunta por referencia:** `minuteFileId` debe apuntar a un archivo ya subido con `POST /api/v1/files`; se sube primero y luego se decide.
 3. **Alcance de entrenador y evaluador:** esta decisión no abre aún el acceso del entrenador titular ni de los evaluadores al
    expediente (`PlayerAccessPolicy` los sigue denegando); es el incremento siguiente.
 4. **Sin notificación** al acudiente de la decisión (módulo `notifications`) ni matrícula posterior (E05).
@@ -315,8 +319,33 @@ Auditoría: `PLAYER_CATEGORY_ASSIGNED`, `PLAYER_ENROLLMENT_REJECTED` (estado ant
    solicitud por jugador y repite los datos del acta.
 6. La fecha «de hoy» usa la zona `canchatrack.zone-id` (America/Bogota por defecto).
 
+## Pagos, matrícula y archivos (payments, documents, players)
+
+Alcance deliberadamente ligero: lo necesario para que el club cobre y active jugadores. Los montos y el calendario de cobro
+no están definidos por el club (DP-05): las tarifas se cargan por API, sin valores en el código.
+
+| Endpoint | Acceso | Notas |
+|---|---|---|
+| `POST /api/v1/files`, `GET /api/v1/files/{id}` | autenticado | Multipart `file`: PDF, PNG o JPEG, máx. 10 MB, firma del contenido verificada, nombre saneado. Descarga: quien lo subió, coordinador o comité. |
+| `POST /api/v1/fees`, `GET /api/v1/fees` | `COORDINATOR` (GET también `COMMITTEE`) | Concepto `ENROLLMENT`, `MONTHLY` u `OTHER`; monto positivo con 2 decimales; COP. |
+| `POST /api/v1/players/{id}/registration` | `COORDINATOR` | `CATEGORY_ASSIGNED` → `PENDING_REGISTRATION`; crea el cargo de matrícula con el monto de la tarifa de ese momento. |
+| `POST /api/v1/players/{id}/payments` | `COORDINATOR` | Pago aplicado a un cargo; no puede superar lo que se debe; comprobante opcional (`receiptFileId`). |
+| `POST /api/v1/payments/{id}/void` | `COORDINATOR` | Anulación con motivo y asiento compensatorio; el pago nunca se edita ni se borra (RN-16). |
+| `GET /api/v1/players/{id}/account` | coordinador, comité, acudiente vinculado | Totales derivados (cargado, pagado, saldo), cargos con su estado y pagos. |
+| `POST /api/v1/players/{id}/activation` | `COORDINATOR` | `PENDING_REGISTRATION` → `ACTIVE` solo con la matrícula saldada. |
+| `POST /api/v1/billing/monthly` | `COORDINATOR` | Un cargo por jugador activo para el periodo (primer día del mes); idempotente. |
+
+**Decisiones.** (1) Los archivos se guardan en disco (`canchatrack.files.directory`, `./data/files` por defecto) detrás de un
+puerto, de modo que pasar a un almacén de objetos no toca el negocio. (2) Un pago se aplica siempre a un cargo y se bloquea ese
+cargo mientras se valida el saldo, así dos pagos simultáneos no lo sobrepasan. (3) `payments` no depende de `players`: es
+`players` quien llama a `payments.api.EnrollmentBilling`. (4) Auditoría: `FEE_CREATED`, `ENROLLMENT_CHARGE_CREATED`,
+`PAYMENT_RECORDED`, `PAYMENT_VOIDED`, `PLAYER_REGISTRATION_STARTED`, `PLAYER_ACTIVATED`, `MONTHLY_CHARGES_GENERATED`.
+
+**Pendiente.** Antivirus de archivos (el contrato de error `FILE_REJECTED` ya lo contempla), ajustes parciales de pagos y de cargos
+por API (el esquema los soporta), recordatorios de mora (`notifications`) y reportes de cartera.
+
 ## Siguiente paso
 
-Siguiente incremento: el **alcance de entrenador y evaluador** en `PlayerAccessPolicy` (qué expedientes ven según su asignación
-vigente) y, después, la **carga de archivos** del módulo `documents` (acta, documentos de inscripción). La **generación de cargos** (matrícula al aprobar la inscripción, mensualidades por mes)
-llega con el incremento de pagos. Después: Dockerfile multi-etapa, pipeline CI con quality gates, Swagger UI en `dev`.
+Siguiente incremento: **agenda y asistencia** (CU-05 y CU-06: sesiones sin cruces de sede ni de entrenador, asistencia idempotente y
+cierre de sesión) y el **alcance de entrenador y evaluador** en `PlayerAccessPolicy`. Después: evaluaciones, competencias, reportes y
+cierre de temporada, Dockerfile multi-etapa, pipeline CI con quality gates y Swagger UI en `dev`.

@@ -13,6 +13,8 @@ import co.edu.unipamplona.canchatrack.players.application.CategorySuggestion;
 import co.edu.unipamplona.canchatrack.players.application.DecisionResult;
 import co.edu.unipamplona.canchatrack.players.application.EnrollmentReceipt;
 import co.edu.unipamplona.canchatrack.players.application.EnrollmentSummary;
+import co.edu.unipamplona.canchatrack.players.application.MonthlyBillingResult;
+import co.edu.unipamplona.canchatrack.players.application.RegistrationResult;
 import co.edu.unipamplona.canchatrack.players.application.PageResult;
 import co.edu.unipamplona.canchatrack.players.application.PlayerDetail;
 import co.edu.unipamplona.canchatrack.players.application.PlayerSummary;
@@ -240,6 +242,27 @@ public final class PlayersDtos {
 
         static DecisionResponse from(DecisionResult result) {
             return new DecisionResponse(result.playerId(), result.playerStatus().name(), result.minuteNumber());
+        }
+    }
+
+    /** Sin Bean Validation: la tarifa y las fechas se validan en el dominio con el resto de errores. */
+    public record StartRegistrationRequest(UUID feeId, LocalDate dueDate) {
+    }
+
+    public record RegistrationResponse(UUID playerId, String playerStatus, UUID chargeId) {
+
+        static RegistrationResponse from(RegistrationResult result) {
+            return new RegistrationResponse(result.playerId(), result.playerStatus().name(), result.chargeId());
+        }
+    }
+
+    public record MonthlyBillingRequest(UUID feeId, LocalDate period, LocalDate dueDate) {
+    }
+
+    public record MonthlyBillingResponse(int players, int created) {
+
+        static MonthlyBillingResponse from(MonthlyBillingResult result) {
+            return new MonthlyBillingResponse(result.players(), result.created());
         }
     }
 }

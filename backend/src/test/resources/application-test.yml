@@ -5,6 +5,8 @@ spring:
     show-sql: false
 
 canchatrack:
+  files:
+    directory: ${java.io.tmpdir}/canchatrack-test-files
   security:
     jwt:
       secret: G8vny3gToStxavTB+wo9OQx++bZyXmGriJlxuZtG8OlLkqQYDAai+X3fJDc+ZgC7 # solo pruebas

@@ -27,6 +27,10 @@ spring:
     default-property-inclusion: non_null
     serialization:
       write-dates-as-timestamps: false # fechas ISO 8601 (DDS 8.1)
+  servlet:
+    multipart:
+      max-file-size: 10MB # coherente con canchatrack.files.max-size
+      max-request-size: 12MB
   mvc:
     problemdetails:
       enabled: false # los errores los construye ApiExceptionHandler (application/problem+json con code y correlationId)
@@ -69,3 +73,6 @@ canchatrack:
   committee: # parámetros provisionales de la decisión del comité técnico (DP-01 pendiente)
     panel-roles: EVALUATOR,COACH,COMMITTEE # roles que pueden integrar el panel de tres evaluadores
     allow-capacity-exception: true # permite asignar a una categoría llena dejando el motivo
+  files:
+    directory: ./data/files # almacenamiento en disco (dev); en producción, un almacén de objetos con el mismo puerto
+    max-size: 10MB
