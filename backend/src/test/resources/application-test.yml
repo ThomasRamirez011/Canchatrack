@@ -13,6 +13,9 @@ canchatrack:
   notifications:
     processor:
       enabled: false # las pruebas invocan al procesador a mano; sin tareas periódicas en segundo plano
+  documents:
+    alerts:
+      enabled: false # las pruebas invocan las alertas de vencimiento a mano
   identity:
     bcrypt-strength: 4 # mínimo de BCrypt: acelera las pruebas, no es un valor de producción
 

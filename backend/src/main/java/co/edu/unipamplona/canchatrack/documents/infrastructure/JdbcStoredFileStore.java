@@ -43,4 +43,14 @@ public class JdbcStoredFileStore implements StoredFileStore {
                 """, MAPPER, fileId);
         return rows.stream().findFirst();
     }
+
+    @Override
+    public boolean isHealthDocument(UUID fileId) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT EXISTS (SELECT 1
+                               FROM document_versions dv
+                                        JOIN document_types dt ON dt.id = dv.document_type_id
+                               WHERE dv.file_id = ? AND dt.contains_health_data)
+                """, Boolean.class, fileId));
+    }
 }

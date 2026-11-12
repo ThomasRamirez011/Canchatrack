@@ -39,7 +39,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
   pagos/ajustes/auditoría/versiones **append-only** (trigger `CT001`), asistencia **idempotente** (`client_uuid` y
   `(event_id, player_id)` únicos, lote por `Idempotency-Key`), sesión cerrada bloquea cambios (`CT002`), ronda cerrada
   bloquea decisiones (`CT003`), anulaciones y ajustes coherentes de pagos y cargos (`CT004`), justificación obligatoria si el concepto no es favorable.
-- `shared`: `ErrorCode` (los 14 códigos del DDS 13 + 8 adiciones), `DomainException`, `CorrelationIdFilter`,
+- `shared`: `ErrorCode` (los 14 códigos del DDS 13 + 9 adiciones), `DomainException`, `CorrelationIdFilter`,
   `ApiExceptionHandler` (`application/problem+json` con `code` y `correlationId`), `SecurityConfig` (sin estado; resource
   server JWT HS256; todo requiere token salvo health y login/refresh/logout; 401/403 también en `problem+json`).
 - `identity` (autenticación y autorización, ver «Autenticación» abajo): login, renovación con rotación, cierre de sesión,
@@ -61,6 +61,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
   y porcentaje por jugador (CU-05, CU-06).
 - `evaluations` + `players` (evaluación y ascenso, ver «Evaluaciones y ascenso»): rondas de evaluación sobre un periodo, concepto independiente de cada uno de los tres evaluadores con justificación y acciones si no es favorable, cierre por unanimidad con plan de seguimiento y ascenso a la categoría siguiente con historial conservado (CU-07, CU-08, RN-08..RN-12).
 - `competitions` + `scheduling` + `documents` + `payments` (partidos y convocatorias, ver «Partidos y convocatorias»): torneos, partidos con agenda sin cruces, convocatoria con elegibilidad por jugador (activo, certificado médico, autorización y mora), confirmación del coordinador, avisos a acudientes, autorización por partido y resultado (CU-09, RN-06, RN-07, RN-13).
+- `documents` (documentos y vigencias, ver «Documentos y vigencias»): catálogo configurable de documentos, ventanas de carga, versiones inmutables, vigencia, acceso restringido y auditado a los documentos de salud, alertas de vencimiento a 30 y 7 días y exigencia de documentos obligatorios al activar al jugador (CU-13, RF-006..RF-010, RF-048, RN-05, RN-06, RN-17).
 - `notifications` (procesador, ver «Procesador de notificaciones»): envía los avisos `PENDING` de la cola con reintentos de espera creciente,
   evidencia de cada intento y reclamo concurrente sin duplicados; remitente simulado en desarrollo y SMTP en producción.
 - `audit`: puerto `AuditWriter` (`write` en la transacción de negocio; `writeIndependent` para intentos rechazados,
@@ -87,6 +88,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 | Auditoría y reportes (V16, `audit`, `reports`, `AuditQueryIT`, `ReportsIT`) | V16 y `schema-invariants.sql` sobre PostgreSQL 16 real (`scripts/check-schema.sh`); todas las sentencias SQL nuevas (filtros de auditoría, paginación por `(occurred_at, id)` con su plan sobre `ix_audit_events_occurred`, cartera con totales por categoría, plantilla, agenda, asistencia, partidos y recaudo) ejecutadas contra esa base con datos de ejemplo; el montaje de datos de `ReportsIT` y `AuditQueryIT` repetido con los triggers reales y las cifras esperadas comprobadas; dominio y casos de uso compilados con `javac -Xlint:all` y ejecutados con dobles en memoria (≈85 comprobaciones: mora, porcentaje, CSV, reglas, cursor, paginación, rastro de la consulta, exportación auditada, truncado y «hoy» en la zona del club); OpenAPI validado con `openapi-spec-validator` (60 rutas, 102 esquemas, sin nombres repetidos) | **Verificado:** `mvn test` y `mvn verify` (`AuditQueryIT` y `ReportsIT` incluidas) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0, Docker Desktop (2026-11-12) |
 | Informe de temporada y cierre del expediente (V17, `reports`, `players`, `documents`, `SeasonClosureIT`, `SeasonReportRulesTest`, `SeasonReportPdfRendererTest`) | V17 y `schema-invariants.sql` sobre PostgreSQL 16 real (clave compuesta informe-jugador-temporada, un cierre vigente por temporada, reapertura de una sola vez, inmutabilidad); las siembras de `SeasonClosureIT` y todas las consultas del almacén (último cierre, asistencia, rondas, partidos, «cambió después del informe», inserciones con `RETURNING`) ejecutadas contra esa base con los triggers reales; dominio y casos de uso compilados con `javac -Xlint:all`; el PDF generado se comprobó con `qpdf --check`, `pypdf` y `pdftotext` (2 a 4 páginas, tildes y ñ, paréntesis y barras escapados, mismos bytes ante el mismo contenido) y las propiedades que afirma `SeasonReportPdfRendererTest` se reprodujeron sobre esos PDF; OpenAPI validado con `openapi-spec-validator` (65 rutas, 108 esquemas) | **Verificado:** `mvn test` y `mvn verify` (`SeasonClosureIT` incluida) en BUILD SUCCESS a la primera en Windows 11, JDK 24, Maven 3.10.0, Docker Desktop (2026-11-12) |
 | Procesador de notificaciones (`notifications`, `NotificationRulesTest`, `NotificationsIT`) | Sin migración nueva (usa V11). Las sentencias SQL del reclamo (CTE con `FOR UPDATE SKIP LOCKED` y arriendo), del registro de resultado (guardas de estado e intento) y de la evidencia (`ON CONFLICT DO NOTHING`, inmutabilidad) ejecutadas sobre PostgreSQL 16 real con migraciones V1..V17: dos sesiones simultáneas reclamaron 20 y 20 avisos sin solaparse, un segundo reclamo no devolvió nada mientras duraba el arriendo y un resultado tardío no pisó al registrado; dominio y casos de uso compilados con `javac -Xlint:all`; las 18 pruebas de `NotificationRulesTest` ejecutadas con un sustituto mínimo de JUnit y AssertJ; configuración, remitentes y programador comprobados de tipos con sustitutos de Spring; sintaxis de `NotificationsIT` y del adaptador JDBC analizada con el parser de `javac`. **No** se probó contra un servidor SMTP real | **Verificado:** `mvn verify` en BUILD SUCCESS a la primera en Windows 11, JDK 24, Maven 3.10.0, Docker Desktop (2026-11-12): 298 pruebas unitarias y 127 de integración, 0 fallos (`NotificationsIT`: 11) |
+| Documentos y vigencias (`documents`, `players`, `notifications`, `DocumentRulesTest`, `PlayerDocumentServiceTest`, `ExpiryAlertServiceTest`, `DocumentsIT`) | Sin migración nueva (usa V7). Todas las sentencias SQL del almacén (alta de tipo con arreglo `text[]` o `NULL`, numeración de versiones con subconsulta, vista de vigentes, trigger de solo inserción, documentos obligatorios faltantes, vencimientos en ventana con jugadores en curso, ventana general o del jugador, entrenador titular, archivo de salud) ejecutadas sobre PostgreSQL 16 real con V1..V17; dominio, aplicación y fachadas compilados con `javac -Xlint:all`; 16 pruebas de reglas y de servicio (ventana, vencimiento, acceso a salud, auditoría) y 3 de alertas ejecutadas con un sustituto mínimo de JUnit y AssertJ, más la plantilla de vencimiento en `NotificationRulesTest` (19 en total); OpenAPI validado (71 rutas, 116 esquemas, referencias resueltas). Controladores, adaptador JDBC y `DocumentsIT` **no** se compilaron contra Spring en el sandbox | **Pendiente:** `mvn verify` en Windows 11 y pipeline de GitHub Actions |
 | Contenedor e integración continua (`Dockerfile`, `.github/workflows/backend-ci.yml`) | El pipeline es su propia verificación: se ejecutó en GitHub Actions sobre el PR | **Verificado:** `mvn verify` (unitarias + integración con Testcontainers), construcción de la imagen y smoke test (health `UP`, login del coordinador de desarrollo, 401 sin token) en verde (2026-11-12). La primera ejecución falló por Docker Engine 29 (ver «Contenedor e integración continua») |
 | Código Spring (filtro, handler, seguridad, `JdbcAuditWriter`), `ArchitectureTest`, unitarias | `mvn test` en Windows 11, JDK 24 (compila con `--release 21`), Maven 3.10.0 | Ejecutado: OK (19 pruebas, 0 fallos) |
 | `*IT` con Testcontainers (`DatabaseSchemaIT`, `AuditWriterIT`) | `mvn verify`, Docker Desktop 4.98 / Engine 29.9.2 | Ejecutado: OK (7 pruebas, 0 fallos) |
@@ -347,7 +349,7 @@ no están definidos por el club (DP-05): las tarifas se cargan por API, sin valo
 | `POST /api/v1/players/{id}/payments` | `COORDINATOR` | Pago aplicado a un cargo; no puede superar lo que se debe; comprobante opcional (`receiptFileId`). |
 | `POST /api/v1/payments/{id}/void` | `COORDINATOR` | Anulación con motivo y asiento compensatorio; el pago nunca se edita ni se borra (RN-16). |
 | `GET /api/v1/players/{id}/account` | coordinador, comité, acudiente vinculado | Totales derivados (cargado, pagado, saldo), cargos con su estado y pagos. |
-| `POST /api/v1/players/{id}/activation` | `COORDINATOR` | `PENDING_REGISTRATION` → `ACTIVE` solo con la matrícula saldada. |
+| `POST /api/v1/players/{id}/activation` | `COORDINATOR` | `PENDING_REGISTRATION` → `ACTIVE` solo con la matrícula saldada **y** los documentos obligatorios vigentes (si no, 409 con la lista `missingDocuments`; ver «Documentos y vigencias»). |
 | `POST /api/v1/billing/monthly` | `COORDINATOR` | Un cargo por jugador activo para el periodo (primer día del mes); idempotente. |
 
 **Decisiones.** (1) Los archivos se guardan en disco (`canchatrack.files.directory`, `./data/files` por defecto) detrás de un
@@ -358,6 +360,46 @@ cargo mientras se valida el saldo, así dos pagos simultáneos no lo sobrepasan.
 
 **Pendiente.** Antivirus de archivos (el contrato de error `FILE_REJECTED` ya lo contempla), ajustes parciales de pagos y de cargos
 por API (el esquema los soporta), recordatorios de mora (`notifications`) y reportes de cartera.
+
+## Documentos y vigencias (documents)
+
+Catálogo de documentos que el club exige, ventanas de carga, versiones inmutables y alertas de vencimiento (CU-13). Las tablas
+son las de V7 (sin migración nueva): `document_types`, `document_windows`, `document_versions` (solo inserción, trigger `CT001`)
+y la vista `current_document_versions`.
+
+| Endpoint | Acceso | Notas |
+|---|---|---|
+| `GET /api/v1/document-types` | autenticado | Qué documentos se exigen. Solo la coordinación ve los desactivados (`includeInactive=true`). |
+| `POST /api/v1/document-types`, `PATCH /api/v1/document-types/{id}` | `COORDINATOR` | Código estable, obligatoriedad, si vence, vigencia en días, tamaño y formatos admitidos. Un tipo se desactiva, no se borra; el código y `containsHealthData` no cambian. |
+| `POST /api/v1/document-windows`, `GET …` | `COORDINATOR` | Habilita la carga de un tipo durante un periodo, para un jugador o para todos. Auditado. |
+| `GET /api/v1/players/{id}/documents` | coordinador, comité, entrenador titular, acudiente vinculado | Estado por tipo (`MISSING`, `VALID`, `EXPIRING_SOON`, `EXPIRED`), versión vigente y `uploadAllowed`. |
+| `POST /api/v1/players/{id}/documents` | `GUARDIAN` vinculado, `COORDINATOR` | Multipart: `file`, `documentTypeId`, `issuedOn`, `expiresOn`, `notes`. Cada carga es una versión nueva. |
+| `GET /api/v1/players/{id}/document-types/{typeId}/versions` | ídem | Historial completo, la más reciente primero. |
+| `GET /api/v1/players/{id}/documents/versions/{versionId}/file` | ídem | Descarga como adjunto, sin caché y con `nosniff`. |
+
+**Reglas.**
+- **Carga (RN-05, RF-006).** El acudiente carga la primera versión siempre; una nueva solo con una ventana abierta o cuando la vigente
+  está vencida o vence en 30 días o menos (si no, 409 `DOCUMENT_UPLOAD_NOT_ALLOWED`). La coordinación puede cargar en cualquier momento.
+  Un documento que vence exige fecha de vencimiento futura o una vigencia definida en el tipo. Nada se reemplaza ni se borra (RF-008).
+- **Acceso (RF-009, RN-17).** Los documentos de salud (`containsHealthData`) los ven solo la coordinación, el entrenador titular de la
+  categoría del jugador y su acudiente; el comité ve los demás. Cada consulta de un documento de salud queda en la auditoría
+  (`DOCUMENT_HEALTH_VIEWED`, sin nombre ni contenido del archivo). Quien no puede ver al jugador recibe 404; quien lo ve pero no el documento, 403.
+  El mismo archivo **tampoco** se entrega al comité por `GET /files/{id}`.
+- **Activación (RF-048, CA-02).** `players` consulta `documents.api.DocumentRequirements`: faltan los obligatorios activos sin versión
+  vigente (o vencida si vence) → 409 `PLAYER_STATE_CONFLICT` con `missingDocuments`.
+- **Alertas (RF-010, RN-06).** Un proceso diario (`canchatrack.documents.alerts.cron`, 06:00 hora del club; se apaga con
+  `canchatrack.documents.alerts.enabled=false`) encola un aviso `DOCUMENT_EXPIRY` para el acudiente y el entrenador titular cuando faltan
+  30 días o menos y otro cuando faltan 7 o menos. Se evalúa por tramo, no por día exacto: si el proceso no corrió un día no se pierde la alerta.
+  La deduplicación (`tramo:fecha de vencimiento`) hace que repetir la corrida no duplique avisos y que un documento renovado avise de nuevo.
+  El correo lleva el nombre del documento, el jugador y la fecha; nunca datos de salud.
+
+**Supuestos que debe confirmar el club (D-04 sigue abierta).** (1) «Ante vencimiento» (RF-006) = vencido o a 30 días o menos de vencer.
+(2) La primera versión de un documento se carga sin ventana (es el expediente que se está armando). (3) El acudiente vinculado puede ver
+los documentos de salud de su propio hijo aunque RF-009 solo nombre a coordinador y entrenador. (4) Solo el certificado médico viene
+sembrado (obligatorio, vence, salud); los demás documentos, sus vigencias y formatos los carga la coordinación desde el catálogo.
+
+**Pendiente.** Adjuntar los documentos iniciales dentro de la radicación (CU-02) en lugar de cargarlos después; alerta de documentos
+vencidos para el coordinador; antivirus.
 
 ## Agenda y asistencia (scheduling, attendance)
 
@@ -561,5 +603,6 @@ registro, despliegue, y que `main` exija el pipeline en verde (protección de ra
 
 ## Siguiente paso
 
-Siguiente incremento: alcance de entrenador y evaluador en `PlayerAccessPolicy`, puertas de calidad en el pipeline (cobertura, análisis estático),
-pruebas de carga con k6 y Swagger UI en `dev`. CU-10 y CU-11 quedan con plantilla provisional hasta que el club defina P-09.
+Siguiente incremento: avisos de agenda (correo al programar, reprogramar y cancelar sesiones y partidos, recordatorios a 24 h y 2 h e
+invitación `.ics`), luego sesiones recurrentes, alcance de entrenador y evaluador en `PlayerAccessPolicy`, exportaciones, seguridad
+(CORS, recuperación de contraseña, verificación de correo) y puertas de calidad. CU-10 y CU-11 quedan con plantilla provisional hasta que el club defina P-09.

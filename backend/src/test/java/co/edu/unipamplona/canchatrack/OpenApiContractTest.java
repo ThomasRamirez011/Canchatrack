@@ -266,6 +266,36 @@ class OpenApiContractTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void documentEndpointsAreDocumentedAndSchemasMatchTheDtos() throws Exception {
+        Map<String, Object> spec = load();
+        Map<String, Object> paths = (Map<String, Object>) spec.get("paths");
+        Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) spec.get("components")).get("schemas");
+
+        assertThat(paths.keySet()).contains("/document-types", "/document-types/{typeId}", "/document-windows",
+                "/players/{playerId}/documents", "/players/{playerId}/document-types/{typeId}/versions",
+                "/players/{playerId}/documents/versions/{versionId}/file");
+        assertThat(((Map<String, Object>) paths.get("/document-types")).keySet()).contains("get", "post");
+        assertThat(((Map<String, Object>) paths.get("/document-windows")).keySet()).contains("get", "post");
+        assertThat(((Map<String, Object>) paths.get("/players/{playerId}/documents")).keySet()).contains("get", "post");
+
+        assertThat((List<String>) ((Map<String, Object>) schemas.get("DocumentStatus")).get("enum"))
+                .containsExactlyInAnyOrderElementsOf(Arrays.stream(
+                        co.edu.unipamplona.canchatrack.documents.domain.DocumentRules.Status.values()).map(Enum::name).toList());
+
+        String dtos = "co.edu.unipamplona.canchatrack.documents.infrastructure.DocumentDtos$";
+        for (String name : List.of("CreateDocumentTypeRequest", "UpdateDocumentTypeRequest", "DocumentTypeResponse",
+                "OpenDocumentWindowRequest", "DocumentWindowResponse", "DocumentVersionResponse", "PlayerDocumentResponse")) {
+            Class<?> type = Class.forName(dtos + name);
+            Map<String, Object> documented = (Map<String, Object>) schemas.get(name);
+            assertThat(documented).as("esquema %s", name).isNotNull();
+            List<String> actual = Arrays.stream(type.getRecordComponents()).map(java.lang.reflect.RecordComponent::getName).toList();
+            assertThat(((Map<String, Object>) documented.get("properties")).keySet())
+                    .as("campos de %s", name).containsExactlyInAnyOrderElementsOf(actual);
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void auditAndReportEndpointsAreDocumentedAndSchemasMatchTheDtos() throws Exception {
         Map<String, Object> spec = load();
         Map<String, Object> paths = (Map<String, Object>) spec.get("paths");

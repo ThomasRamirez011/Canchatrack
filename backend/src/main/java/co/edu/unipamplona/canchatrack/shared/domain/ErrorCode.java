@@ -32,6 +32,8 @@ public enum ErrorCode {
     CONCURRENT_MODIFICATION(409, "Modificación concurrente", "El recurso cambió desde que fue leído (versión obsoleta)."),
     IDEMPOTENCY_KEY_REQUIRED(400, "Idempotency-Key requerida", "La operación exige la cabecera Idempotency-Key."),
     IDEMPOTENCY_KEY_REUSED(422, "Idempotency-Key reutilizada", "La clave ya se usó con una solicitud distinta."),
+    DOCUMENT_UPLOAD_NOT_ALLOWED(409, "Carga de documento no habilitada",
+            "No hay una ventana habilitada ni un vencimiento próximo que permitan cargar este documento."),
     INTERNAL_ERROR(500, "Error interno", "Ocurrió un error interno.");
 
     private final int httpStatus;

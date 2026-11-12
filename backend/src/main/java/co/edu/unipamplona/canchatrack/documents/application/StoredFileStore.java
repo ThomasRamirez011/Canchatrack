@@ -9,4 +9,7 @@ public interface StoredFileStore {
     StoredFile insert(String originalName, String contentType, long sizeBytes, String storageKey, String sha256, UUID uploadedBy);
 
     Optional<StoredFile> find(UUID fileId);
+
+    /** ¿Es el archivo una versión de un documento de salud? Esos solo se descargan por la vía de documentos (RF-009). */
+    boolean isHealthDocument(UUID fileId);
 }

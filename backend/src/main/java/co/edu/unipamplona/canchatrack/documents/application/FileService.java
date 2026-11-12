@@ -55,10 +55,26 @@ public class FileService {
     @Transactional(readOnly = true)
     public Download download(UUID userId, Set<String> roles, UUID fileId) {
         StoredFile file = files.find(fileId).orElseThrow(FileService::notFound);
-        boolean allowed = userId.equals(file.uploadedBy()) || roles.stream().anyMatch(READERS::contains);
+        boolean uploader = userId.equals(file.uploadedBy());
+        boolean allowed = uploader || roles.stream().anyMatch(READERS::contains);
+        // Un documento de salud solo lo ve la coordinación (o quien lo subió); el comité no (RF-009). Las demás vías de
+        // consulta de documentos de salud viven en PlayerDocumentService y quedan auditadas.
+        if (allowed && !uploader && !roles.contains("COORDINATOR") && files.isHealthDocument(fileId)) {
+            allowed = false;
+        }
         if (!allowed) {
             throw notFound();
         }
+        return new Download(file, storage.read(file.storageKey()));
+    }
+
+    /**
+     * Metadatos y contenido sin comprobar quién pregunta: la autorización la hace quien llama (p. ej. el acceso a un
+     * documento del jugador). No se expone por {@code api}: solo lo usa este módulo.
+     */
+    @Transactional(readOnly = true)
+    public Download load(UUID fileId) {
+        StoredFile file = files.find(fileId).orElseThrow(FileService::notFound);
         return new Download(file, storage.read(file.storageKey()));
     }
 
