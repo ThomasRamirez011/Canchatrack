@@ -23,4 +23,7 @@ public interface PlacementStore {
     void closeCurrentCategoryAssignment(UUID playerId);
 
     void insertPromotionAssignment(UUID playerId, UUID categoryId, UUID headCoachId, UUID roundId, UUID createdBy);
+
+    /** Deja constancia de la transición en {@code state_history} (DDS secc. 5); {@code reason} puede ser nulo. */
+    void recordStateChange(UUID playerId, String transitionCode, PlayerStatus from, PlayerStatus to, String reason, UUID actorId);
 }

@@ -429,6 +429,26 @@ $test$
         PERFORM pg_temp.assert_true(v_count = 2, 'cada versión recibe un consecutivo distinto');
         PERFORM pg_temp.expect_error(format($q$UPDATE season_reports SET reason = 'x' WHERE id = %L$q$, v_report), 'CT001');
 
+        -- V17: cierre y reapertura por temporada (RN-18)
+        PERFORM pg_temp.expect_error(
+                format($q$INSERT INTO season_closures (player_id, season_id, report_id, closed_by) VALUES (%L, %L, %L, %L)$q$, v_p2, v_season, v_report, v_coord),
+                '23503'); -- el informe debe ser del mismo jugador y la misma temporada
+        INSERT INTO season_closures (player_id, season_id, report_id, closed_by) VALUES (v_p1, v_season, v_report, v_coord) RETURNING id INTO v_uuid;
+        PERFORM pg_temp.expect_error(
+                format($q$INSERT INTO season_closures (player_id, season_id, report_id, closed_by) VALUES (%L, %L, %L, %L)$q$, v_p1, v_season, v_report, v_coord),
+                '23505'); -- un solo cierre vigente por jugador y temporada
+        PERFORM pg_temp.expect_error(
+                format($q$UPDATE season_closures SET reopened_at = now(), reopened_by = %L, reopen_reason = ' ', reopen_detail = 'detalle' WHERE id = %L$q$, v_coord, v_uuid),
+                '23514'); -- reabrir exige motivo no vacío
+        PERFORM pg_temp.expect_error(
+                format($q$UPDATE season_closures SET report_id = report_id, closed_by = %L WHERE id = %L$q$, v_coach, v_uuid),
+                'CT001'); -- el cierre original no se modifica
+        UPDATE season_closures SET reopened_at = now(), reopened_by = v_coord, reopen_reason = 'Error de captura', reopen_detail = 'Se corrige la asistencia del 3 de mayo' WHERE id = v_uuid;
+        PERFORM pg_temp.expect_error(
+                format($q$UPDATE season_closures SET reopen_reason = 'otro' WHERE id = %L$q$, v_uuid), 'CT001'); -- una reapertura no se reescribe
+        PERFORM pg_temp.expect_error(format($q$DELETE FROM season_closures WHERE id = %L$q$, v_uuid), 'CT001');
+        INSERT INTO season_closures (player_id, season_id, report_id, closed_by) VALUES (v_p1, v_season, v_report, v_coord); -- tras reabrir puede cerrarse de nuevo
+
         INSERT INTO notifications (notification_type, recipient_email, dedup_key)
         VALUES ('EVENT_SCHEDULED', 'a@test.local', 'evt:1:a@test.local') RETURNING id INTO v_notif;
         PERFORM pg_temp.expect_error($q$INSERT INTO notifications (notification_type, recipient_email, dedup_key) VALUES ('EVENT_SCHEDULED', 'a@test.local', 'evt:1:a@test.local')$q$, '23505'); -- PA-10: sin duplicar
