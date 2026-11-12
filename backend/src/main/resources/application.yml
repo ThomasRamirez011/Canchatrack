@@ -59,6 +59,9 @@ canchatrack:
       # secret: SIEMPRE por variable de entorno JWT_SECRET (Base64, >= 32 bytes); el perfil dev trae uno desechable.
       issuer: canchatrack
       access-ttl: 15m # corto a propósito: un access token no se puede revocar antes de vencer
+    cors:
+      # Orígenes del navegador autorizados (el front). Vacío = sin CORS. Sin comodines; fuera de localhost, solo https.
+      allowed-origins: ${CORS_ALLOWED_ORIGINS:}
   identity:
     bcrypt-strength: 12
     refresh-ttl: 7d

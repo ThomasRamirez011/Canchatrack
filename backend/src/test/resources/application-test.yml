@@ -10,6 +10,8 @@ canchatrack:
   security:
     jwt:
       secret: G8vny3gToStxavTB+wo9OQx++bZyXmGriJlxuZtG8OlLkqQYDAai+X3fJDc+ZgC7 # solo pruebas
+    cors:
+      allowed-origins: https://app.canchatrack.test
   notifications:
     processor:
       enabled: false # las pruebas invocan al procesador a mano; sin tareas periódicas en segundo plano

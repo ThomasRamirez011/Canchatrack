@@ -20,6 +20,9 @@ canchatrack:
     jwt:
       # Clave DESECHABLE, solo para desarrollo local: cualquier otro ambiente usa JWT_SECRET.
       secret: ${JWT_SECRET:DKv8YoVfp9uedaoXm7r9CRmB1vHtCdNAa3NXpuqV3C1wDf9ZRUZqqmfuOxSOWKh+}
+    cors:
+      # Servidores de desarrollo habituales del front (Next.js, Vite); CORS_ALLOWED_ORIGINS los reemplaza.
+      allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
   identity:
     bootstrap:
       # Cuenta inicial desechable de desarrollo (solo se crea si la base no tiene usuarios).
