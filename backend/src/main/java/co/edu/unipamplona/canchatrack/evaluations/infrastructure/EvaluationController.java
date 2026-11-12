@@ -26,8 +26,8 @@ import co.edu.unipamplona.canchatrack.evaluations.application.EvaluationService;
 import co.edu.unipamplona.canchatrack.evaluations.application.EvaluationsActor;
 import co.edu.unipamplona.canchatrack.evaluations.infrastructure.EvaluationDtos.ChangePeriodRequest;
 import co.edu.unipamplona.canchatrack.evaluations.infrastructure.EvaluationDtos.CloseRoundRequest;
-import co.edu.unipamplona.canchatrack.evaluations.infrastructure.EvaluationDtos.DecisionRequest;
-import co.edu.unipamplona.canchatrack.evaluations.infrastructure.EvaluationDtos.DecisionResponse;
+import co.edu.unipamplona.canchatrack.evaluations.infrastructure.EvaluationDtos.EvaluatorDecisionRequest;
+import co.edu.unipamplona.canchatrack.evaluations.infrastructure.EvaluationDtos.EvaluatorDecisionResponse;
 import co.edu.unipamplona.canchatrack.evaluations.infrastructure.EvaluationDtos.OpenRoundRequest;
 import co.edu.unipamplona.canchatrack.evaluations.infrastructure.EvaluationDtos.PromoteRequest;
 import co.edu.unipamplona.canchatrack.evaluations.infrastructure.EvaluationDtos.PromotionResponse;
@@ -75,10 +75,10 @@ public class EvaluationController {
     /** El evaluador emite o ajusta su propio concepto; nadie, ni la coordinación, decide en nombre de otro (RN-08, RN-10). */
     @PutMapping("/evaluation-rounds/{roundId}/decision")
     @PreAuthorize("hasAnyRole('EVALUATOR', 'COACH', 'COMMITTEE')")
-    public DecisionResponse decide(@PathVariable UUID roundId, @RequestBody DecisionRequest request, HttpServletRequest http) {
+    public EvaluatorDecisionResponse decide(@PathVariable UUID roundId, @RequestBody EvaluatorDecisionRequest request, HttpServletRequest http) {
         Set<String> roles = CurrentUser.require().roles();
         String role = DECIDER_ROLES.stream().filter(roles::contains).findFirst().orElse("EVALUATOR");
-        return DecisionResponse.from(evaluations.decide(actor(http, role), roundId,
+        return EvaluatorDecisionResponse.from(evaluations.decide(actor(http, role), roundId,
                 new Decide(request.verdict(), request.justification(), request.actions(), request.criteria())));
     }
 

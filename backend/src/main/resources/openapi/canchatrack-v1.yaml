@@ -1212,13 +1212,13 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/DecisionRequest' }
+            schema: { $ref: '#/components/schemas/EvaluatorDecisionRequest' }
       responses:
         '200':
           description: Concepto registrado.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/DecisionResponse' }
+              schema: { $ref: '#/components/schemas/EvaluatorDecisionResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -1998,7 +1998,7 @@ components:
     EvaluationVerdict:
       type: string
       enum: [FAVORABLE, FOLLOW_UP_REQUIRED, UNFAVORABLE]
-    DecisionRequest:
+    EvaluatorDecisionRequest:
       type: object
       required: [verdict]
       properties:
@@ -2010,7 +2010,7 @@ components:
           maxProperties: 40
           additionalProperties: true
           description: Criterios de la rúbrica del club (pendiente P-06); estructura libre.
-    DecisionResponse:
+    EvaluatorDecisionResponse:
       type: object
       required: [id, roundId, evaluatorId, verdict, periodStart, periodEnd, current, decidedAt]
       properties:
@@ -2050,7 +2050,7 @@ components:
         decisions:
           type: array
           description: Ausente en los listados.
-          items: { $ref: '#/components/schemas/DecisionResponse' }
+          items: { $ref: '#/components/schemas/EvaluatorDecisionResponse' }
     PromoteRequest:
       type: object
       required: [headCoachId]

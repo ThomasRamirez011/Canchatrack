@@ -221,8 +221,8 @@ class OpenApiContractTest {
                 Arrays.stream(co.edu.unipamplona.canchatrack.evaluations.domain.Verdict.values()).map(Enum::name).toList());
 
         String dtos = "co.edu.unipamplona.canchatrack.evaluations.infrastructure.EvaluationDtos$";
-        for (String name : List.of("OpenRoundRequest", "ChangePeriodRequest", "DecisionRequest", "CloseRoundRequest",
-                "PromoteRequest", "DecisionResponse", "RoundResponse", "PromotionResponse")) {
+        for (String name : List.of("OpenRoundRequest", "ChangePeriodRequest", "EvaluatorDecisionRequest", "CloseRoundRequest",
+                "PromoteRequest", "EvaluatorDecisionResponse", "RoundResponse", "PromotionResponse")) {
             Class<?> type = Class.forName(dtos + name);
             Map<String, Object> documented = (Map<String, Object>) schemas.get(name);
             assertThat(documented).as("esquema %s", name).isNotNull();
