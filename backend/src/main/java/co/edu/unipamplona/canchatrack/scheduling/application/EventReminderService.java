@@ -13,7 +13,8 @@ import co.edu.unipamplona.canchatrack.scheduling.domain.ReminderPolicy;
 /**
  * Recordatorios de entrenamientos y evaluaciones (RF-019), por defecto 24 y 2 horas antes. Idempotente: el ámbito de
  * deduplicación incluye el tramo, así que correr el proceso muchas veces dentro de la misma ventana no repite el correo.
- * Un evento programado dentro de un tramo no recibe ese recordatorio (el aviso de programación ya cubre la fecha).
+ * Un evento programado o reprogramado dentro de un tramo no recibe ese recordatorio (el aviso de programación o de cambio ya
+ * cubre la fecha). Tras una reprogramación los recordatorios vuelven a salir: su ámbito de deduplicación incluye la revisión.
  */
 @Service
 public class EventReminderService {
@@ -39,7 +40,7 @@ public class EventReminderService {
         Instant horizon = now.plus(Duration.ofHours(hours.get(hours.size() - 1)));
         int due = 0;
         for (ReminderCandidate candidate : store.findUpcomingForReminders(now, horizon)) {
-            OptionalInt stage = ReminderPolicy.stage(now, candidate.event().startAt(), candidate.createdAt(), hours);
+            OptionalInt stage = ReminderPolicy.stage(now, candidate.event().startAt(), candidate.scheduledAt(), hours);
             if (stage.isPresent()) {
                 notices.reminder(candidate.event(), stage.getAsInt());
                 due++;

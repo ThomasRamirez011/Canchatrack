@@ -66,6 +66,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
   evidencia de cada intento y reclamo concurrente sin duplicados; remitente simulado en desarrollo y SMTP en producción.
 - `scheduling` + `notifications` (avisos de agenda, ver «Avisos de agenda»): al programar o cancelar un entrenamiento o una evaluación se
   avisa por correo a los acudientes de la categoría y al entrenador, con invitación `.ics`; recordatorios 24 h y 2 h antes, sin repetirse (RF-016, RF-018 a RF-020).
+- `scheduling` + `competitions` + `notifications` (reprogramación, ver «Reprogramación»): el coordinador cambia fecha, escenario, entrenador o indicaciones de un evento o de un partido confirmado, con motivo; el calendario recibe la misma cita actualizada, los acudientes un aviso y, en un partido, se revisa de nuevo la convocatoria (RF-017, RF-018).
 - `audit`: puerto `AuditWriter` (`write` en la transacción de negocio; `writeIndependent` para intentos rechazados,
   p. ej. PA-01), adaptador JDBC y consulta de la bitácora con filtros y cursor (CU-14, ver «Auditoría y reportes»).
 - `reports` (ver «Auditoría y reportes» e «Informe de temporada y cierre del expediente»): cartera por categoría con exportación a CSV y resumen de temporada, como modelo de lectura; informe PDF versionado por jugador y cierre o reapertura del expediente (CU-10, CU-11).
@@ -94,6 +95,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 | CORS (`shared.security`, `CorsOriginsTest`, `CorsIT`) | Reglas de la lista blanca (`CorsOrigins`, `CorsProperties`): 8 pruebas unitarias ejecutadas con un sustituto mínimo de JUnit y AssertJ; los 3 archivos nuevos y el modificado pasan el análisis sintáctico y los YAML son válidos. `CorsConfig`, `SecurityConfig` y `CorsIT` no se compilaron contra Spring en el sandbox | **Verificado** el 12/11/2026 en el pipeline de GitHub Actions (PR #16): `mvn verify` en BUILD SUCCESS con 327 pruebas unitarias y 139 de integración, 0 fallos, incluidas `CorsOriginsTest` (8) y `CorsIT` (7); imagen Docker y smoke test en verde |
 | Alcance del personal deportivo (`identity`, `players`, `attendance`, `competitions`, `PlayerAccessServiceTest`, `PlayerQueryServiceTest`, `StaffScopeIT`) | Sin migración nueva. Las consultas de entrenador titular y evaluador vigentes y el filtro del listado ejecutados sobre PostgreSQL 16 real con V1..V17 (incluida la vigencia terminada); `PlayerAccessService` y `PlayerQueryService` compilados y 19 pruebas unitarias (12 de política, 7 de consulta) ejecutadas con un sustituto mínimo de JUnit y AssertJ; OpenAPI validado (71 rutas, 116 esquemas). Controladores, `JdbcPlayerStore`, `JdbcStaffAssignments` y `StaffScopeIT` no se compilaron contra Spring en el sandbox | **Verificado** el 12/11/2026 en el pipeline de GitHub Actions (PR #17): `mvn verify` en BUILD SUCCESS con 336 pruebas unitarias y 147 de integración, 0 fallos, incluidas `PlayerAccessServiceTest` (12), `PlayerQueryServiceTest` (7), `StaffScopeIT` (8) y `EnrollmentIT` (14); imagen Docker y smoke test en verde |
 | Avisos de agenda (`scheduling`, `notifications`, `IcsCalendarTest`, `ReminderPolicyTest`, `AgendaNoticesTest`, `EventReminderServiceTest`, `SmtpEmailSenderTest`, `AgendaNotificationsIT`) | Sin migración nueva. Las dos consultas nuevas (contexto del evento con y sin entrenador, dirección o referencia del escenario; eventos confirmados de entrenamiento y evaluación dentro de la ventana del recordatorio, con su fecha de creación) ejecutadas sobre PostgreSQL 16 real con V1..V17; dominio y aplicación compilados con `javac -Xlint:all` y 52 pruebas unitarias (`IcsCalendarTest` 7, `ReminderPolicyTest` 9, `NotificationRulesTest` con las plantillas de evento, `AgendaNoticesTest` 8, `EventReminderServiceTest` 3) ejecutadas con un sustituto mínimo de JUnit y AssertJ; sintaxis de todos los fuentes analizada con el parser de `javac`. El adaptador JDBC, `SmtpEmailSender` (adjunto MIME), el programador y `AgendaNotificationsIT` **no** se compilaron contra Spring en el sandbox y **no** se probó contra un servidor SMTP real | **Verificado** el 12/11/2026 en el pipeline de GitHub Actions (PR #18): `mvn verify` en BUILD SUCCESS con 371 pruebas unitarias y 153 de integración, 0 fallos, incluidas `IcsCalendarTest` (7), `ReminderPolicyTest` (9), `AgendaNoticesTest` (8), `EventReminderServiceTest` (3), `SmtpEmailSenderTest` (2), `NotificationRulesTest` (25) y `AgendaNotificationsIT` (6); imagen Docker y smoke test en verde. Tres corridas: las dos primeras fallaron por errores de las pruebas nuevas (encabezados MIME sin `saveChanges()`, segundo acudiente marcado como principal, evento sembrado sin entrenador titular), no del código de producción |
+| Reprogramación (`scheduling`, `competitions`, `notifications`, `AgendaNoticesTest`, `NotificationRulesTest`, `AgendaNotificationsIT`, `CompetitionsIT`) | Sin migración nueva. Las sentencias SQL nuevas (cruces con exclusión del propio evento, `UPDATE` de fecha, escenario y datos con la revisión + 1 y la guarda `status = 'CONFIRMED'`, cambio del entrenador titular, lectura de la revisión, `updated_at` actualizado por el trigger y usado como base de los recordatorios) ejecutadas sobre PostgreSQL 16 real con V1..V17; dominio y aplicación compilados con `javac -Xlint:all` y 44 pruebas unitarias (`AgendaNoticesTest`, `EventReminderServiceTest`, `NotificationRulesTest` con las plantillas de reprogramación y la secuencia de la cancelación) ejecutadas con un sustituto mínimo de JUnit y AssertJ; sintaxis de los 25 fuentes modificados analizada con el parser de `javac`; OpenAPI validado (73 rutas, 120 esquemas). Controladores, adaptador JDBC y las pruebas de integración nuevas **no** se compilaron contra Spring en el sandbox | **Pendiente:** falta la corrida del pipeline de GitHub Actions |
 | Contenedor e integración continua (`Dockerfile`, `.github/workflows/backend-ci.yml`) | El pipeline es su propia verificación: se ejecutó en GitHub Actions sobre el PR | **Verificado:** `mvn verify` (unitarias + integración con Testcontainers), construcción de la imagen y smoke test (health `UP`, login del coordinador de desarrollo, 401 sin token) en verde (2026-11-12). La primera ejecución falló por Docker Engine 29 (ver «Contenedor e integración continua») |
 | Código Spring (filtro, handler, seguridad, `JdbcAuditWriter`), `ArchitectureTest`, unitarias | `mvn test` en Windows 11, JDK 24 (compila con `--release 21`), Maven 3.10.0 | Ejecutado: OK (19 pruebas, 0 fallos) |
 | `*IT` con Testcontainers (`DatabaseSchemaIT`, `AuditWriterIT`) | `mvn verify`, Docker Desktop 4.98 / Engine 29.9.2 | Ejecutado: OK (7 pruebas, 0 fallos) |
@@ -479,8 +481,8 @@ con marcas en curso, y el trigger `CT002` sigue siendo la última defensa. (4) L
 (DP pendiente): es una propuesta documentada. (6) Auditoría: `VENUE_CREATED`, `EVENT_SCHEDULED`, `EVENT_CANCELLED`,
 `ATTENDANCE_SESSION_CLOSED`, `ATTENDANCE_CORRECTED`.
 
-**Pendiente.** Reprogramar un evento (hoy se cancela y se crea otro), sesiones recurrentes (RF-014), partidos de torneo y
-convocatorias (`competitions`) y calendario con filtros por entrenador y escenario. Los avisos por correo con `.ics` ya están (ver «Avisos de agenda»).
+**Pendiente.** Sesiones recurrentes (RF-014) y calendario con filtros por entrenador y escenario. Los avisos por correo con `.ics` ya están (ver
+«Avisos de agenda»), la reprogramación también (ver «Reprogramación») y los partidos viven en `competitions`.
 
 ## Evaluaciones y ascenso (evaluations, players)
 
@@ -541,8 +543,7 @@ plantilla. (6) Toda operación sobre un partido bloquea su fila (`FOR UPDATE`): 
 (8) Auditoría: `TOURNAMENT_CREATED`, `MATCH_SCHEDULED`, `CALLUP_PROPOSED`, `CALLUP_REMOVED`, `CALLUP_CONFIRMED`, `MATCH_AUTHORIZED`,
 `MATCH_CANCELLED`, `MATCH_RESULT_RECORDED`, `MATCH_RESULT_CORRECTED` (más `EVENT_SCHEDULED`/`EVENT_CANCELLED` de agenda).
 
-**Pendiente.** Reprogramación de partidos (hoy se cancela y se crea otro),
-revocación de la autorización por el acudiente, historial deportivo con asistencia y evaluaciones publicadas (RF-037 completo, llega con
+**Pendiente.** Revocación de la autorización por el acudiente, historial deportivo con asistencia y evaluaciones publicadas (RF-037 completo, llega con
 reportes), alcance de entrenador y evaluador en `PlayerAccessPolicy` (el entrenador aún no consulta el historial de un jugador) y la política de mora definitiva.
 
 ## Auditoría y reportes (audit, reports)
@@ -621,7 +622,7 @@ usan la cola de `notifications` (V11) y el procesador ya existente.
 | Aviso | Cuándo | Contenido |
 |---|---|---|
 | `EVENT_SCHEDULED` | al programar (`POST /events`) | Tipo de sesión, categoría, fecha y hora en la zona del club, escenario y dirección, entrenador, instrucciones; invitación `.ics` `METHOD:REQUEST`. |
-| `EVENT_CANCELLED` | al cancelar (`POST /events/{id}/cancel`) | «CANCELACIÓN» destacada con el motivo; `.ics` `METHOD:CANCEL`, `SEQUENCE:1`, para que el calendario retire la cita. |
+| `EVENT_CANCELLED` | al cancelar (`POST /events/{id}/cancel`) | «CANCELACIÓN» destacada con el motivo; `.ics` `METHOD:CANCEL` con `SEQUENCE` = revisión del evento, para que el calendario retire la cita. |
 | `EVENT_REMINDER` | proceso periódico, por defecto 24 h y 2 h antes | «Faltan N horas»; sin `.ics` (ya lo tienen). |
 
 **Destinatarios.** Los acudientes con vínculo vigente de los jugadores en actividad de la categoría (`players.api.CategoryRoster` +
@@ -645,8 +646,50 @@ los correos) sigue en pie. (2) Los avisos **no nombran jugadores**: cada acudien
 encolan en la transacción de la programación: si esta falla, no sale ningún correo; un fallo de correo no deshace la programación (el procesador
 reintenta). (4) Sin acudientes ni entrenador no se encola nada. (5) Un aviso sin fecha, hora o identificador completos sale sin `.ics` en vez de fallar.
 
-**Pendiente.** Reprogramar un evento y avisarlo (hoy se cancela y se crea otro: el calendario recibe dos citas), recordatorios y aviso de programación
-de partidos al entrenador, alertar a la coordinación cuando un aviso queda `FAILED`, y confirmar con el club el uso del `.ics` y la dirección del enlace.
+**Pendiente.** Recordatorios y aviso de programación de partidos al entrenador, alertar a la coordinación cuando un aviso queda `FAILED`, y confirmar con el club el uso del `.ics` y la dirección del enlace.
+
+## Reprogramación (scheduling, competitions, notifications)
+
+Un evento o un partido **confirmado y que aún no empieza** puede moverse sin cancelarlo y crear otro. Sin migración nueva: la revisión del evento es
+`sports_events.optimistic_version`, que ya subía al cancelar o completar.
+
+| Operación | Ruta | Quién |
+|---|---|---|
+| Reprogramar un entrenamiento o una evaluación | `POST /events/{eventId}/reschedule` | COORDINATOR |
+| Reprogramar un partido | `POST /matches/{matchId}/reschedule` | COORDINATOR |
+
+El cuerpo lleva `startAt`, `endAt` y `reason` (obligatorios) y, opcionales, `venueId`, `headCoachId`, `meetingPoint` e `instructions`: lo que no se indica
+**se conserva**. `meetingAt` sí se reemplaza siempre (es una hora de concentración atada a la fecha; si se omite se borra). Un partido sale por su propio recurso
+porque además de avisar hay que revisar la convocatoria; pedirlo por `/events/...` responde 409 y señala la ruta correcta.
+
+**Reglas.** (1) Solo `CONFIRMED` y con inicio futuro, si no 409 `RESOURCE_STATE_CONFLICT`. (2) Mismas validaciones que al programar (fechas, duración,
+escenario activo, entrenador con rol COACH) más el motivo, todas acumuladas en un 422. (3) Un cambio que no modifica nada es 422 (`startAt`).
+(4) El cruce se calcula **excluyendo al propio evento**: correr una sesión media hora no choca con su horario anterior; contra cualquier otro evento
+sigue siendo 409 `SCHEDULE_CONFLICT` con la lista. (5) Los cupos de escenario, entrenador y categoría se bloquean como al programar. (6) Un partido además debe
+caber en las fechas del torneo.
+
+**Avisos.**
+
+| Aviso | Cuándo | Contenido |
+|---|---|---|
+| `EVENT_RESCHEDULED` | al reprogramar un entrenamiento o evaluación | «REPROGRAMADO», motivo, fecha anterior y nueva programación; `.ics` `METHOD:REQUEST` con el **mismo UID** y `SEQUENCE` = revisión, que el calendario toma como actualización de la cita. Va a los acudientes, al entrenador nuevo y al **anterior** si cambió. |
+| `EVENT_CANCELLED` | al cancelar | Su `.ics` ahora lleva `SEQUENCE` = revisión (antes fijo en 1), así un evento reprogramado y luego cancelado sí se retira. |
+| `MATCH_RESCHEDULED` | al reprogramar un partido | A los acudientes de los jugadores **confirmados**: fecha anterior y nueva, punto de encuentro y motivo. Sin `.ics` ni datos de salud. |
+
+Cada revisión tiene su propia clave de deduplicación (`rescheduled:<n>`), de modo que dos cambios seguidos avisan dos veces y un reintento no duplica.
+Los recordatorios toman como referencia la **última modificación** del evento (`updated_at`, no `created_at`) y desde la revisión 1 su clave incluye
+`:r<n>`: tras reprogramar vuelven a salir los de la nueva fecha, y un evento movido dentro de un tramo no recibe un recordatorio prematuro.
+
+**Convocatoria de un partido.** Al reprogramar se reevalúan los jugadores `PROPOSED` y `NOT_ELIGIBLE` con la nueva fecha (por ejemplo, un certificado médico
+que vence antes). Los `CONFIRMED` **no se descartan solos**: se conservan y la respuesta los lista en `confirmedToReview` con la causa (`playerId` y
+`causes`), para que el coordinador decida. La respuesta es `{match, confirmedToReview}`.
+
+**Decisiones.** (1) No se reabre la confirmación para no quitar a un jugador sin que nadie lo decida; se informa. (2) Auditoría: `EVENT_RESCHEDULED` (antes,
+después y motivo) y, en un partido, `MATCH_RESCHEDULED` con los conteos de avisados, reevaluados y por revisar. (3) El aviso al entrenador anterior es un correo
+más; su calendario conserva la cita vieja hasta que la retire a mano (no se emite una cancelación por separado). (4) El motivo viaja en el correo a las familias:
+no debe incluir datos de salud (RN-17).
+
+**Pendiente.** Retirar del calendario del entrenador anterior con una cancelación propia, reprogramación masiva de una jornada y recordatorios de partidos.
 
 ## Procesador de notificaciones (notifications)
 
@@ -691,5 +734,5 @@ registro, despliegue, y que `main` exija el pipeline en verde (protección de ra
 
 ## Siguiente paso
 
-Siguiente incremento: reprogramar eventos y partidos (aviso con `SEQUENCE` incrementado en el `.ics`) y recordatorios de partidos, luego sesiones recurrentes,
+Siguiente incremento: recordatorios de partidos y aviso de programación al entrenador, luego avisos de mora y de resultado del comité, sesiones recurrentes,
 exportaciones, seguridad (recuperación de contraseña, verificación de correo, límite de tasa) y puertas de calidad. CORS ya está resuelto. CU-10 y CU-11 quedan con plantilla provisional hasta que el club defina P-09.

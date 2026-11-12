@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import co.edu.unipamplona.canchatrack.scheduling.api.MatchEventChange;
 import co.edu.unipamplona.canchatrack.scheduling.api.MatchEventScheduling;
 import co.edu.unipamplona.canchatrack.scheduling.api.MatchEventSlot;
 import co.edu.unipamplona.canchatrack.scheduling.domain.SchedulingRules;
@@ -38,6 +39,15 @@ public class MatchEventService implements MatchEventScheduling {
     @Transactional(propagation = Propagation.MANDATORY)
     public void cancel(UUID eventId, String reason, UUID actorId, InetAddress ip, String userAgent) {
         scheduling.cancelEvent(new SchedulingActor(actorId, ip, userAgent), eventId, reason);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void reschedule(UUID eventId, MatchEventChange change, String reason, UUID actorId, InetAddress ip, String userAgent) {
+        scheduling.rescheduleOfTypes(new SchedulingActor(actorId, ip, userAgent), eventId,
+                new RescheduleEventCommand(change.venueId(), change.headCoachId(), change.startAt(), change.endAt(),
+                        change.meetingAt(), change.meetingPoint(), change.instructions(), reason),
+                SchedulingRules.MATCH_EVENT_TYPES);
     }
 
     @Override

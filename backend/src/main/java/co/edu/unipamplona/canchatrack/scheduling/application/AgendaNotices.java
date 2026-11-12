@@ -25,6 +25,7 @@ public class AgendaNotices {
     public static final String SCHEDULED = "EVENT_SCHEDULED";
     public static final String CANCELLED = "EVENT_CANCELLED";
     public static final String REMINDER = "EVENT_REMINDER";
+    public static final String RESCHEDULED = "EVENT_RESCHEDULED";
     static final String RELATED_ENTITY = "sports_event";
 
     private final SchedulingStore store;
@@ -43,24 +44,50 @@ public class AgendaNotices {
     }
 
     public void scheduled(EventView event) {
-        enqueue(event, SCHEDULED, label(event) + " programado", "scheduled", null, null);
+        enqueue(event, SCHEDULED, label(event) + " programado", "scheduled", Set.of(), Map.of());
     }
 
+    /** La invitación de cancelación lleva la revisión del evento como {@code SEQUENCE}, para que el calendario la acepte. */
     public void cancelled(EventView event) {
-        enqueue(event, CANCELLED, "CANCELADO: " + lower(label(event)), "cancelled", event.cancellationReason(), null);
+        Map<String, String> extra = new LinkedHashMap<>();
+        extra.put("reason", event.cancellationReason());
+        extra.put("sequence", Integer.toString(store.revisionOf(event.id())));
+        enqueue(event, CANCELLED, "CANCELADO: " + lower(label(event)), "cancelled", Set.of(), extra);
     }
 
+    /**
+     * Avisa de un cambio de fecha, lugar o entrenador. El entrenador anterior también lo recibe: el evento sale de su
+     * agenda. Cada revisión tiene su propio ámbito de deduplicación.
+     */
+    public void rescheduled(EventView before, EventView after, String reason) {
+        int revision = store.revisionOf(after.id());
+        Set<UUID> extraRecipients = new LinkedHashSet<>();
+        if (before.headCoachId() != null) {
+            extraRecipients.add(before.headCoachId());
+        }
+        Map<String, String> extra = new LinkedHashMap<>();
+        extra.put("reason", reason);
+        extra.put("previousStartAt", before.startAt().toString());
+        extra.put("previousEndAt", before.endAt().toString());
+        extra.put("sequence", Integer.toString(revision));
+        enqueue(after, RESCHEDULED, "Reprogramado: " + lower(label(after)), "rescheduled:" + revision, extraRecipients, extra);
+    }
+
+    /** Tras una reprogramación los recordatorios vuelven a salir: a partir de la revisión 1 el ámbito la incluye. */
     public void reminder(EventView event, int hoursBefore) {
-        enqueue(event, REMINDER, "Recordatorio: " + lower(label(event)), "reminder:" + hoursBefore, null, hoursBefore);
+        int revision = store.revisionOf(event.id());
+        String scope = revision == 0 ? "reminder:" + hoursBefore : "reminder:" + hoursBefore + ":r" + revision;
+        enqueue(event, REMINDER, "Recordatorio: " + lower(label(event)), scope, Set.of(), Map.of("hoursBefore", Integer.toString(hoursBefore)));
     }
 
-    private void enqueue(EventView event, String type, String subjectPrefix, String dedupScope, String reason,
-                         Integer hoursBefore) {
+    private void enqueue(EventView event, String type, String subjectPrefix, String dedupScope, Set<UUID> extraRecipients,
+                         Map<String, String> extra) {
         Set<UUID> recipients = new LinkedHashSet<>(
                 guardians.guardianUserIdsOf(roster.activePlayerIds(event.categoryId())));
         if (event.headCoachId() != null) {
             recipients.add(event.headCoachId());
         }
+        recipients.addAll(extraRecipients);
         if (recipients.isEmpty()) {
             return;
         }
@@ -77,10 +104,9 @@ public class AgendaNotices {
         put(payload, "meetingAt", event.meetingAt() == null ? null : event.meetingAt().toString());
         put(payload, "meetingPoint", event.meetingPoint());
         put(payload, "instructions", event.instructions());
-        put(payload, "reason", reason);
         put(payload, "appUrl", settings.appUrl());
         put(payload, "stamp", store.now().toString());
-        put(payload, "hoursBefore", hoursBefore == null ? null : hoursBefore.toString());
+        extra.forEach((key, value) -> put(payload, key, value));
         String category = context.categoryName() == null ? "" : " · " + context.categoryName();
         queue.enqueue(type, recipients, subjectPrefix + category, payload, RELATED_ENTITY, event.id(), dedupScope);
     }

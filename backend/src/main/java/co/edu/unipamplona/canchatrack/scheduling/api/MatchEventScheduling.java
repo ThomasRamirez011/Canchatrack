@@ -27,6 +27,14 @@ public interface MatchEventScheduling {
      */
     void cancel(UUID eventId, String reason, UUID actorId, InetAddress ip, String userAgent);
 
+    /**
+     * Reprograma el evento del partido (cruces como al programar, sin contar el propio evento; queda auditado con el motivo).
+     *
+     * @throws co.edu.unipamplona.canchatrack.shared.domain.DomainException 422 si los datos no son válidos; 409
+     *         {@code SCHEDULE_CONFLICT} si el nuevo horario se cruza; 409 si el evento no está confirmado o ya empezó
+     */
+    void reschedule(UUID eventId, MatchEventChange change, String reason, UUID actorId, InetAddress ip, String userAgent);
+
     /** Marca el evento como realizado (al registrar el resultado). No hace nada si ya lo estaba. */
     void complete(UUID eventId);
 }

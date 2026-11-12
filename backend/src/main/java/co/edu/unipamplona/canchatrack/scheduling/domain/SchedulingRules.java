@@ -80,6 +80,16 @@ public final class SchedulingRules {
         return errors;
     }
 
+    public static List<FieldError> rescheduleReasonViolations(String reason) {
+        List<FieldError> errors = new ArrayList<>();
+        if (reason == null || reason.isBlank()) {
+            errors.add(new FieldError("reason", "El motivo de la reprogramación es obligatorio."));
+        } else if (reason.trim().length() > MAX_TEXT) {
+            errors.add(new FieldError("reason", "El motivo no puede superar " + MAX_TEXT + " caracteres."));
+        }
+        return errors;
+    }
+
     /** Dos eventos se cruzan si sus intervalos semiabiertos [inicio, fin) tienen intersección. */
     public static boolean overlaps(Instant startA, Instant endA, Instant startB, Instant endB) {
         return startA.isBefore(endB) && startB.isBefore(endA);

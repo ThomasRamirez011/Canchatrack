@@ -191,6 +191,64 @@ class NotificationRulesTest {
     }
 
     @Test
+    void cancelledEventInvitationUsesTheSequenceFromThePayload() {
+        Map<String, String> payload = eventPayload();
+        payload.put("sequence", "4");
+
+        OutboundEmail email = EmailTemplates.render("EVENT_CANCELLED", "a@b.co", null, payload, BOGOTA).orElseThrow();
+
+        assertThat(email.calendar().content()).contains("SEQUENCE:4");
+        payload.put("sequence", "4\r\nBcc: x@y.z");
+        assertThat(EmailTemplates.render("EVENT_CANCELLED", "a@b.co", null, payload, BOGOTA).orElseThrow().calendar().content())
+                .contains("SEQUENCE:1").doesNotContain("Bcc");
+    }
+
+    @Test
+    void rescheduledEventEmailShowsThePreviousAndNewScheduleAndUpdatesTheInvitation() {
+        Map<String, String> payload = eventPayload();
+        payload.put("previousStartAt", "2026-11-30T22:00:00Z");   // 30/11/2026 17:00 en Bogotá
+        payload.put("reason", "Cancha en mantenimiento\nBcc: x@y.z");
+        payload.put("sequence", "2");
+
+        OutboundEmail email = EmailTemplates.render("EVENT_RESCHEDULED", "padre@example.com", null, payload, BOGOTA).orElseThrow();
+
+        assertThat(email.subject()).isEqualTo("REPROGRAMADO: entrenamiento · Sub-12");
+        assertThat(email.body()).contains("REPROGRAMACIÓN", "que estaba para el 30/11/2026 17:00", "Motivo: Cancha en mantenimiento Bcc: x@y.z",
+                "Nueva programación:", "01/12/2026 17:00 a 18:30", "Cancha Municipal (Calle 5 # 3-20)");
+        assertThat(email.body().contains("\nBcc")).isFalse();
+        assertThat(email.calendar().method()).isEqualTo("REQUEST");
+        assertThat(email.calendar().content()).contains("METHOD:REQUEST", "DTSTART:20261201T220000Z", "SEQUENCE:2", "STATUS:CONFIRMED",
+                "UID:7b1e1c4a-6a4b-4b5e-9b64-0a5d9f1f2c10@canchatrack");
+    }
+
+    @Test
+    void aRescheduleInvitationNeverGoesOutWithSequenceZero() {
+        Map<String, String> payload = eventPayload();
+
+        assertThat(EmailTemplates.render("EVENT_RESCHEDULED", "a@b.co", null, payload, BOGOTA).orElseThrow().calendar().content())
+                .contains("SEQUENCE:1");
+        payload.put("sequence", "0");
+        assertThat(EmailTemplates.render("EVENT_RESCHEDULED", "a@b.co", null, payload, BOGOTA).orElseThrow().calendar().content())
+                .contains("SEQUENCE:1");
+    }
+
+    @Test
+    void rescheduledMatchEmailCarriesTheNewDateTheMeetingPointAndNoInvitation() {
+        Map<String, String> payload = payload("playerName", "Ana Pérez", "opponent", "Club Rival",
+                "startAt", "2026-12-12T20:00:00Z", "previousStartAt", "2026-12-05T20:00:00Z",
+                "meetingAt", "2026-12-12T18:30:00Z", "meetingPoint", "Puerta principal", "reason", "Cambio del campeonato");
+
+        OutboundEmail email = EmailTemplates.render("MATCH_RESCHEDULED", "a@b.co", null, payload, BOGOTA).orElseThrow();
+
+        assertThat(email.subject()).isEqualTo("Partido reprogramado");
+        assertThat(email.body()).contains("Ana Pérez", "Club Rival", "que estaba para el 05/12/2026 15:00",
+                "se reprogramó para el 12/12/2026 15:00", "Punto de encuentro: 12/12/2026 13:30 en Puerta principal",
+                "Motivo: Cambio del campeonato", "comuníquese con el club");
+        assertThat(email.calendar()).isNull();
+        assertThat(email.body().toLowerCase().contains("salud")).isFalse();
+    }
+
+    @Test
     void reminderEmailSaysHowMuchTimeIsLeftAndHasNoInvitation() {
         Map<String, String> payload = eventPayload();
         payload.put("hoursBefore", "2");
@@ -209,7 +267,7 @@ class NotificationRulesTest {
 
     @Test
     void eventEmailsNeverNameOrDescribeAnyPlayer() {
-        for (String type : List.of("EVENT_SCHEDULED", "EVENT_CANCELLED", "EVENT_REMINDER")) {
+        for (String type : List.of("EVENT_SCHEDULED", "EVENT_CANCELLED", "EVENT_REMINDER", "EVENT_RESCHEDULED")) {
             String body = EmailTemplates.render(type, "a@b.co", null, eventPayload(), BOGOTA).orElseThrow().body();
             assertThat(body.toLowerCase().contains("jugador")).isFalse();
             assertThat(body.toLowerCase().contains("salud")).isFalse();

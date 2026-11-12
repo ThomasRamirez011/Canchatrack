@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -29,6 +30,7 @@ public class SchedulingService {
     static final String ACTION_VENUE = "VENUE_CREATED";
     static final String ACTION_SCHEDULED = "EVENT_SCHEDULED";
     static final String ACTION_CANCELLED = "EVENT_CANCELLED";
+    static final String ACTION_RESCHEDULED = "EVENT_RESCHEDULED";
     static final int MAX_LIST = 200;
 
     private final SchedulingStore store;
@@ -105,7 +107,7 @@ public class SchedulingService {
 
         store.lockSlots(command.venueId(), command.headCoachId(), command.categoryId());
         List<ConflictView> conflicts = store.findConflicts(command.venueId(), command.headCoachId(), command.categoryId(),
-                command.startAt(), command.endAt());
+                command.startAt(), command.endAt(), null);
         if (!conflicts.isEmpty()) {
             throw new DomainException(ErrorCode.SCHEDULE_CONFLICT, "El horario se cruza con otros eventos.",
                     Map.of("conflicts", conflicts.stream().map(c -> Map.of("dimension", c.dimension(),
@@ -129,6 +131,88 @@ public class SchedulingService {
                 .origin(actor.ip(), actor.userAgent())
                 .build());
         return event;
+    }
+
+    /** Reprograma un entrenamiento o una evaluación y avisa del cambio (RF-017, RF-018). */
+    @Transactional
+    public EventView reschedule(SchedulingActor actor, UUID eventId, RescheduleEventCommand command) {
+        Rescheduled change = rescheduleOfTypes(actor, eventId, command, SchedulingRules.EVENT_TYPES);
+        notices.rescheduled(change.before(), change.after(), command.reason().trim());
+        return change.after();
+    }
+
+    /**
+     * Reprograma un evento confirmado de alguno de los tipos admitidos: valida como al programar, comprueba los cruces sin
+     * contar el propio evento y sube su revisión. Es público por el proxy transaccional; los partidos entran por
+     * {@link MatchEventService}.
+     */
+    @Transactional
+    public Rescheduled rescheduleOfTypes(SchedulingActor actor, UUID eventId, RescheduleEventCommand command, Set<String> allowedTypes) {
+        String status = store.lockStatus(eventId).orElseThrow(SchedulingService::notFound);
+        EventView before = store.findEvent(eventId).orElseThrow(SchedulingService::notFound);
+        if (!allowedTypes.contains(before.eventType())) {
+            throw new DomainException(ErrorCode.RESOURCE_STATE_CONFLICT, SchedulingRules.MATCH_EVENT_TYPES.contains(before.eventType())
+                    ? "Los partidos se reprograman desde su propio recurso (/matches/{id}/reschedule) para avisar a los acudientes."
+                    : "Este tipo de evento no se reprograma desde aquí.");
+        }
+        if (!"CONFIRMED".equals(status)) {
+            throw new DomainException(ErrorCode.RESOURCE_STATE_CONFLICT, "Solo un evento confirmado puede reprogramarse.");
+        }
+        Instant now = store.now();
+        if (!before.startAt().isAfter(now)) {
+            throw new DomainException(ErrorCode.RESOURCE_STATE_CONFLICT, "Un evento que ya empezó no puede reprogramarse.");
+        }
+
+        UUID venueId = command.venueId() == null ? before.venueId() : command.venueId();
+        UUID coachId = command.headCoachId() == null ? before.headCoachId() : command.headCoachId();
+        String meetingPoint = command.meetingPoint() == null ? before.meetingPoint() : blankToNull(command.meetingPoint());
+        String instructions = command.instructions() == null ? before.instructions() : blankToNull(command.instructions());
+
+        List<FieldError> errors = new ArrayList<>(SchedulingRules.eventViolations(allowedTypes, before.eventType(),
+                command.startAt(), command.endAt(), command.meetingAt(), meetingPoint, instructions, now));
+        errors.addAll(SchedulingRules.rescheduleReasonViolations(command.reason()));
+        VenueInfo venue = store.findVenue(venueId).orElse(null);
+        if (venue == null) {
+            errors.add(new FieldError("venueId", "El escenario no existe."));
+        } else if (!venue.active() && !venueId.equals(before.venueId())) {
+            errors.add(new FieldError("venueId", "El escenario no está activo."));
+        }
+        if (coachId != null && !coachId.equals(before.headCoachId())) {
+            Set<String> roles = staff.activeRolesOf(List.of(coachId)).get(coachId);
+            if (roles == null || !roles.contains("COACH")) {
+                errors.add(new FieldError("headCoachId", "El entrenador debe ser una cuenta activa con rol COACH."));
+            }
+        }
+        if (errors.isEmpty() && command.startAt().equals(before.startAt()) && command.endAt().equals(before.endAt())
+                && venueId.equals(before.venueId()) && Objects.equals(coachId, before.headCoachId())
+                && Objects.equals(command.meetingAt(), before.meetingAt())
+                && Objects.equals(meetingPoint, before.meetingPoint())
+                && Objects.equals(instructions, before.instructions())) {
+            errors.add(new FieldError("startAt", "La reprogramación no cambia nada del evento."));
+        }
+        ValidationFailure.throwIfAny(errors);
+
+        store.lockSlots(venueId, coachId, before.categoryId());
+        List<ConflictView> conflicts = store.findConflicts(venueId, coachId, before.categoryId(), command.startAt(), command.endAt(), eventId);
+        if (!conflicts.isEmpty()) {
+            throw new DomainException(ErrorCode.SCHEDULE_CONFLICT, "El horario se cruza con otros eventos.",
+                    Map.of("conflicts", conflicts.stream().map(c -> Map.of("dimension", c.dimension(),
+                            "eventId", c.eventId().toString(), "startAt", c.startAt().toString(),
+                            "endAt", c.endAt().toString())).toList()));
+        }
+        store.reschedule(eventId, venueId, coachId, command.startAt(), command.endAt(), command.meetingAt(), meetingPoint, instructions);
+        EventView after = store.findEvent(eventId).orElseThrow();
+        audit.write(AuditRecord.builder(ACTION_RESCHEDULED, "sports_event")
+                .actor(actor.id(), SchedulingActor.ROLE)
+                .entity(eventId)
+                .before(Json.of("venueId", before.venueId(), "headCoachId", before.headCoachId(), "startAt", before.startAt(),
+                        "endAt", before.endAt()))
+                .after(Json.of("venueId", after.venueId(), "headCoachId", after.headCoachId(), "startAt", after.startAt(),
+                        "endAt", after.endAt()))
+                .reason(command.reason().trim())
+                .origin(actor.ip(), actor.userAgent())
+                .build());
+        return new Rescheduled(before, after);
     }
 
     @Transactional

@@ -1236,6 +1236,35 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
+  /events/{eventId}/reschedule:
+    post:
+      tags: [scheduling]
+      operationId: rescheduleEvent
+      summary: Reprograma un entrenamiento o evaluación confirmado y avisa del cambio (solo coordinador).
+      description: >
+        Cambia fecha y hora y, si se indican, escenario, entrenador responsable, punto de encuentro e instrucciones (lo no indicado
+        se conserva). La hora de concentración no se arrastra: solo existe si se envía de nuevo. Aplica los mismos cruces que al
+        programar, sin contar el propio evento. Los partidos se reprograman en `/matches/{matchId}/reschedule`. Avisa por correo
+        a los acudientes de la categoría y al entrenador (también al anterior, si cambia) con la invitación de calendario
+        actualizada (`SEQUENCE` mayor) y vuelve a programar los recordatorios.
+      parameters:
+        - { name: eventId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RescheduleEventRequest' }
+      responses:
+        '200':
+          description: Evento reprogramado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EventResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
   /events/{eventId}/attendance:
     get:
       tags: [attendance]
@@ -1635,6 +1664,39 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/MatchResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /matches/{matchId}/reschedule:
+    post:
+      tags: [competitions]
+      operationId: rescheduleMatch
+      summary: Reprograma un partido confirmado y avisa del cambio (solo coordinador).
+      description: |
+        Cambia fecha y hora y, si se indican, escenario, entrenador responsable, punto de encuentro e instrucciones (lo no
+        indicado se conserva; la hora de concentración solo existe si se envía de nuevo). Aplica los cruces de agenda sin contar
+        el propio partido y, en un partido de torneo, exige que la nueva fecha caiga dentro del torneo. Un partido ya empezado,
+        realizado o cancelado responde 409.
+
+        La convocatoria se conserva: los jugadores propuestos o no elegibles se evalúan de nuevo con la nueva fecha; los
+        confirmados siguen confirmados, y los que con la nueva fecha ya no cumplen un requisito se devuelven en
+        `confirmedToReview` (con sus causas) para que la coordinación decida. Los acudientes de los confirmados reciben el aviso
+        y la autorización de participación ya dada no se revoca.
+      parameters:
+        - { name: matchId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RescheduleMatchRequest' }
+      responses:
+        '200':
+          description: Partido reprogramado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RescheduleMatchResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -2577,6 +2639,17 @@ components:
       type: object
       properties:
         reason: { type: string, maxLength: 2000 }
+    RescheduleEventRequest:
+      type: object
+      properties:
+        venueId: { type: string, format: uuid }
+        headCoachId: { type: string, format: uuid }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        meetingAt: { type: string, format: date-time }
+        meetingPoint: { type: string, maxLength: 200 }
+        instructions: { type: string }
+        reason: { type: string, maxLength: 2000 }
     EventResponse:
       type: object
       required: [id, eventType, categoryId, venueId, venueName, startAt, endAt, status]
@@ -2948,6 +3021,33 @@ components:
       type: object
       properties:
         reason: { type: string, maxLength: 2000 }
+    RescheduleMatchRequest:
+      type: object
+      properties:
+        venueId: { type: string, format: uuid }
+        headCoachId: { type: string, format: uuid }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        meetingAt: { type: string, format: date-time }
+        meetingPoint: { type: string, maxLength: 200 }
+        instructions: { type: string }
+        reason: { type: string, maxLength: 2000 }
+    CallupReviewResponse:
+      type: object
+      required: [playerId, causes]
+      properties:
+        playerId: { type: string, format: uuid }
+        causes:
+          type: array
+          items: { type: string }
+    RescheduleMatchResponse:
+      type: object
+      required: [match, confirmedToReview]
+      properties:
+        match: { $ref: '#/components/schemas/MatchResponse' }
+        confirmedToReview:
+          type: array
+          items: { $ref: '#/components/schemas/CallupReviewResponse' }
     MatchResponse:
       type: object
       required: [id, eventId, categoryId, venueId, venueName, opponent, startAt, endAt, status]

@@ -29,6 +29,10 @@ final class SchedulingDtos {
     record CancelEventRequest(String reason) {
     }
 
+    record RescheduleEventRequest(UUID venueId, UUID headCoachId, Instant startAt, Instant endAt, Instant meetingAt,
+                                  String meetingPoint, String instructions, String reason) {
+    }
+
     record EventResponse(UUID id, String eventType, UUID categoryId, UUID venueId, String venueName, UUID headCoachId,
                          Instant startAt, Instant endAt, Instant meetingAt, String meetingPoint, String instructions,
                          String status, String cancellationReason) {

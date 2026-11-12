@@ -438,6 +438,76 @@ class CompetitionsIT {
     }
 
     @Test
+    void reschedulingAMatchReevaluatesTheCallupReturnsTheConfirmedWhoNoLongerQualifyAndNotifiesTheirGuardians() throws Exception {
+        Club club = club();
+        Kid expiring = fullKid(club);                      // certificado hasta dentro de 90 días
+        Kid lasting = kid(club, "ACTIVE", false, true, false);
+        addCertificate(lasting.id(), lasting.guardianUserId(), 1, "current_date + 400");
+        Kid proposedExpiring = fullKid(club);
+        Kid proposedLasting = kid(club, "ACTIVE", false, true, false);
+        addCertificate(proposedLasting.id(), proposedLasting.guardianUserId(), 1, "current_date + 400");
+        UUID match = scheduleMatch(club);
+        propose(club, match, expiring, lasting, proposedExpiring, proposedLasting);
+        confirm(club, match, expiring, lasting).andExpect(status().isOk());
+        String eventId = jdbc.queryForObject("SELECT event_id::text FROM matches WHERE id = ?", String.class, match);
+        Instant originalStart = Instant.parse(body(getJson("/matches/" + match, club.coordinator().token()).andExpect(status().isOk()))
+                .get("match").get("startAt").asText());
+
+        // Permisos y datos: solo el coordinador; motivo obligatorio; futuro; sin cambios no hay reprogramación.
+        Map<String, Object> shift = rescheduleRequest(originalStart.plusSeconds(1800), "Cambio de cancha");
+        postJson("/matches/" + match + "/reschedule", shift, club.coach().token()).andExpect(status().isForbidden());
+        postJson("/matches/" + match + "/reschedule", rescheduleRequest(originalStart.plusSeconds(1800), " "),
+                club.coordinator().token()).andExpect(status().isUnprocessableEntity());
+        postJson("/matches/" + match + "/reschedule", rescheduleRequest(Instant.now().minusSeconds(3600), "Ayer"),
+                club.coordinator().token()).andExpect(status().isUnprocessableEntity());
+        postJson("/events/" + eventId + "/reschedule", shift, club.coordinator().token()).andExpect(status().isConflict());
+
+        // Correrlo media hora no choca con el propio partido y no cambia a nadie.
+        JsonNode moved = body(postJson("/matches/" + match + "/reschedule", shift, club.coordinator().token()).andExpect(status().isOk()));
+        assertThat(moved.get("match").get("startAt").asText()).isEqualTo(originalStart.plusSeconds(1800).toString());
+        assertThat(moved.get("confirmedToReview")).isEmpty();
+        assertThat(notifications(match, "MATCH_RESCHEDULED")).as("un aviso por acudiente de confirmado").isEqualTo(2);
+
+        // Pasarlo a dentro de 120 días: el certificado de 90 días no vale ese día.
+        Instant far = startAt(120, 10);
+        JsonNode result = body(postJson("/matches/" + match + "/reschedule", rescheduleRequest(far, "Se aplazó la fecha"),
+                club.coordinator().token()).andExpect(status().isOk()));
+        assertThat(result.get("match").get("startAt").asText()).isEqualTo(far.toString());
+        assertThat(result.get("confirmedToReview")).hasSize(1);
+        assertThat(result.get("confirmedToReview").get(0).get("playerId").asText()).isEqualTo(expiring.id().toString());
+        assertThat(result.get("confirmedToReview").get(0).get("causes").get(0).asText()).isEqualTo("MEDICAL_CERTIFICATE_INVALID");
+        assertThat(notifications(match, "MATCH_RESCHEDULED")).isEqualTo(4);
+        String payload = jdbc.queryForObject("SELECT payload::text FROM notifications WHERE related_entity_id = ? AND notification_type = 'MATCH_RESCHEDULED' ORDER BY created_at DESC LIMIT 1",
+                String.class, match);
+        assertThat(payload).contains("previousStartAt").contains("Se aplazó la fecha");
+        assertThat(payload.toLowerCase()).doesNotContain("medic", "certificate", "eligib");
+
+        JsonNode detail = body(getJson("/matches/" + match, club.coordinator().token()).andExpect(status().isOk()));
+        assertThat(entry(detail.get("callups"), expiring).get("status").asText()).as("el confirmado conserva su lugar").isEqualTo("CONFIRMED");
+        assertThat(entry(detail.get("callups"), lasting).get("status").asText()).isEqualTo("CONFIRMED");
+        assertThat(entry(detail.get("callups"), proposedExpiring).get("status").asText()).isEqualTo("NOT_ELIGIBLE");
+        assertThat(entry(detail.get("callups"), proposedLasting).get("status").asText()).isEqualTo("PROPOSED");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM audit_events WHERE entity_id = ? AND action = 'MATCH_RESCHEDULED'",
+                Long.class, match)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM audit_events WHERE entity_id = ?::uuid AND action = 'EVENT_RESCHEDULED'",
+                Long.class, eventId)).isEqualTo(2);
+
+        // Un partido cancelado o realizado ya no se reprograma.
+        postJson("/matches/" + match + "/cancel", Map.of("reason", "Lluvia"), club.coordinator().token()).andExpect(status().isOk());
+        postJson("/matches/" + match + "/reschedule", rescheduleRequest(startAt(130, 10), "Otra vez"), club.coordinator().token())
+                .andExpect(status().isConflict());
+    }
+
+    private Map<String, Object> rescheduleRequest(Instant start, String reason) {
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("startAt", start.toString());
+        request.put("endAt", start.plusSeconds(5400).toString());
+        request.put("meetingAt", start.minusSeconds(3600).toString());
+        request.put("reason", reason);
+        return request;
+    }
+
+    @Test
     void cancellingAMatchNotifiesConfirmedGuardiansAndBlocksFurtherChanges() throws Exception {
         Club club = club();
         Kid confirmed = fullKid(club);

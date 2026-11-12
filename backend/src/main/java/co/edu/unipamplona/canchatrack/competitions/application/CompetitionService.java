@@ -18,11 +18,14 @@ import co.edu.unipamplona.canchatrack.audit.api.AuditRecord;
 import co.edu.unipamplona.canchatrack.audit.api.AuditWriter;
 import co.edu.unipamplona.canchatrack.competitions.application.CompetitionCommands.CreateTournament;
 import co.edu.unipamplona.canchatrack.competitions.application.CompetitionCommands.RecordResult;
+import co.edu.unipamplona.canchatrack.competitions.application.CompetitionCommands.RescheduleMatch;
 import co.edu.unipamplona.canchatrack.competitions.application.CompetitionCommands.ScheduleMatch;
 import co.edu.unipamplona.canchatrack.competitions.application.Views.AuthorizationResult;
+import co.edu.unipamplona.canchatrack.competitions.application.Views.CallupReview;
 import co.edu.unipamplona.canchatrack.competitions.application.Views.CallupRow;
 import co.edu.unipamplona.canchatrack.competitions.application.Views.CallupView;
 import co.edu.unipamplona.canchatrack.competitions.application.Views.MatchDetail;
+import co.edu.unipamplona.canchatrack.competitions.application.Views.MatchReschedule;
 import co.edu.unipamplona.canchatrack.competitions.application.Views.MatchView;
 import co.edu.unipamplona.canchatrack.competitions.application.Views.PlayerMatchView;
 import co.edu.unipamplona.canchatrack.competitions.application.Views.TournamentView;
@@ -39,6 +42,7 @@ import co.edu.unipamplona.canchatrack.notifications.api.NotificationQueue;
 import co.edu.unipamplona.canchatrack.payments.api.AccountStanding;
 import co.edu.unipamplona.canchatrack.players.api.CategoryRoster;
 import co.edu.unipamplona.canchatrack.players.api.RosterPlayer;
+import co.edu.unipamplona.canchatrack.scheduling.api.MatchEventChange;
 import co.edu.unipamplona.canchatrack.scheduling.api.MatchEventScheduling;
 import co.edu.unipamplona.canchatrack.scheduling.api.MatchEventSlot;
 import co.edu.unipamplona.canchatrack.shared.domain.DomainException;
@@ -62,6 +66,7 @@ public class CompetitionService {
     static final String ACTION_CONFIRMED = "CALLUP_CONFIRMED";
     static final String ACTION_AUTHORIZED = "MATCH_AUTHORIZED";
     static final String ACTION_CANCELLED = "MATCH_CANCELLED";
+    static final String ACTION_RESCHEDULED = "MATCH_RESCHEDULED";
     static final String ACTION_RESULT = "MATCH_RESULT_RECORDED";
     static final String ACTION_RESULT_CORRECTED = "MATCH_RESULT_CORRECTED";
     static final String ENTITY_MATCH = "match";
@@ -178,6 +183,69 @@ public class CompetitionService {
                 .reason(reason.trim())
                 .build());
         return store.findMatch(matchId).orElseThrow();
+    }
+
+    /**
+     * Cambia fecha, lugar o entrenador de un partido confirmado (RF-017, RF-018). La agenda aplica los cruces y la auditoría del
+     * evento. La convocatoria se mantiene: los propuestos y no elegibles se evalúan de nuevo con la nueva fecha (un certificado
+     * puede no valer ese día), los confirmados conservan su lugar pero, si ya no cumplen, se devuelven para que la coordinación
+     * decida, y sus acudientes reciben el aviso del cambio. La autorización de participación dada no se revoca.
+     */
+    @Transactional
+    public MatchReschedule rescheduleMatch(CompetitionsActor actor, UUID matchId, RescheduleMatch command) {
+        if (!actor.isCoordinator()) {
+            throw new DomainException(ErrorCode.AUTH_FORBIDDEN, null);
+        }
+        MatchView before = store.lockMatch(matchId).orElseThrow(CompetitionService::matchNotFound);
+        if (before.tournamentId() != null && command.startAt() != null) {
+            TournamentView tournament = store.findTournament(before.tournamentId()).orElse(null);
+            if (tournament != null) {
+                LocalDate day = command.startAt().atZone(settings.zone()).toLocalDate();
+                ValidationFailure.throwIfAny(CompetitionRules.tournamentFitViolations(before.categoryId(), tournament.categoryId(),
+                        day, tournament.startDate(), tournament.endDate()));
+            }
+        }
+        events.reschedule(before.eventId(), new MatchEventChange(command.venueId(), command.headCoachId(), command.startAt(),
+                command.endAt(), command.meetingAt(), command.meetingPoint(), command.instructions()), command.reason(),
+                actor.id(), actor.ip(), actor.userAgent());
+        MatchView after = store.findMatch(matchId).orElseThrow();
+
+        List<CallupRow> rows = store.callupsOf(matchId);
+        Map<UUID, String> openBefore = new LinkedHashMap<>();
+        for (CallupRow row : rows) {
+            if (PROPOSED.equals(row.status()) || NOT_ELIGIBLE.equals(row.status())) {
+                openBefore.put(row.playerId(), row.status());
+            }
+        }
+        Map<UUID, Eligibility> reevaluated = evaluate(after, openBefore.keySet());
+        int reclassified = 0;
+        for (Map.Entry<UUID, String> entry : openBefore.entrySet()) {
+            Eligibility eligibility = reevaluated.get(entry.getKey());
+            String status = eligibility.eligible() ? PROPOSED : NOT_ELIGIBLE;
+            store.upsertProposal(matchId, entry.getKey(), status, eligibility.checks(), eligibility.primaryCause(), actor.id());
+            if (!status.equals(entry.getValue())) {
+                reclassified++;
+            }
+        }
+        List<UUID> confirmed = rows.stream().filter(r -> CONFIRMED.equals(r.status())).map(CallupRow::playerId).toList();
+        Map<UUID, Eligibility> confirmedNow = evaluate(after, confirmed);
+        List<CallupReview> review = new ArrayList<>();
+        for (UUID playerId : confirmed) {
+            Eligibility eligibility = confirmedNow.get(playerId);
+            if (!eligibility.eligible()) {
+                review.add(new CallupReview(playerId, eligibility.causes()));
+            }
+        }
+        notifyGuardians(confirmed, "MATCH_RESCHEDULED", "Partido reprogramado", after, command.reason().trim(), before.startAt());
+        audit.write(auditOf(ACTION_RESCHEDULED, ENTITY_MATCH, actor, matchId)
+                .before(Json.of("venueId", before.venueId(), "headCoachId", before.headCoachId(), "startAt", before.startAt(),
+                        "endAt", before.endAt()))
+                .after(Json.of("venueId", after.venueId(), "headCoachId", after.headCoachId(), "startAt", after.startAt(),
+                        "endAt", after.endAt(), "notifiedPlayers", confirmed.size(), "reevaluated", openBefore.size(),
+                        "changedStatus", reclassified, "confirmedToReview", review.size()))
+                .reason(command.reason().trim())
+                .build());
+        return new MatchReschedule(after, review);
     }
 
     @Transactional(readOnly = true)
@@ -449,6 +517,11 @@ public class CompetitionService {
 
     /** Avisa a los acudientes de cada jugador. El contenido es solo de plantilla y nunca incluye datos de salud (RN-17). */
     private void notifyGuardians(Collection<UUID> playerIds, String type, String subject, MatchView match, String reason) {
+        notifyGuardians(playerIds, type, subject, match, reason, null);
+    }
+
+    private void notifyGuardians(Collection<UUID> playerIds, String type, String subject, MatchView match, String reason,
+                                 Instant previousStartAt) {
         if (playerIds.isEmpty()) {
             return;
         }
@@ -476,6 +549,9 @@ public class CompetitionService {
             }
             if (reason != null) {
                 payload.put("reason", reason);
+            }
+            if (previousStartAt != null) {
+                payload.put("previousStartAt", previousStartAt.toString());
             }
             notifications.enqueue(type, recipients, subject, payload, ENTITY_MATCH, match.id(), playerId + ":" + stamp);
         }
