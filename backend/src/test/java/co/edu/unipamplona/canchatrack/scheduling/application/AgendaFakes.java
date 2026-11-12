@@ -72,6 +72,8 @@ final class AgendaFakes {
     static final class FakeStore implements SchedulingStore {
         EventContext context = new EventContext("Sub-12", "Calle 5 # 3-20", "Carlos Ruiz");
         List<ReminderCandidate> upcoming = new ArrayList<>();
+        /** Revisión de cada evento (0 si no figura): lo que el almacén real lee de {@code optimistic_version}. */
+        Map<UUID, Integer> revisions = new HashMap<>();
         Instant lastFrom;
         Instant lastTo;
 
@@ -113,7 +115,8 @@ final class AgendaFakes {
         }
 
         @Override
-        public List<ConflictView> findConflicts(UUID venueId, UUID coachId, UUID categoryId, Instant startAt, Instant endAt) {
+        public List<ConflictView> findConflicts(UUID venueId, UUID coachId, UUID categoryId, Instant startAt, Instant endAt,
+                                                UUID excludeEventId) {
             throw new UnsupportedOperationException();
         }
 
@@ -136,6 +139,17 @@ final class AgendaFakes {
         @Override
         public void cancel(UUID eventId, String reason) {
             throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void reschedule(UUID eventId, UUID venueId, UUID headCoachId, Instant startAt, Instant endAt, Instant meetingAt,
+                               String meetingPoint, String instructions) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public int revisionOf(UUID eventId) {
+            return revisions.getOrDefault(eventId, 0);
         }
 
         @Override

@@ -8,6 +8,7 @@ import java.util.UUID;
 
 import co.edu.unipamplona.canchatrack.competitions.application.Views.CallupView;
 import co.edu.unipamplona.canchatrack.competitions.application.Views.MatchDetail;
+import co.edu.unipamplona.canchatrack.competitions.application.Views.MatchReschedule;
 import co.edu.unipamplona.canchatrack.competitions.application.Views.MatchView;
 import co.edu.unipamplona.canchatrack.competitions.application.Views.PlayerMatchView;
 import co.edu.unipamplona.canchatrack.competitions.application.Views.TournamentView;
@@ -36,6 +37,21 @@ final class CompetitionDtos {
     }
 
     record CancelMatchRequest(String reason) {
+    }
+
+    record RescheduleMatchRequest(UUID venueId, UUID headCoachId, Instant startAt, Instant endAt, Instant meetingAt,
+                                  String meetingPoint, String instructions, String reason) {
+    }
+
+    record CallupReviewResponse(UUID playerId, List<String> causes) {
+    }
+
+    record RescheduleMatchResponse(MatchResponse match, List<CallupReviewResponse> confirmedToReview) {
+
+        static RescheduleMatchResponse from(MatchReschedule r) {
+            return new RescheduleMatchResponse(MatchResponse.from(r.match()),
+                    r.confirmedToReview().stream().map(c -> new CallupReviewResponse(c.playerId(), c.causes())).toList());
+        }
     }
 
     record MatchResponse(UUID id, UUID eventId, UUID tournamentId, String tournamentName, UUID categoryId, UUID venueId,

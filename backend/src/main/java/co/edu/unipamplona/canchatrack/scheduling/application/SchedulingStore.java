@@ -24,8 +24,13 @@ public interface SchedulingStore {
      */
     void lockSlots(UUID venueId, UUID coachId, UUID categoryId);
 
-    /** Eventos no cancelados que se cruzan con el intervalo por escenario, entrenador o categoría. */
-    List<ConflictView> findConflicts(UUID venueId, UUID coachId, UUID categoryId, Instant startAt, Instant endAt);
+    /**
+     * Eventos no cancelados que se cruzan con el intervalo por escenario, entrenador o categoría.
+     *
+     * @param excludeEventId evento que no cuenta como cruce (el que se está reprogramando); nulo al programar uno nuevo
+     */
+    List<ConflictView> findConflicts(UUID venueId, UUID coachId, UUID categoryId, Instant startAt, Instant endAt,
+                                     UUID excludeEventId);
 
     /** @throws ReferenceNotFoundException si la categoría o el escenario no existen */
     UUID insertEvent(String eventType, UUID categoryId, UUID venueId, Instant startAt, Instant endAt, Instant meetingAt,
@@ -37,6 +42,19 @@ public interface SchedulingStore {
     Optional<String> lockStatus(UUID eventId);
 
     void cancel(UUID eventId, String reason);
+
+    /**
+     * Cambia fecha, lugar, entrenador responsable y datos de concentración de un evento confirmado y sube su revisión.
+     * Quien llama ya bloqueó el evento y validó los datos.
+     */
+    void reschedule(UUID eventId, UUID venueId, UUID headCoachId, Instant startAt, Instant endAt, Instant meetingAt,
+                    String meetingPoint, String instructions);
+
+    /**
+     * Número de veces que cambió el evento (reprogramaciones y cancelación). Es el {@code SEQUENCE} de su invitación de
+     * calendario: la programación inicial es 0 y cada cambio la sube.
+     */
+    int revisionOf(UUID eventId);
 
     /** CONFIRMED → COMPLETED; no toca eventos en otro estado. */
     void complete(UUID eventId);

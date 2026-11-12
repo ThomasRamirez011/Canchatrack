@@ -29,6 +29,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -61,6 +63,8 @@ class AgendaNotificationsIT {
     private JdbcTemplate jdbc;
     @Autowired
     private PasswordEncoder encoder;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
     @Autowired
     private ObjectMapper json;
     @Autowired
@@ -100,7 +104,7 @@ class AgendaNotificationsIT {
     }
 
     /** Categoría con entrenador, escenario y dos jugadores: uno con su acudiente y otro con el mismo acudiente más otro. */
-    private record Club(String coordinatorToken, UUID category, UUID venue, UUID coach, String coachEmail,
+    private record Club(String coordinatorToken, String coachToken, UUID category, UUID venue, UUID coach, String coachEmail,
                         String guardianEmail, String secondGuardianEmail) {
     }
 
@@ -123,7 +127,7 @@ class AgendaNotificationsIT {
         link(p1, guardianUser, true);
         link(p2, guardianUser, true); // la misma acudiente de dos hijos: recibe un solo correo
         link(p2, secondGuardianUser, false);
-        return new Club(login(coordinatorEmail), category, venue, coach, coachEmail, guardianEmail, secondGuardianEmail);
+        return new Club(login(coordinatorEmail), login(coachEmail), category, venue, coach, coachEmail, guardianEmail, secondGuardianEmail);
     }
 
     private UUID rosterPlayer(UUID category, UUID coach, String firstName) {
@@ -167,11 +171,24 @@ class AgendaNotificationsIT {
     /** Evento insertado como si se hubiera programado hace una semana: la API siempre lo crea "ahora". */
     private UUID scheduledLongAgo(Club club, Instant start) {
         UUID event = jdbc.queryForObject("""
-                INSERT INTO sports_events (event_type, category_id, venue_id, start_at, end_at, created_at)
-                VALUES ('TRAINING', ?, ?, ?, ?, now() - interval '7 days') RETURNING id
+                INSERT INTO sports_events (event_type, category_id, venue_id, start_at, end_at, created_at, updated_at)
+                VALUES ('TRAINING', ?, ?, ?, ?, now() - interval '7 days', now() - interval '7 days') RETURNING id
                 """, UUID.class, club.category(), club.venue(), Timestamp.from(start), Timestamp.from(start.plus(90, ChronoUnit.MINUTES)));
         jdbc.update("INSERT INTO event_participants (event_id, user_id, role) VALUES (?, ?, 'HEAD_COACH')", event, club.coach());
         return event;
+    }
+
+    /**
+     * Mueve el evento sin que el trigger {@code set_updated_at} lo marque como modificado ahora: simula que el cambio de fecha
+     * ya ocurrió hace una semana, o que el reloj avanzó hasta el tramo siguiente del recordatorio. Un UPDATE normal dejaría
+     * {@code updated_at = now()}, que es justo lo que los recordatorios toman como "programado ahora".
+     */
+    private void moveAsIfItHadBeenLongAgo(UUID event, Instant start, int minutes) {
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            jdbc.execute("SET LOCAL session_replication_role = replica");
+            jdbc.update("UPDATE sports_events SET start_at = ?, end_at = ?, updated_at = now() - interval '7 days' WHERE id = ?",
+                    Timestamp.from(start), Timestamp.from(start.plus(minutes, ChronoUnit.MINUTES)), event);
+        });
     }
 
     private List<Map<String, Object>> notices(UUID event, String type) {
@@ -238,9 +255,7 @@ class AgendaNotificationsIT {
         assertThat(notices(farAway, "EVENT_REMINDER")).isEmpty();
 
         // Al entrar en el tramo de 2 horas el evento de 20 horas recibe el segundo recordatorio, no uno repetido.
-        jdbc.update("UPDATE sports_events SET start_at = ?, end_at = ? WHERE id = ?",
-                Timestamp.from(Instant.now().plus(100, ChronoUnit.MINUTES)),
-                Timestamp.from(Instant.now().plus(190, ChronoUnit.MINUTES)), within24);
+        moveAsIfItHadBeenLongAgo(within24, Instant.now().plus(100, ChronoUnit.MINUTES), 90);
         reminders.sendDue();
         reminders.sendDue();
         assertThat(notices(within24, "EVENT_REMINDER")).hasSize(6);
@@ -292,6 +307,140 @@ class AgendaNotificationsIT {
                 Integer.class, scheduled, reminded)).isEqualTo(6);
     }
 
+    // ---------- reprogramación (RF-017, RF-018) ----------
+
+    private Map<String, Object> rescheduleBody(Instant start, int minutes, String reason) {
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("startAt", start.toString());
+        request.put("endAt", start.plus(minutes, ChronoUnit.MINUTES).toString());
+        request.put("reason", reason);
+        return request;
+    }
+
+    private ResultActions reschedule(Club club, UUID event, Map<String, Object> request) throws Exception {
+        return postJson("/events/" + event + "/reschedule", request, club.coordinatorToken());
+    }
+
+    @Test
+    void reschedulingMovesTheEventIgnoresItselfAsAConflictAndRejectsInvalidChanges() throws Exception {
+        Club club = club();
+        Instant start = Instant.now().plus(60, ChronoUnit.DAYS).truncatedTo(ChronoUnit.HOURS);
+        UUID event = schedule(club, start);
+        UUID other = schedule(club, start.plus(3, ChronoUnit.HOURS));
+
+        // Solo el coordinador, con motivo y con algo que cambie.
+        postJson("/events/" + event + "/reschedule", rescheduleBody(start.plus(30, ChronoUnit.MINUTES), 90, "Lluvia"), club.coachToken())
+                .andExpect(status().isForbidden());
+        reschedule(club, event, rescheduleBody(start.plus(30, ChronoUnit.MINUTES), 90, " ")).andExpect(status().isUnprocessableEntity());
+        reschedule(club, event, rescheduleBody(start, 90, "Sin cambios")).andExpect(status().isUnprocessableEntity());
+        reschedule(club, event, rescheduleBody(Instant.now().minus(1, ChronoUnit.DAYS), 90, "Ayer")).andExpect(status().isUnprocessableEntity());
+
+        // Correrlo media hora se cruza con su propio horario anterior, pero eso no es un conflicto.
+        JsonNode moved = body(reschedule(club, event, rescheduleBody(start.plus(30, ChronoUnit.MINUTES), 90, "Lluvia"))
+                .andExpect(status().isOk()));
+        assertThat(moved.get("startAt").asText()).isEqualTo(start.plus(30, ChronoUnit.MINUTES).toString());
+        assertThat(moved.get("status").asText()).isEqualTo("CONFIRMED");
+        assertThat(moved.get("instructions").asText()).as("lo no indicado se conserva").isEqualTo("Traer uniforme");
+
+        // Contra otro evento sí hay conflicto y se informa cuál.
+        JsonNode clash = body(reschedule(club, event, rescheduleBody(start.plus(3, ChronoUnit.HOURS), 60, "Cambio de turno"))
+                .andExpect(status().isConflict()));
+        assertThat(clash.get("conflicts").get(0).get("eventId").asText()).isEqualTo(other.toString());
+
+        // Un entrenador sin rol COACH no sirve; un partido no se reprograma por aquí.
+        UUID guardianAccount = jdbc.queryForObject("SELECT id FROM users WHERE email = ?", UUID.class, club.guardianEmail());
+        Map<String, Object> badCoach = rescheduleBody(start.plus(40, ChronoUnit.MINUTES), 90, "Cambio de entrenador");
+        badCoach.put("headCoachId", guardianAccount);
+        reschedule(club, event, badCoach).andExpect(status().isUnprocessableEntity());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM audit_events WHERE entity_id = ? AND action = 'EVENT_RESCHEDULED'",
+                Long.class, event)).isEqualTo(1);
+
+        // Ya cancelado o ya empezado no se reprograma.
+        postJson("/events/" + other + "/cancel", Map.of("reason", "Lluvia"), club.coordinatorToken()).andExpect(status().isOk());
+        reschedule(club, other, rescheduleBody(start.plus(5, ChronoUnit.HOURS), 60, "Tarde")).andExpect(status().isConflict());
+        UUID started = jdbc.queryForObject("""
+                INSERT INTO sports_events (event_type, category_id, venue_id, start_at, end_at)
+                VALUES ('TRAINING', ?, ?, now() - interval '1 hour', now() + interval '30 minutes') RETURNING id
+                """, UUID.class, club.category(), club.venue());
+        jdbc.update("INSERT INTO event_participants (event_id, user_id, role) VALUES (?, ?, 'HEAD_COACH')", started, club.coach());
+        reschedule(club, started, rescheduleBody(start.plus(7, ChronoUnit.HOURS), 60, "Tarde")).andExpect(status().isConflict());
+    }
+
+    @Test
+    void reschedulingNotifiesFamiliesAndBothCoachesAndTheInviteCarriesAGrowingSequence() throws Exception {
+        Club club = club();
+        Instant start = Instant.now().plus(61, ChronoUnit.DAYS).truncatedTo(ChronoUnit.HOURS);
+        UUID event = schedule(club, start);
+        String newCoachEmail = "coach2-" + UUID.randomUUID() + "@club.test";
+        UUID newCoach = user(newCoachEmail, "Marta Díaz", "COACH");
+
+        Map<String, Object> first = rescheduleBody(start.plus(1, ChronoUnit.DAYS), 90, "Cancha en mantenimiento");
+        first.put("headCoachId", newCoach);
+        reschedule(club, event, first).andExpect(status().isOk());
+        reschedule(club, event, rescheduleBody(start.plus(2, ChronoUnit.DAYS), 90, "Nuevo cambio")).andExpect(status().isOk());
+
+        // Familias, entrenador nuevo y entrenador anterior reciben el primer aviso; la revisión queda en la clave.
+        List<Map<String, Object>> notices = notices(event, "EVENT_RESCHEDULED");
+        assertThat(notices).hasSize(4 + 3);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notifications WHERE related_entity_id = ? AND notification_type = 'EVENT_RESCHEDULED' AND recipient_email = ?",
+                Integer.class, event, club.coachEmail())).as("el anterior entrenador solo recibe el primero").isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notifications WHERE related_entity_id = ? AND notification_type = 'EVENT_RESCHEDULED' AND recipient_email = ?",
+                Integer.class, event, newCoachEmail)).isEqualTo(2);
+        String firstPayload = jdbc.queryForObject("SELECT payload::text FROM notifications WHERE related_entity_id = ? AND notification_type = 'EVENT_RESCHEDULED' AND recipient_email = ?",
+                String.class, event, club.coachEmail());
+        JsonNode payload = json.readTree(firstPayload);
+        assertThat(payload.get("reason").asText()).isEqualTo("Cancha en mantenimiento");
+        assertThat(payload.get("previousStartAt").asText()).isEqualTo(start.toString());
+        assertThat(payload.get("sequence").asText()).isEqualTo("1");
+        assertThat(firstPayload.contains("Jugadorcito")).isFalse();
+
+        // Cancelar después sube de nuevo la secuencia, así el calendario acepta la cancelación.
+        postJson("/events/" + event + "/cancel", Map.of("reason", "Suspendido"), club.coordinatorToken()).andExpect(status().isOk());
+        for (int i = 0; i < 20 && processor.processDue() > 0; i++) {
+            // vaciar la cola
+        }
+        // La madre tiene dos hijos en la categoría y aun así recibe una sola invitación por cada cambio.
+        List<OutboundEmail> invites = sender.allTo(club.guardianEmail(), event).stream()
+                .sorted(java.util.Comparator.comparingInt(e -> sequenceOf(e.calendar().content()))).toList();
+        assertThat(invites).hasSize(4);
+        assertThat(invites.stream().map(e -> e.calendar().method()).toList()).containsExactly("REQUEST", "REQUEST", "REQUEST", "CANCEL");
+        assertThat(invites.stream().map(e -> sequenceOf(e.calendar().content())).toList()).containsExactly(0, 1, 2, 3);
+        OutboundEmail firstChange = invites.get(1);
+        assertThat(firstChange.calendar().content()).contains("UID:" + event).contains("DTSTART:");
+        assertThat(firstChange.subject()).startsWith("Reprogramado: entrenamiento");
+        assertThat(firstChange.body()).contains("REPROGRAMACIÓN").contains("Cancha en mantenimiento");
+    }
+
+    private static int sequenceOf(String ics) {
+        for (String line : ics.split("\r\n")) {
+            if (line.startsWith("SEQUENCE:")) {
+                return Integer.parseInt(line.substring("SEQUENCE:".length()));
+            }
+        }
+        throw new AssertionError("la invitación no tiene SEQUENCE");
+    }
+
+    @Test
+    void afterReschedulingTheRemindersComeBackForTheNewDate() throws Exception {
+        Club club = club();
+        UUID event = scheduledLongAgo(club, Instant.now().plus(20, ChronoUnit.HOURS));
+        reminders.sendDue();
+        assertThat(notices(event, "EVENT_REMINDER")).hasSize(3);
+
+        // Se mueve a dentro de 40 días: el recordatorio anterior no vuelve a salir ni se envía uno prematuro.
+        reschedule(club, event, rescheduleBody(Instant.now().plus(40, ChronoUnit.DAYS), 90, "Aplazado")).andExpect(status().isOk());
+        reminders.sendDue();
+        assertThat(notices(event, "EVENT_REMINDER")).hasSize(3);
+
+        // Como si esa reprogramación se hubiera hecho hace una semana y ya faltaran 20 horas: sale el recordatorio de la nueva fecha.
+        moveAsIfItHadBeenLongAgo(event, Instant.now().plus(20, ChronoUnit.HOURS), 60);
+        reminders.sendDue();
+        reminders.sendDue();
+        assertThat(notices(event, "EVENT_REMINDER")).hasSize(6);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notifications WHERE related_entity_id = ? AND notification_type = 'EVENT_REMINDER' AND payload->>'hoursBefore' = '24'",
+                Integer.class, event)).isEqualTo(6);
+    }
+
     // ---------- proveedor de correo de captura ----------
 
     @TestConfiguration(proxyBeanMethods = false)
@@ -312,6 +461,12 @@ class AgendaNotificationsIT {
         public String send(OutboundEmail email) throws EmailDeliveryException {
             delivered.add(email);
             return "capture-" + UUID.randomUUID();
+        }
+
+        /** Correos entregados a la dirección sobre el evento (su invitación lo nombra en el UID), en orden de entrega. */
+        List<OutboundEmail> allTo(String address, UUID event) {
+            return delivered.stream().filter(e -> e.to().equals(address) && e.calendar() != null
+                    && e.calendar().content().contains("UID:" + event)).toList();
         }
 
         OutboundEmail firstTo(String address, String subjectStart) {

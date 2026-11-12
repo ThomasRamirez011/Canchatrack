@@ -21,6 +21,14 @@ public final class CompetitionCommands {
                                 Instant startAt, Instant endAt, Instant meetingAt, String meetingPoint, String instructions) {
     }
 
+    /**
+     * Nueva programación de un partido. {@code venueId}, {@code headCoachId}, {@code meetingPoint} e {@code instructions}
+     * nulos conservan los actuales; la hora de concentración solo existe si se indica de nuevo.
+     */
+    public record RescheduleMatch(UUID venueId, UUID headCoachId, Instant startAt, Instant endAt, Instant meetingAt,
+                                  String meetingPoint, String instructions, String reason) {
+    }
+
     public record RecordResult(Integer scoreFor, Integer scoreAgainst, String resultNotes, String reason,
                                List<PlayerResultLine> players) {
     }

@@ -19,12 +19,14 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import co.edu.unipamplona.canchatrack.scheduling.application.CreateVenueCommand;
+import co.edu.unipamplona.canchatrack.scheduling.application.RescheduleEventCommand;
 import co.edu.unipamplona.canchatrack.scheduling.application.ScheduleEventCommand;
 import co.edu.unipamplona.canchatrack.scheduling.application.SchedulingActor;
 import co.edu.unipamplona.canchatrack.scheduling.application.SchedulingService;
 import co.edu.unipamplona.canchatrack.scheduling.infrastructure.SchedulingDtos.CancelEventRequest;
 import co.edu.unipamplona.canchatrack.scheduling.infrastructure.SchedulingDtos.CreateVenueRequest;
 import co.edu.unipamplona.canchatrack.scheduling.infrastructure.SchedulingDtos.EventResponse;
+import co.edu.unipamplona.canchatrack.scheduling.infrastructure.SchedulingDtos.RescheduleEventRequest;
 import co.edu.unipamplona.canchatrack.scheduling.infrastructure.SchedulingDtos.ScheduleEventRequest;
 import co.edu.unipamplona.canchatrack.scheduling.infrastructure.SchedulingDtos.VenueResponse;
 import co.edu.unipamplona.canchatrack.shared.security.AuthenticatedUser;
@@ -88,6 +90,15 @@ public class SchedulingController {
     @PreAuthorize("hasRole('COORDINATOR')")
     public EventResponse cancel(@PathVariable UUID eventId, @RequestBody CancelEventRequest request, HttpServletRequest http) {
         return EventResponse.from(scheduling.cancel(actor(http), eventId, request.reason()));
+    }
+
+    /** Cambia fecha, lugar o entrenador de un entrenamiento o evaluación confirmado y avisa a las familias y al entrenador. */
+    @PostMapping("/events/{eventId}/reschedule")
+    @PreAuthorize("hasRole('COORDINATOR')")
+    public EventResponse reschedule(@PathVariable UUID eventId, @RequestBody RescheduleEventRequest request, HttpServletRequest http) {
+        return EventResponse.from(scheduling.reschedule(actor(http), eventId, new RescheduleEventCommand(request.venueId(),
+                request.headCoachId(), request.startAt(), request.endAt(), request.meetingAt(), request.meetingPoint(),
+                request.instructions(), request.reason())));
     }
 
     private static SchedulingActor actor(HttpServletRequest request) {

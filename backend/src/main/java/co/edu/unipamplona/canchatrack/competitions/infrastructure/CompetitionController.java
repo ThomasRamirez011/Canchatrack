@@ -24,6 +24,7 @@ import jakarta.servlet.http.HttpServletRequest;
 
 import co.edu.unipamplona.canchatrack.competitions.application.CompetitionCommands.CreateTournament;
 import co.edu.unipamplona.canchatrack.competitions.application.CompetitionCommands.RecordResult;
+import co.edu.unipamplona.canchatrack.competitions.application.CompetitionCommands.RescheduleMatch;
 import co.edu.unipamplona.canchatrack.competitions.application.CompetitionCommands.ScheduleMatch;
 import co.edu.unipamplona.canchatrack.competitions.application.CompetitionService;
 import co.edu.unipamplona.canchatrack.competitions.application.CompetitionsActor;
@@ -37,6 +38,8 @@ import co.edu.unipamplona.canchatrack.competitions.infrastructure.CompetitionDto
 import co.edu.unipamplona.canchatrack.competitions.infrastructure.CompetitionDtos.MatchResponse;
 import co.edu.unipamplona.canchatrack.competitions.infrastructure.CompetitionDtos.MatchResultRequest;
 import co.edu.unipamplona.canchatrack.competitions.infrastructure.CompetitionDtos.PlayerMatchResponse;
+import co.edu.unipamplona.canchatrack.competitions.infrastructure.CompetitionDtos.RescheduleMatchRequest;
+import co.edu.unipamplona.canchatrack.competitions.infrastructure.CompetitionDtos.RescheduleMatchResponse;
 import co.edu.unipamplona.canchatrack.competitions.infrastructure.CompetitionDtos.ScheduleMatchRequest;
 import co.edu.unipamplona.canchatrack.competitions.infrastructure.CompetitionDtos.TournamentResponse;
 import co.edu.unipamplona.canchatrack.shared.security.AuthenticatedUser;
@@ -103,6 +106,15 @@ public class CompetitionController {
     @PreAuthorize("hasRole('COORDINATOR')")
     public MatchResponse cancel(@PathVariable UUID matchId, @RequestBody CancelMatchRequest request, HttpServletRequest http) {
         return MatchResponse.from(competitions.cancelMatch(actor(http), matchId, request.reason()));
+    }
+
+    /** Cambia fecha, lugar o entrenador de un partido confirmado y avisa a los acudientes de los convocados confirmados. */
+    @PostMapping("/matches/{matchId}/reschedule")
+    @PreAuthorize("hasRole('COORDINATOR')")
+    public RescheduleMatchResponse reschedule(@PathVariable UUID matchId, @RequestBody RescheduleMatchRequest request, HttpServletRequest http) {
+        return RescheduleMatchResponse.from(competitions.rescheduleMatch(actor(http), matchId, new RescheduleMatch(request.venueId(),
+                request.headCoachId(), request.startAt(), request.endAt(), request.meetingAt(), request.meetingPoint(),
+                request.instructions(), request.reason())));
     }
 
     // ---------- convocatoria ----------

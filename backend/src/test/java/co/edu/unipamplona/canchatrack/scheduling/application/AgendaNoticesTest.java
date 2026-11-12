@@ -100,6 +100,68 @@ class AgendaNoticesTest {
     }
 
     @Test
+    void cancellingCarriesTheEventRevisionAsTheCalendarSequence() {
+        EventView cancelled = new EventView(event().id(), "TRAINING", category, UUID.randomUUID(), "Cancha Municipal", coach,
+                Instant.parse("2026-12-01T22:00:00Z"), Instant.parse("2026-12-01T23:30:00Z"), null, null, null, "CANCELLED", "Lluvia");
+        store.revisions.put(cancelled.id(), 3);
+
+        notices("").cancelled(cancelled);
+
+        assertThat(queue.sent.get(0).payload().get("sequence")).isEqualTo("3");
+    }
+
+    @Test
+    void reschedulingAlsoNotifiesThePreviousCoachAndKeepsTheOldScheduleInThePayload() {
+        UUID previousCoach = UUID.randomUUID();
+        UUID newCoach = UUID.randomUUID();
+        Instant oldStart = Instant.parse("2026-12-01T22:00:00Z");
+        EventView before = new EventView(UUID.randomUUID(), "TRAINING", category, UUID.randomUUID(), "Cancha Municipal", previousCoach,
+                oldStart, oldStart.plusSeconds(5400), null, null, "Traer uniforme", "CONFIRMED", null);
+        Instant newStart = Instant.parse("2026-12-03T22:00:00Z");
+        EventView after = new EventView(before.id(), "TRAINING", category, before.venueId(), "Cancha Municipal", newCoach,
+                newStart, newStart.plusSeconds(5400), null, null, "Traer uniforme", "CONFIRMED", null);
+        store.revisions.put(before.id(), 1);
+
+        notices("https://app.club.example").rescheduled(before, after, "Cancha en mantenimiento");
+
+        assertThat(queue.sent).hasSize(1);
+        Enqueued notice = queue.sent.get(0);
+        assertThat(notice.type()).isEqualTo("EVENT_RESCHEDULED");
+        assertThat(notice.recipients()).containsExactly(guardianOfBoth, guardianOfOne, newCoach, previousCoach);
+        assertThat(notice.dedupScope()).isEqualTo("rescheduled:1");
+        assertThat(notice.subject()).isEqualTo("Reprogramado: entrenamiento · Sub-12");
+        assertThat(notice.payload().get("startAt")).isEqualTo(newStart.toString());
+        assertThat(notice.payload().get("previousStartAt")).isEqualTo(oldStart.toString());
+        assertThat(notice.payload().get("previousEndAt")).isEqualTo(oldStart.plusSeconds(5400).toString());
+        assertThat(notice.payload().get("reason")).isEqualTo("Cancha en mantenimiento");
+        assertThat(notice.payload().get("sequence")).isEqualTo("1");
+    }
+
+    @Test
+    void eachRescheduleHasItsOwnDedupScopeAndTheSameCoachIsNotNotifiedTwice() {
+        EventView event = event();
+        store.revisions.put(event.id(), 1);
+        notices("").rescheduled(event, event, "Primero");
+        store.revisions.put(event.id(), 2);
+        notices("").rescheduled(event, event, "Segundo");
+
+        assertThat(queue.sent.get(0).dedupScope()).isEqualTo("rescheduled:1");
+        assertThat(queue.sent.get(1).dedupScope()).isEqualTo("rescheduled:2");
+        assertThat(queue.sent.get(1).recipients()).containsExactly(guardianOfBoth, guardianOfOne, coach);
+    }
+
+    @Test
+    void afterARescheduleTheReminderGetsANewScopeSoItGoesOutAgain() {
+        EventView event = event();
+        notices("").reminder(event, 24);
+        store.revisions.put(event.id(), 2);
+        notices("").reminder(event, 24);
+
+        assertThat(queue.sent.get(0).dedupScope()).isEqualTo("reminder:24");
+        assertThat(queue.sent.get(1).dedupScope()).isEqualTo("reminder:24:r2");
+    }
+
+    @Test
     void theReminderRecordsItsStageInTheDedupScopeAndPayload() {
         notices("").reminder(event(), 24);
         notices("").reminder(event(), 2);

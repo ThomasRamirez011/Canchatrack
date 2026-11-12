@@ -22,6 +22,8 @@ public final class EmailTemplates {
     public static final String EVENT_SCHEDULED = "EVENT_SCHEDULED";
     public static final String EVENT_CANCELLED = "EVENT_CANCELLED";
     public static final String EVENT_REMINDER = "EVENT_REMINDER";
+    public static final String EVENT_RESCHEDULED = "EVENT_RESCHEDULED";
+    public static final String MATCH_RESCHEDULED = "MATCH_RESCHEDULED";
 
     private static final DateTimeFormatter WHEN = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd/MM/yyyy");
@@ -109,7 +111,47 @@ public final class EmailTemplates {
                 }
                 sb.append("\n\n").append(link(data));
                 body = sb.toString().stripTrailing();
-                calendar = invite(IcsCalendar.CANCEL, 1, data, "CANCELADO: " + capitalize(label) + " · " + category);
+                calendar = invite(IcsCalendar.CANCEL, sequenceOf(data, 1), data, "CANCELADO: " + capitalize(label) + " · " + category);
+            }
+            case EVENT_RESCHEDULED -> {
+                String label = eventLabel(data.get("eventType"));
+                String category = valueOr(data.get("categoryName"), "su categoría");
+                defaultSubject = "REPROGRAMADO: " + label + " · " + category;
+                StringBuilder sb = new StringBuilder("Hola,\n\nREPROGRAMACIÓN: el ").append(label).append(" de la categoría ")
+                        .append(category);
+                if (data.get("previousStartAt") != null) {
+                    sb.append(" que estaba para el ").append(when(data.get("previousStartAt"), zone));
+                }
+                sb.append(" cambió de horario o lugar.");
+                if (data.get("reason") != null) {
+                    sb.append("\nMotivo: ").append(singleLine(data.get("reason")));
+                }
+                sb.append("\n\nNueva programación:\n").append(eventDetails(data, zone));
+                body = sb.toString();
+                calendar = invite(IcsCalendar.REQUEST, Math.max(1, sequenceOf(data, 1)), data,
+                        capitalize(label) + " · " + category);
+            }
+            case MATCH_RESCHEDULED -> {
+                defaultSubject = "Partido reprogramado";
+                StringBuilder sb = new StringBuilder("Hola,\n\nEl partido de ").append(player).append(" contra ").append(opponent);
+                if (data.get("previousStartAt") != null) {
+                    sb.append(" que estaba para el ").append(when(data.get("previousStartAt"), zone));
+                }
+                sb.append(" se reprogramó para el ").append(start).append('.');
+                if (data.get("meetingAt") != null) {
+                    sb.append("\nPunto de encuentro: ").append(when(data.get("meetingAt"), zone));
+                    if (data.get("meetingPoint") != null) {
+                        sb.append(" en ").append(singleLine(data.get("meetingPoint")));
+                    }
+                    sb.append('.');
+                } else if (data.get("meetingPoint") != null) {
+                    sb.append("\nPunto de encuentro: ").append(singleLine(data.get("meetingPoint"))).append('.');
+                }
+                if (data.get("reason") != null) {
+                    sb.append("\nMotivo: ").append(singleLine(data.get("reason")));
+                }
+                sb.append("\n\nSi la nueva fecha no le sirve, comuníquese con el club.");
+                body = sb.toString();
             }
             case EVENT_REMINDER -> {
                 String label = eventLabel(data.get("eventType"));
@@ -133,6 +175,12 @@ public final class EmailTemplates {
     }
 
     // ---------- eventos de la agenda (RF-016, RF-018, RF-019, RF-020) ----------
+
+    /** SEQUENCE del .ics: lo fija quien avisa (revisión del evento); un valor ausente o inválido usa el predeterminado. */
+    private static int sequenceOf(Map<String, String> data, int fallback) {
+        String raw = data.get("sequence");
+        return raw != null && raw.trim().matches("\\d{1,4}") ? Integer.parseInt(raw.trim()) : fallback;
+    }
 
     private static String eventLabel(String eventType) {
         if (eventType == null) {

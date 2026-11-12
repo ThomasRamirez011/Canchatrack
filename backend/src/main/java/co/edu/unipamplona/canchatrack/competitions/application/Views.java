@@ -46,6 +46,14 @@ public final class Views {
                                   Integer scoreFor, Integer scoreAgainst) {
     }
 
+    /** Jugador confirmado que, con la nueva fecha del partido, ya no cumple algún requisito (causas de elegibilidad). */
+    public record CallupReview(UUID playerId, List<String> causes) {
+    }
+
+    /** El partido reprogramado y los confirmados que la coordinación debe revisar. */
+    public record MatchReschedule(MatchView match, List<CallupReview> confirmedToReview) {
+    }
+
     public record AuthorizationResult(UUID matchId, UUID playerId, boolean recordedNow) {
     }
 }
