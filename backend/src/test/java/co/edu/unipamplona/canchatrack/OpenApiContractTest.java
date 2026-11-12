@@ -114,6 +114,41 @@ class OpenApiContractTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void committeeEndpointsAreDocumentedAndTheirResponsesMatchTheDtos() throws Exception {
+        Map<String, Object> spec = load();
+        Map<String, Object> paths = (Map<String, Object>) spec.get("paths");
+        Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) spec.get("components")).get("schemas");
+
+        assertThat(paths.keySet()).contains("/players/{playerId}/assignments", "/players/{playerId}/rejections",
+                "/players/{playerId}/assignment");
+        assertThat(((Map<String, Object>) paths.get("/players/{playerId}/assignments")).keySet()).contains("post");
+        assertThat(((Map<String, Object>) paths.get("/players/{playerId}/rejections")).keySet()).contains("post");
+        assertThat(((Map<String, Object>) paths.get("/players/{playerId}/assignment")).keySet()).contains("get");
+
+        // Las respuestas documentadas deben coincidir campo a campo con los DTO reales.
+        for (Class<?> dto : List.of(
+                co.edu.unipamplona.canchatrack.players.infrastructure.PlayersDtos.AssignmentResponse.class,
+                co.edu.unipamplona.canchatrack.players.infrastructure.PlayersDtos.DecisionResponse.class)) {
+            Map<String, Object> documented = (Map<String, Object>) schemas.get(dto.getSimpleName());
+            List<String> actual = Arrays.stream(dto.getRecordComponents()).map(java.lang.reflect.RecordComponent::getName).toList();
+            assertThat(((Map<String, Object>) documented.get("properties")).keySet()).containsExactlyInAnyOrderElementsOf(actual);
+        }
+        // Las solicitudes se componen del acta (MinuteFields) más los campos propios de cada decisión.
+        for (String request : List.of("AssignCategoryRequest", "RejectEnrollmentRequest")) {
+            assertThat(((Map<String, Object>) schemas.get(request)).get("allOf") != null).isTrue();
+        }
+        List<String> assignFields = Arrays.stream(
+                co.edu.unipamplona.canchatrack.players.infrastructure.PlayersDtos.AssignCategoryRequest.class.getRecordComponents())
+                .map(java.lang.reflect.RecordComponent::getName).toList();
+        Map<String, Object> minute = (Map<String, Object>) schemas.get("MinuteFields");
+        Map<String, Object> own = (Map<String, Object>) ((List<Map<String, Object>>) ((Map<String, Object>) schemas.get("AssignCategoryRequest")).get("allOf")).get(1);
+        java.util.Set<String> documentedFields = new java.util.HashSet<>(((Map<String, Object>) minute.get("properties")).keySet());
+        documentedFields.addAll(((Map<String, Object>) own.get("properties")).keySet());
+        assertThat(documentedFields).containsExactlyInAnyOrderElementsOf(assignFields);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void playerStatusEnumMatchesTheDomain() throws Exception {
         Map<String, Object> components = (Map<String, Object>) load().get("components");
         Map<String, Object> schemas = (Map<String, Object>) components.get("schemas");

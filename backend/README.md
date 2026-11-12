@@ -50,6 +50,8 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
   publica y cancela convocatorias y concede habilitaciones excepcionales con motivo (CU-01, RF-043, RF-044).
 - `players` (categorías, ver «Categorías» abajo): el coordinador define categorías con rango de año de nacimiento y cupo
   (sin valores quemados: DP-01 sigue pendiente) y el sistema sugiere la categoría de un jugador (RF-046).
+- `players` (comité, ver «Decisión del comité» abajo): el Comité Técnico asigna categoría, entrenador titular y panel de tres
+  evaluadores (T-01) o rechaza con motivo (T-02), respaldado por un acta; cupo bajo concurrencia y auditoría (UC-02, RN-03, RF-045).
 - `audit`: puerto `AuditWriter` (`write` en la transacción de negocio; `writeIndependent` para intentos rechazados,
   p. ej. PA-01) y adaptador JDBC.
 
@@ -63,8 +65,9 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 | YAML (perfiles, compose), `pom.xml`, OpenAPI 3.1 | parseo / `openapi-spec-validator` | Ejecutado: OK |
 | Autenticación (V13, `identity`, JWT, `SecurityConfig`, `AuthIT`) | Migración e invariantes SQL en PostgreSQL 16 real (con mutaciones); dominio y casos de uso compilados y ejecutados con dobles en memoria | **Verificado:** `mvn test` (66 pruebas) y `mvn verify` (`AuthIT` incluida, con Testcontainers) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0 |
 | Inscripción (`players`, registro de acudientes, consentimientos, `EnrollmentIT`) | Todas las sentencias SQL de los adaptadores ejecutadas contra PostgreSQL 16 real; dominio y casos de uso compilados con `-Xlint:all` y ejecutados con dobles en memoria (58 comprobaciones); YAML OpenAPI validado | **Verificado:** `mvn test` y `mvn verify` (`EnrollmentIT` incluida, con Testcontainers) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0 |
-| Convocatorias y temporadas (`players`, `CallsAdminIT`) | Las sentencias SQL nuevas ejecutadas contra PostgreSQL 16 real con las migraciones V1..V13; servicios y reglas compilados y ejecutados con dobles en memoria (33 comprobaciones); YAML OpenAPI validado y referencias resueltas | **Pendiente de `mvn test` y `mvn verify` locales** (el código Spring, los controladores y `CallsAdminIT` no se pueden compilar en el entorno de desarrollo sin Maven Central) |
-| Categorías (V14, `players`, `CategoriesIT`) | Migración V14 y sus invariantes en PostgreSQL 16 real (`scripts/check-schema.sh`); todas las sentencias SQL nuevas ejecutadas contra esa base; servicios y reglas compilados y ejecutados con dobles en memoria (24 comprobaciones); OpenAPI validado con `openapi-spec-validator` | **Pendiente de `mvn test` y `mvn verify` locales** (el código Spring, los controladores y `CategoriesIT` no se pueden compilar en el entorno de desarrollo sin Maven Central) |
+| Convocatorias y temporadas (`players`, `CallsAdminIT`) | Las sentencias SQL nuevas ejecutadas contra PostgreSQL 16 real con las migraciones V1..V13; servicios y reglas compilados y ejecutados con dobles en memoria (33 comprobaciones); YAML OpenAPI validado y referencias resueltas | **Verificado:** `mvn test` (143 pruebas) y `mvn verify` (50, `CallsAdminIT` incluida, con Testcontainers) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0 |
+| Categorías (V14, `players`, `CategoriesIT`) | Migración V14 y sus invariantes en PostgreSQL 16 real (`scripts/check-schema.sh`); todas las sentencias SQL nuevas ejecutadas contra esa base; servicios y reglas compilados y ejecutados con dobles en memoria (24 comprobaciones); OpenAPI validado con `openapi-spec-validator` | **Verificado:** `mvn test` (168 pruebas) y `mvn verify` (59, `CategoriesIT` incluida) en BUILD SUCCESS, tras corregir en la primera corrida un 422 que Bean Validation cortaba antes de acumular todos los errores de campo |
+| Decisión del comité (`players`, `identity`/`documents` api, `CommitteeIT`) | Las sentencias SQL nuevas (bloqueo del jugador, cierre y alta de asignaciones, acta con asistentes `jsonb`, consulta de roles vigentes, fecha del club) ejecutadas contra PostgreSQL 16 real con V1..V14, incluido el cierre de un proceso anterior en otra transacción; reglas y servicio compilados y ejecutados con dobles en memoria (32 comprobaciones); OpenAPI validado | **Verificado:** `mvn test` y `mvn verify` (`CommitteeIT` incluida, con su caso de concurrencia de dos hilos y Testcontainers) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0 |
 | Código Spring (filtro, handler, seguridad, `JdbcAuditWriter`), `ArchitectureTest`, unitarias | `mvn test` en Windows 11, JDK 24 (compila con `--release 21`), Maven 3.10.0 | Ejecutado: OK (19 pruebas, 0 fallos) |
 | `*IT` con Testcontainers (`DatabaseSchemaIT`, `AuditWriterIT`) | `mvn verify`, Docker Desktop 4.98 / Engine 29.9.2 | Ejecutado: OK (7 pruebas, 0 fallos) |
 
@@ -261,13 +264,59 @@ el comité puede asignar otra categoría. Auditoría: `CATEGORY_CREATED`, `CATEG
 
 **Límites conocidos y pendientes (confirmar).**
 1. **Sin datos del club:** hasta que se resuelva DP-01 no hay categorías cargadas; el coordinador debe crearlas.
-2. **Las asignaciones aún no existen:** `occupied` vale 0 hasta el incremento de la decisión del comité (acta, categoría con
-   cupo, entrenador y panel de tres evaluadores), que es el siguiente.
+2. **`occupied` se alimenta con la decisión del comité** (ver «Decisión del comité»): cuenta las asignaciones vigentes.
 3. **Una categoría inactiva conserva su rango** (historial); no hay borrado.
 4. La sugerencia usa solo el **año** de nacimiento, como indica el DAD, no la fecha exacta.
 
+## Decisión del comité (players)
+
+**Por qué.** La inscripción radicada (E02) queda a la espera del Comité Técnico, que fija categoría, entrenador titular y el
+panel que evaluará al jugador, o la rechaza (DDS UC-02, T-01 y T-02; RN-03, RF-045). Sin esta decisión no existe `occupied`
+real, ni el panel de evaluadores que necesitan las rondas.
+
+| Endpoint | Acceso | Notas |
+|---|---|---|
+| `POST /api/v1/players/{id}/assignments` | `COMMITTEE` | T-01: `SUBMITTED`/`COMMITTEE_PENDING` → `CATEGORY_ASSIGNED`. 201 con la asignación. |
+| `POST /api/v1/players/{id}/rejections` | `COMMITTEE` | T-02: → `REJECTED`. Motivo obligatorio. |
+| `GET /api/v1/players/{id}/assignment` | `COORDINATOR`, `COMMITTEE` | Categoría, entrenador y panel vigentes; 404 si no hay. |
+
+**Acta (RN-03, RF-045).** Número (≤ 30), fecha de la reunión (no futura en la zona del club, `canchatrack.zone-id`, evaluada con
+el reloj de la base), al menos un asistente y `minuteFileId`: un archivo **ya almacenado** en `stored_files`, validado con la
+fachada `documents.api.StoredFileDirectory`. La misma acta no puede decidir dos veces al mismo jugador.
+
+**Asignar.** El entrenador titular debe ser una cuenta **activa con rol COACH**. El panel son **exactamente tres** evaluadores
+distintos, con cuenta activa y un rol admitido (`canchatrack.committee.panel-roles`, por defecto `EVALUATOR,COACH,COMMITTEE`; el
+entrenador titular puede estar en el panel, porque el ERS lo describe como entrenador titular, preparador físico y delegado del
+comité). Los roles se consultan con la fachada `identity.api.StaffDirectory` (vigencia con `now()` de la base). La categoría debe
+existir y estar activa. **Cupo:** el jugador y la categoría se bloquean (`SELECT … FOR UPDATE`, primero el jugador y luego la
+categoría) y se cuenta el cupo con una consulta posterior al bloqueo, así dos decisiones simultáneas no sobrepasan la categoría
+(`CommitteeIT` lo prueba con dos hilos). Con la categoría llena responde **409 `CATEGORY_FULL`** (con `capacity` y `occupied`);
+si `canchatrack.committee.allow-capacity-exception=true` el comité puede reenviar con `capacityExceptionReason` y la asignación
+queda con ese motivo (también en la auditoría). El motivo solo se conserva si realmente se excede el cupo.
+
+**Errores.** Todos los errores de campo se acumulan en un solo 422. Si alguno es del panel (`headCoachId`, `evaluatorIds`) el
+código es `PANEL_INVALID`; en otro caso `VALIDATION_FAILED`. Un expediente que no está pendiente (incluida la repetición de la
+misma solicitud) responde 409 `PLAYER_STATE_CONFLICT` sin escribir nada.
+
+**Volver a decidir.** Si un jugador vuelve a radicar tras un proceso terminado, la nueva decisión **cierra** (`valid_to = now()`)
+su categoría y panel anteriores antes de contar el cupo, así no cuenta contra sí mismo; el historial se conserva (RN-20).
+
+Auditoría: `PLAYER_CATEGORY_ASSIGNED`, `PLAYER_ENROLLMENT_REJECTED` (estado anterior y posterior, motivo, rol `COMMITTEE`).
+
+**Límites conocidos y pendientes (confirmar).**
+1. **Valores provisionales (DP-01):** roles del panel y excepción de cupo son configurables porque el club no ha definido la
+   composición real del panel (el sistema solo distingue COACH, EVALUATOR y COMMITTEE, no «preparador físico»).
+2. **El acta se adjunta por referencia:** aún no hay endpoint de carga de archivos (módulo `documents`), así que `minuteFileId`
+   debe apuntar a un `stored_files` existente. Cuando llegue la carga, se sube primero y luego se decide.
+3. **Alcance de entrenador y evaluador:** esta decisión no abre aún el acceso del entrenador titular ni de los evaluadores al
+   expediente (`PlayerAccessPolicy` los sigue denegando); es el incremento siguiente.
+4. **Sin notificación** al acudiente de la decisión (módulo `notifications`) ni matrícula posterior (E05).
+5. **Un acta por jugador y número:** la tabla permite un acta con varios jugadores (mismo número), pero cada decisión es una
+   solicitud por jugador y repite los datos del acta.
+6. La fecha «de hoy» usa la zona `canchatrack.zone-id` (America/Bogota por defecto).
+
 ## Siguiente paso
 
-Siguiente incremento de `players`: **decisión del comité** (acta con soporte documental, categoría con cupo, entrenador y panel
-de tres evaluadores; T-01/T-02). Después, en uno aparte, el **alcance de entrenador y evaluador** en `PlayerAccessPolicy`. La **generación de cargos** (matrícula al aprobar la inscripción, mensualidades por mes)
+Siguiente incremento: el **alcance de entrenador y evaluador** en `PlayerAccessPolicy` (qué expedientes ven según su asignación
+vigente) y, después, la **carga de archivos** del módulo `documents` (acta, documentos de inscripción). La **generación de cargos** (matrícula al aprobar la inscripción, mensualidades por mes)
 llega con el incremento de pagos. Después: Dockerfile multi-etapa, pipeline CI con quality gates, Swagger UI en `dev`.

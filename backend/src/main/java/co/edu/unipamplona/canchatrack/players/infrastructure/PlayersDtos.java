@@ -8,7 +8,9 @@ import java.util.UUID;
 import co.edu.unipamplona.canchatrack.players.application.CallDetail;
 import co.edu.unipamplona.canchatrack.players.application.CallExceptionInfo;
 import co.edu.unipamplona.canchatrack.players.application.CategoryInfo;
+import co.edu.unipamplona.canchatrack.players.application.AssignmentView;
 import co.edu.unipamplona.canchatrack.players.application.CategorySuggestion;
+import co.edu.unipamplona.canchatrack.players.application.DecisionResult;
 import co.edu.unipamplona.canchatrack.players.application.EnrollmentReceipt;
 import co.edu.unipamplona.canchatrack.players.application.EnrollmentSummary;
 import co.edu.unipamplona.canchatrack.players.application.PageResult;
@@ -197,6 +199,47 @@ public final class PlayersDtos {
         static CategorySuggestionResponse from(CategorySuggestion suggestion) {
             return new CategorySuggestionResponse(suggestion.playerId(), suggestion.birthYear(),
                     suggestion.suggested() == null ? null : CategoryResponse.from(suggestion.suggested()));
+        }
+    }
+
+    // --- Decisión del comité técnico (solo COMMITTEE escribe; COORDINATOR y COMMITTEE leen) ---
+    // Sin anotaciones de Bean Validation: CommitteeRules y el servicio acumulan todos los errores en un solo 422.
+
+    public record AssignCategoryRequest(
+            String minuteNumber,
+            LocalDate meetingDate,
+            List<String> attendees,
+            UUID minuteFileId,
+            UUID categoryId,
+            UUID headCoachId,
+            List<UUID> evaluatorIds,
+            String capacityExceptionReason) {
+    }
+
+    public record RejectEnrollmentRequest(
+            String minuteNumber,
+            LocalDate meetingDate,
+            List<String> attendees,
+            UUID minuteFileId,
+            String reason) {
+    }
+
+    public record AssignmentResponse(UUID playerId, String playerStatus, UUID categoryId, String categoryName,
+                                     UUID headCoachId, List<UUID> evaluatorIds, String minuteNumber,
+                                     LocalDate meetingDate, UUID minuteFileId, String capacityExceptionReason,
+                                     Instant assignedAt) {
+
+        static AssignmentResponse from(AssignmentView view) {
+            return new AssignmentResponse(view.playerId(), view.playerStatus().name(), view.categoryId(),
+                    view.categoryName(), view.headCoachId(), view.evaluatorIds(), view.minuteNumber(),
+                    view.meetingDate(), view.minuteFileId(), view.capacityExceptionReason(), view.assignedAt());
+        }
+    }
+
+    public record DecisionResponse(UUID playerId, String playerStatus, String minuteNumber) {
+
+        static DecisionResponse from(DecisionResult result) {
+            return new DecisionResponse(result.playerId(), result.playerStatus().name(), result.minuteNumber());
         }
     }
 }

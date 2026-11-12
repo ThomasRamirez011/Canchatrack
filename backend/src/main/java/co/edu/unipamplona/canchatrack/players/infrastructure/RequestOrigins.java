@@ -4,6 +4,7 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 
 import co.edu.unipamplona.canchatrack.players.application.AdminActor;
+import co.edu.unipamplona.canchatrack.players.application.CommitteeActor;
 import co.edu.unipamplona.canchatrack.shared.security.CurrentUser;
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -28,5 +29,9 @@ final class RequestOrigins {
 
     static AdminActor adminActor(HttpServletRequest request) {
         return new AdminActor(CurrentUser.require().id(), remoteAddress(request), request.getHeader("User-Agent"));
+    }
+
+    static CommitteeActor committeeActor(HttpServletRequest request) {
+        return new CommitteeActor(CurrentUser.require().id(), remoteAddress(request), request.getHeader("User-Agent"));
     }
 }

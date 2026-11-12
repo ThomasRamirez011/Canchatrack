@@ -66,3 +66,6 @@ canchatrack:
     consent-version: v1 # versión del texto de consentimiento que acepta el acudiente al radicar (RF-011)
   calls:
     max-exception-validity: 30d # vigencia máxima de una habilitación excepcional (RF-044)
+  committee: # parámetros provisionales de la decisión del comité técnico (DP-01 pendiente)
+    panel-roles: EVALUATOR,COACH,COMMITTEE # roles que pueden integrar el panel de tres evaluadores
+    allow-capacity-exception: true # permite asignar a una categoría llena dejando el motivo

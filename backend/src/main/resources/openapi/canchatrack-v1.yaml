@@ -28,6 +28,8 @@ tags:
     description: Convocatorias de inscripción. Consulta de abiertas para cualquier usuario; administración solo del coordinador.
   - name: categories
     description: Categorías por rango de año de nacimiento y cupo. Las define el club (DP-01); las administra el coordinador.
+  - name: committee
+    description: Decisión del Comité Técnico sobre inscripciones radicadas (categoría, entrenador, panel y acta).
   - name: enrollments
     description: Radicación de inscripciones por el acudiente.
   - name: players
@@ -491,6 +493,99 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /players/{playerId}/assignments:
+    post:
+      tags: [committee, players]
+      operationId: assignCategory
+      summary: Asigna categoría, entrenador titular y panel de tres evaluadores (solo comité técnico).
+      description: |
+        Transición T-01 (DDS UC-02): SUBMITTED o COMMITTEE_PENDING → CATEGORY_ASSIGNED, respaldada por un acta
+        (número, fecha no futura, asistentes y archivo ya almacenado `minuteFileId`).
+
+        Reglas: el entrenador titular debe ser una cuenta activa con rol COACH; el panel son exactamente tres
+        evaluadores distintos con cuenta activa y un rol admitido (`canchatrack.committee.panel-roles`, por defecto
+        EVALUATOR, COACH y COMMITTEE; el entrenador titular puede integrar el panel). La categoría debe estar activa y
+        tener cupo; si no lo tiene, el comité puede asignar igualmente enviando `capacityExceptionReason`
+        (`canchatrack.committee.allow-capacity-exception`), y el motivo queda en la asignación y en la auditoría. Si el
+        jugador vuelve de un proceso anterior, su categoría y panel previos se cierran (el historial se conserva).
+
+        Todos los errores de campo se devuelven juntos. Si alguno es del panel (`headCoachId`, `evaluatorIds`) el
+        código es PANEL_INVALID; en otro caso VALIDATION_FAILED. Los valores son provisionales hasta que el club
+        responda DP-01.
+      parameters:
+        - { name: playerId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AssignCategoryRequest' }
+      responses:
+        '201':
+          description: Categoría asignada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssignmentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: |
+            El expediente no está pendiente de decisión (PLAYER_STATE_CONFLICT) o la categoría no tiene cupo y no se
+            indicó una excepción válida (CATEGORY_FULL, con `capacity` y `occupied`).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422':
+          description: Datos inválidos (VALIDATION_FAILED) o panel inválido (PANEL_INVALID), con la lista `errors` por campo.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ValidationProblem' }
+  /players/{playerId}/rejections:
+    post:
+      tags: [committee, players]
+      operationId: rejectEnrollment
+      summary: Rechaza la inscripción con motivo y acta (solo comité técnico).
+      description: |
+        Transición T-02 (DDS UC-02): SUBMITTED o COMMITTEE_PENDING → REJECTED. El motivo y el acta son obligatorios.
+        Un jugador rechazado puede volver a radicar (RN-20).
+      parameters:
+        - { name: playerId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RejectEnrollmentRequest' }
+      responses:
+        '201':
+          description: Inscripción rechazada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DecisionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /players/{playerId}/assignment:
+    get:
+      tags: [committee, players]
+      operationId: getCurrentAssignment
+      summary: Categoría, entrenador titular y panel vigentes (coordinador y comité).
+      parameters:
+        - { name: playerId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Asignación vigente.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssignmentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: El jugador no existe o no tiene una asignación vigente (RESOURCE_NOT_FOUND).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
   /enrollments:
     post:
       tags: [enrollments]
@@ -808,6 +903,71 @@ components:
           oneOf:
             - { $ref: '#/components/schemas/CategoryResponse' }
             - { type: 'null' }
+    MinuteFields:
+      type: object
+      description: Acta de la reunión del comité que respalda la decisión (RN-03, RF-045).
+      required: [minuteNumber, meetingDate, attendees, minuteFileId]
+      properties:
+        minuteNumber: { type: string, maxLength: 30, examples: [ACTA-2026-014] }
+        meetingDate: { type: string, format: date, description: No puede ser futura (zona horaria del club). }
+        attendees:
+          type: array
+          minItems: 1
+          maxItems: 30
+          items: { type: string, maxLength: 150 }
+        minuteFileId:
+          type: string
+          format: uuid
+          description: Archivo del acta firmada, ya almacenado (la carga de archivos llega con el módulo documents).
+    AssignCategoryRequest:
+      allOf:
+        - $ref: '#/components/schemas/MinuteFields'
+        - type: object
+          required: [categoryId, headCoachId, evaluatorIds]
+          properties:
+            categoryId: { type: string, format: uuid }
+            headCoachId: { type: string, format: uuid, description: Cuenta activa con rol COACH. }
+            evaluatorIds:
+              type: array
+              minItems: 3
+              maxItems: 3
+              description: Exactamente tres cuentas distintas, activas y con un rol admitido en el panel.
+              items: { type: string, format: uuid }
+            capacityExceptionReason:
+              type: string
+              maxLength: 2000
+              description: Solo se conserva si la categoría no tiene cupo; sin él, una categoría llena responde CATEGORY_FULL.
+    RejectEnrollmentRequest:
+      allOf:
+        - $ref: '#/components/schemas/MinuteFields'
+        - type: object
+          required: [reason]
+          properties:
+            reason: { type: string, maxLength: 2000 }
+    AssignmentResponse:
+      type: object
+      required: [playerId, playerStatus, categoryId, categoryName, headCoachId, evaluatorIds, assignedAt]
+      properties:
+        playerId: { type: string, format: uuid }
+        playerStatus: { $ref: '#/components/schemas/PlayerStatus' }
+        categoryId: { type: string, format: uuid }
+        categoryName: { type: string }
+        headCoachId: { type: string, format: uuid }
+        evaluatorIds:
+          type: array
+          items: { type: string, format: uuid }
+        minuteNumber: { type: [string, 'null'] }
+        meetingDate: { type: [string, 'null'], format: date }
+        minuteFileId: { type: [string, 'null'], format: uuid }
+        capacityExceptionReason: { type: [string, 'null'] }
+        assignedAt: { type: string, format: date-time }
+    DecisionResponse:
+      type: object
+      required: [playerId, playerStatus, minuteNumber]
+      properties:
+        playerId: { type: string, format: uuid }
+        playerStatus: { $ref: '#/components/schemas/PlayerStatus' }
+        minuteNumber: { type: string }
     PlayerStatus:
       type: string
       description: Estados del expediente (DAD 3.2).
