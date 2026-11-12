@@ -55,4 +55,10 @@ public class JdbcPlacementStore implements PlacementStore {
         jdbc.update("INSERT INTO category_assignments (player_id, category_id, head_coach_id, kind, promotion_round_id, created_by) "
                 + "VALUES (?, ?, ?, 'PROMOTION', ?, ?)", playerId, categoryId, headCoachId, roundId, createdBy);
     }
+
+    @Override
+    public void recordStateChange(UUID playerId, String transitionCode, PlayerStatus from, PlayerStatus to, String reason, UUID actorId) {
+        jdbc.update("INSERT INTO state_history (entity_type, entity_id, transition_code, from_state, to_state, reason, actor_id) "
+                + "VALUES ('player', ?, ?, ?, ?, ?, ?)", playerId, transitionCode, from.name(), to.name(), reason, actorId);
+    }
 }

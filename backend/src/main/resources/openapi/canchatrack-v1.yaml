@@ -49,7 +49,7 @@ tags:
   - name: audit
     description: Consulta de la bitácora de auditoría (CU-14, RF-051), solo para la coordinación.
   - name: reports
-    description: Cartera por categoría con exportación a CSV y resumen de temporada (CU-10 a CU-12).
+    description: Cartera por categoría con exportación a CSV, resumen de temporada (CU-10 a CU-12), informe PDF por jugador y cierre o reapertura del expediente.
 paths:
   /auth/login:
     post:
@@ -1673,7 +1673,7 @@ paths:
       description: |
         Plantilla por categoría, eventos por tipo y estado, asistencia de las sesiones cerradas, resultados de los partidos
         completados y recaudo, todo delimitado por la ventana de la temporada. `seasonId` es obligatorio. El informe PDF
-        versionado por jugador y el cierre o reapertura de la temporada no forman parte de este incremento.
+        versionado por jugador y el cierre del expediente se documentan en `/players/{playerId}/season-reports` y `/players/{playerId}/season-closure`.
       parameters:
         - { name: seasonId, in: query, required: true, schema: { type: string, format: uuid } }
       responses:
@@ -1686,6 +1686,170 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /players/{playerId}/season-reports:
+    parameters:
+      - { name: playerId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [reports]
+      operationId: generateSeasonReport
+      summary: Genera el informe de temporada del jugador (CU-10, RF-049). Solo coordinador.
+      description: |
+        Produce un PDF con asistencia, evaluaciones publicadas (rondas cerradas) y participación en partidos del periodo de
+        la temporada (hasta hoy si aún no termina; el informe lo declara parcial). Recibe consecutivo único (`number`), código
+        de verificación y huella SHA-256 del archivo, y congela los datos usados. Regenerar crea una versión nueva que apunta a
+        la anterior y exige `reason`; las versiones previas se conservan. La temporada no puede estar en estado `PLANNED` y el
+        jugador debe tener trayectoria (activo, en evaluación, con ascenso aprobado, suspendido, retirado o con la temporada
+        cerrada) y categoría asignada. El PDF se descarga con `GET /files/{fileId}`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SeasonReportRequest' }
+      responses:
+        '201':
+          description: Informe generado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeasonReportResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '500':
+          description: No fue posible producir el PDF (REPORT_GENERATION_FAILED); puede reintentarse.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    get:
+      tags: [reports]
+      operationId: listSeasonReports
+      summary: Informes de temporada del jugador, el más reciente primero. Coordinador y comité.
+      parameters:
+        - { name: seasonId, in: query, required: false, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Versiones generadas.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SeasonReportResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /season-reports/verify:
+    get:
+      tags: [reports]
+      operationId: verifySeasonReport
+      summary: Comprueba el código de verificación impreso en un informe. Coordinador y comité.
+      description: |
+        Acepta el código con o sin guiones y en mayúsculas o minúsculas. `current` es falso si existe una versión más
+        reciente del mismo informe. Un código mal formado o desconocido responde igual: 404. La verificación pública, sin
+        sesión, queda pendiente hasta contar con límite de tasa.
+      parameters:
+        - { name: code, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Informe al que pertenece el código.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeasonReportVerificationResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /season-reports/{reportId}:
+    get:
+      tags: [reports]
+      operationId: getSeasonReport
+      summary: Metadatos de un informe de temporada. Coordinador y comité.
+      parameters:
+        - { name: reportId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Informe.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeasonReportResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /players/{playerId}/season-closure:
+    parameters:
+      - { name: playerId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [reports]
+      operationId: closeSeasonForPlayer
+      summary: Cierra la temporada del expediente (CU-11, T-11, RN-18). Solo coordinador.
+      description: |
+        ACTIVE → SEASON_CLOSED. Exige el informe vigente (la última versión) del jugador y la temporada, y que el expediente
+        deportivo no haya cambiado después de generarlo (asistencia, correcciones, evaluaciones o resultados); si cambió,
+        hay que generar una versión nueva. Un jugador en evaluación o con un ascenso aprobado pendiente debe resolverlo
+        antes. El cierre deja el expediente en solo lectura para los flujos deportivos, conserva la categoría y todo el
+        historial, y queda en auditoría y en el historial de estados.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SeasonClosureRequest' }
+      responses:
+        '201':
+          description: Expediente cerrado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeasonClosureResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    get:
+      tags: [reports]
+      operationId: getSeasonClosure
+      summary: Último cierre del expediente, vigente o ya reabierto. Coordinador y comité.
+      responses:
+        '200':
+          description: Cierre.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeasonClosureResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /players/{playerId}/season-closure/reopen:
+    parameters:
+      - { name: playerId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [reports]
+      operationId: reopenSeasonForPlayer
+      summary: Reabre el expediente cerrado (CU-11, T-12, RN-18). Solo coordinador.
+      description: |
+        SEASON_CLOSED → ACTIVE. Exige motivo, detalle y la confirmación reforzada: escribir el código del jugador. No borra
+        nada: el cierre queda marcado como reabierto con quién, cuándo y por qué, y se audita. Si se corrige algo, se genera
+        una versión nueva del informe antes de volver a cerrar.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SeasonReopenRequest' }
+      responses:
+        '200':
+          description: Expediente reabierto.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeasonClosureResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 components:
   securitySchemes:
@@ -2731,6 +2895,67 @@ components:
         attendance: { $ref: '#/components/schemas/SeasonAttendanceResponse' }
         matches: { $ref: '#/components/schemas/SeasonMatchesResponse' }
         billing: { $ref: '#/components/schemas/SeasonBillingResponse' }
+    SeasonReportRequest:
+      type: object
+      required: [seasonId]
+      properties:
+        seasonId: { type: string, format: uuid }
+        reason:
+          type: [string, 'null']
+          maxLength: 500
+          description: Obligatorio al regenerar un informe que ya tiene una versión; se ignora en la primera.
+    SeasonReportResponse:
+      type: object
+      required: [id, playerId, seasonId, number, consecutive, version, verificationCode, templateVersion, fileId, fileHash, generatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        playerId: { type: string, format: uuid }
+        seasonId: { type: string, format: uuid }
+        number: { type: string, example: IT-000012, description: 'Consecutivo visible, único y que no se reutiliza.' }
+        consecutive: { type: integer, format: int64 }
+        version: { type: integer, minimum: 1 }
+        previousReportId: { type: [string, 'null'], format: uuid }
+        reason: { type: [string, 'null'] }
+        verificationCode: { type: string, example: ABCD-EFGH-JKLM }
+        templateVersion: { type: string, example: plantilla-1 }
+        fileId: { type: string, format: uuid, description: 'Se descarga con GET /files/{fileId}.' }
+        fileHash: { type: string, description: 'SHA-256 hexadecimal del PDF.' }
+        generatedAt: { type: string, format: date-time }
+        generatedBy: { type: [string, 'null'], format: uuid }
+    SeasonReportVerificationResponse:
+      type: object
+      required: [current, report]
+      properties:
+        current: { type: boolean, description: 'Falso si existe una versión más reciente del informe.' }
+        report: { $ref: '#/components/schemas/SeasonReportResponse' }
+    SeasonClosureRequest:
+      type: object
+      required: [seasonId, reportId]
+      properties:
+        seasonId: { type: string, format: uuid }
+        reportId: { type: string, format: uuid, description: 'Debe ser la versión más reciente del informe del jugador y la temporada.' }
+    SeasonReopenRequest:
+      type: object
+      required: [reason, detail, confirmation]
+      properties:
+        reason: { type: string, maxLength: 500 }
+        detail: { type: string, maxLength: 2000 }
+        confirmation: { type: string, description: 'Código del jugador (por ejemplo JG-000012), sin importar mayúsculas.' }
+    SeasonClosureResponse:
+      type: object
+      required: [id, playerId, seasonId, reportId, closedBy, closedAt, open]
+      properties:
+        id: { type: string, format: uuid }
+        playerId: { type: string, format: uuid }
+        seasonId: { type: string, format: uuid }
+        reportId: { type: string, format: uuid }
+        closedBy: { type: string, format: uuid }
+        closedAt: { type: string, format: date-time }
+        open: { type: boolean, description: 'Verdadero mientras no se haya reabierto.' }
+        reopenedBy: { type: [string, 'null'], format: uuid }
+        reopenedAt: { type: [string, 'null'], format: date-time }
+        reopenReason: { type: [string, 'null'] }
+        reopenDetail: { type: [string, 'null'] }
   responses:
     BadRequest:
       description: Solicitud mal formada.

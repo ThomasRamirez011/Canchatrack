@@ -314,6 +314,37 @@ class OpenApiContractTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void seasonReportAndClosureEndpointsAreDocumentedAndSchemasMatchTheDtos() throws Exception {
+        Map<String, Object> spec = load();
+        Map<String, Object> paths = (Map<String, Object>) spec.get("paths");
+        Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) spec.get("components")).get("schemas");
+
+        assertThat(paths.keySet()).contains("/players/{playerId}/season-reports", "/season-reports/verify",
+                "/season-reports/{reportId}", "/players/{playerId}/season-closure",
+                "/players/{playerId}/season-closure/reopen");
+
+        // Los límites documentados de la reapertura son los del dominio.
+        Map<String, Object> reopen = (Map<String, Object>) schemas.get("SeasonReopenRequest");
+        Map<String, Object> reopenProperties = (Map<String, Object>) reopen.get("properties");
+        assertThat(((Map<String, Object>) reopenProperties.get("reason")).get("maxLength"))
+                .isEqualTo(co.edu.unipamplona.canchatrack.reports.domain.ReportRules.MAX_REASON);
+        assertThat(((Map<String, Object>) reopenProperties.get("detail")).get("maxLength"))
+                .isEqualTo(co.edu.unipamplona.canchatrack.reports.domain.ReportRules.MAX_DETAIL);
+
+        String dtos = "co.edu.unipamplona.canchatrack.reports.infrastructure.SeasonReportDtos$";
+        for (String name : List.of("SeasonReportRequest", "SeasonReportResponse", "SeasonReportVerificationResponse",
+                "SeasonClosureRequest", "SeasonReopenRequest", "SeasonClosureResponse")) {
+            Class<?> type = Class.forName(dtos + name);
+            Map<String, Object> documented = (Map<String, Object>) schemas.get(name);
+            assertThat(documented).as("esquema %s", name).isNotNull();
+            List<String> actual = Arrays.stream(type.getRecordComponents()).map(java.lang.reflect.RecordComponent::getName).toList();
+            assertThat(((Map<String, Object>) documented.get("properties")).keySet())
+                    .as("campos de %s", name).containsExactlyInAnyOrderElementsOf(actual);
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void playerStatusEnumMatchesTheDomain() throws Exception {
         Map<String, Object> components = (Map<String, Object>) load().get("components");
         Map<String, Object> schemas = (Map<String, Object>) components.get("schemas");

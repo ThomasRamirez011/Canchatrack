@@ -63,13 +63,13 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 - `competitions` + `scheduling` + `documents` + `payments` (partidos y convocatorias, ver «Partidos y convocatorias»): torneos, partidos con agenda sin cruces, convocatoria con elegibilidad por jugador (activo, certificado médico, autorización y mora), confirmación del coordinador, avisos a acudientes, autorización por partido y resultado (CU-09, RN-06, RN-07, RN-13).
 - `audit`: puerto `AuditWriter` (`write` en la transacción de negocio; `writeIndependent` para intentos rechazados,
   p. ej. PA-01), adaptador JDBC y consulta de la bitácora con filtros y cursor (CU-14, ver «Auditoría y reportes»).
-- `reports` (ver «Auditoría y reportes»): cartera por categoría con exportación a CSV y resumen de temporada, como modelo de lectura.
+- `reports` (ver «Auditoría y reportes» e «Informe de temporada y cierre del expediente»): cartera por categoría con exportación a CSV y resumen de temporada, como modelo de lectura; informe PDF versionado por jugador y cierre o reapertura del expediente (CU-10, CU-11).
 
 ## Estado de verificación (sé honesto con esto)
 
 | Qué | Cómo se verificó | Estado |
 |---|---|---|
-| Migraciones V1..V16 sobre PostgreSQL 16 real | `scripts/check-schema.sh` | Ejecutado: OK |
+| Migraciones V1..V17 sobre PostgreSQL 16 real | `scripts/check-schema.sh` | Ejecutado: OK |
 | Invariantes críticas (≈90 aserciones, incl. pagos, asistencia, unanimidad, auditoría) | `schema-invariants.sql`; se comprobó que **fallan** si se quitan los triggers | Ejecutado: OK |
 | `ErrorCode` coincide con DDS 13, `DomainException`, `AuditRecord` | `javac` + ejecución | Ejecutado: OK |
 | YAML (perfiles, compose), `pom.xml`, OpenAPI 3.1 | parseo / `openapi-spec-validator` | Ejecutado: OK |
@@ -83,6 +83,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 | Evaluaciones y ascenso (`evaluations`, `players.api`, `EvaluationsIT`) | Las sentencias SQL nuevas (una sola ronda abierta por jugador con `ON CONFLICT DO NOTHING`, alta/ajuste de concepto con `ON CONFLICT DO UPDATE` y rastro en el historial, vigencia del concepto por periodo, cambio de periodo, cierre, bloqueo `CT003` tras el cierre, cierre de la categoría anterior y alta de la asignación `PROMOTION`) ejecutadas contra PostgreSQL 16 real con V1..V14; capas de dominio y aplicación compiladas con `-Xlint:all`; OpenAPI validado con `openapi-spec-validator` | **Verificado:** `mvn test` y `mvn verify` (`EvaluationsIT` incluida, con Testcontainers) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0, tras corregir en la primera corrida un nombre de esquema OpenAPI duplicado (`DecisionResponse`) |
 | Partidos y convocatorias (`competitions`, `scheduling.api`, `documents.api`, `payments.api`, `notifications.api`, `CompetitionsIT`) | V15 y `schema-invariants.sql` sobre PostgreSQL 16 real (`scripts/check-schema.sh`); las sentencias SQL nuevas (proyección del partido, alta o sobrescritura de la propuesta sin tocar confirmados, confirmación, resultado, historial, vigencia del certificado, autorización de participación, mora, aviso con deduplicación, autorización por partido idempotente) ejecutadas contra esa base; dominio y aplicación compilados con `-Xlint:all`, reglas ejecutadas con una comprobación de humo; sintaxis de todos los fuentes nuevos y de las pruebas analizada con el parser de `javac`; OpenAPI validado y sin nombres de esquema duplicados | **Verificado:** `mvn test` y `mvn verify` (`CompetitionsIT` incluida, tras corregir la clave de deduplicación de avisos) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0, Docker Desktop (2026-11-12) |
 | Auditoría y reportes (V16, `audit`, `reports`, `AuditQueryIT`, `ReportsIT`) | V16 y `schema-invariants.sql` sobre PostgreSQL 16 real (`scripts/check-schema.sh`); todas las sentencias SQL nuevas (filtros de auditoría, paginación por `(occurred_at, id)` con su plan sobre `ix_audit_events_occurred`, cartera con totales por categoría, plantilla, agenda, asistencia, partidos y recaudo) ejecutadas contra esa base con datos de ejemplo; el montaje de datos de `ReportsIT` y `AuditQueryIT` repetido con los triggers reales y las cifras esperadas comprobadas; dominio y casos de uso compilados con `javac -Xlint:all` y ejecutados con dobles en memoria (≈85 comprobaciones: mora, porcentaje, CSV, reglas, cursor, paginación, rastro de la consulta, exportación auditada, truncado y «hoy» en la zona del club); OpenAPI validado con `openapi-spec-validator` (60 rutas, 102 esquemas, sin nombres repetidos) | **Verificado:** `mvn test` y `mvn verify` (`AuditQueryIT` y `ReportsIT` incluidas) en BUILD SUCCESS en Windows 11, JDK 24, Maven 3.10.0, Docker Desktop (2026-11-12) |
+| Informe de temporada y cierre del expediente (V17, `reports`, `players`, `documents`, `SeasonClosureIT`, `SeasonReportRulesTest`, `SeasonReportPdfRendererTest`) | V17 y `schema-invariants.sql` sobre PostgreSQL 16 real (clave compuesta informe-jugador-temporada, un cierre vigente por temporada, reapertura de una sola vez, inmutabilidad); las siembras de `SeasonClosureIT` y todas las consultas del almacén (último cierre, asistencia, rondas, partidos, «cambió después del informe», inserciones con `RETURNING`) ejecutadas contra esa base con los triggers reales; dominio y casos de uso compilados con `javac -Xlint:all`; el PDF generado se comprobó con `qpdf --check`, `pypdf` y `pdftotext` (2 a 4 páginas, tildes y ñ, paréntesis y barras escapados, mismos bytes ante el mismo contenido) y las propiedades que afirma `SeasonReportPdfRendererTest` se reprodujeron sobre esos PDF; OpenAPI validado con `openapi-spec-validator` (65 rutas, 108 esquemas) | **Sin ejecutar `mvn`:** pendiente de `mvn test` y `mvn verify` en la máquina del usuario |
 | Código Spring (filtro, handler, seguridad, `JdbcAuditWriter`), `ArchitectureTest`, unitarias | `mvn test` en Windows 11, JDK 24 (compila con `--release 21`), Maven 3.10.0 | Ejecutado: OK (19 pruebas, 0 fallos) |
 | `*IT` con Testcontainers (`DatabaseSchemaIT`, `AuditWriterIT`) | `mvn verify`, Docker Desktop 4.98 / Engine 29.9.2 | Ejecutado: OK (7 pruebas, 0 fallos) |
 
@@ -249,7 +250,7 @@ rompe el documento. Código nuevo `RESOURCE_STATE_CONFLICT` (409) para transicio
 **Límites conocidos y pendientes (confirmar).**
 1. **Cupos por categoría y documentos obligatorios** (RF-043) no se modelan: dependen de DP-01 (categorías, rangos y cupos) y
    DP-04 (documentos y vigencias), aún sin respuesta del cliente. Exigen una migración nueva.
-2. **El cierre y la reapertura de temporadas** son el caso de uso CU-11 (RN-18) y no se exponen; no se impone una sola temporada
+2. **El cierre y la reapertura** se hacen por jugador (ver «Informe de temporada y cierre del expediente»); la temporada en sí no se cierra, y no se impone una sola temporada
    activa porque el DAD no lo exige.
 3. **Una habilitación excepcional no se puede revocar antes de su vencimiento** (la tabla es de solo concesión). Si el cliente lo
    pide, hay que añadir columnas de revocación con motivo.
@@ -448,7 +449,7 @@ reportes), alcance de entrenador y evaluador en `PlayerAccessPolicy` (el entrena
 ## Auditoría y reportes (audit, reports)
 
 Alcance ligero y de solo lectura: consulta de la bitácora (CU-14, RF-051) y dos reportes de consulta (CU-12, RF-042). El informe PDF versionado por
-jugador (CU-10, RF-049) y el cierre o reapertura de la temporada (CU-11, RF-050, RN-18) **no** están en este incremento.
+jugador (CU-10, RF-049) y el cierre o reapertura (CU-11, RF-050, RN-18) se describen en la sección siguiente.
 
 | Endpoint | Acceso | Notas |
 |---|---|---|
@@ -471,11 +472,49 @@ para no acoplar módulos). (8) CSV seguro: los textos que empiezan por `=`, `+`,
 respuesta con `Cache-Control: no-store`. (9) Las exportaciones que sustituyen las planillas (ERS 7.3) cubren hoy solo cartera; el CSV de plantilla, asistencia, convocatorias
 y seguimiento de evaluación, y el Excel (.xlsx) y el PDF, quedan pendientes.
 
-**Pendiente.** Informe de temporada por jugador en PDF con consecutivo y código de verificación (CU-10), cierre y reapertura de la temporada con su historial (CU-11),
-exportaciones restantes de ERS 7.3, política de publicación de IP y agente de usuario, rol de administrador autorizado, retención y archivo de la bitácora, y el historial
+**Pendiente.** Exportaciones restantes de ERS 7.3, política de publicación de IP y agente de usuario, rol de administrador autorizado, retención y archivo de la bitácora, y el historial
 deportivo completo por jugador (RF-037).
+
+## Informe de temporada y cierre del expediente (reports, players, documents)
+
+Informe PDF por jugador y temporada (CU-10, RF-049) y cierre o reapertura del expediente (CU-11, RF-050, RN-18, transiciones T-11 y T-12). V17 añade
+`season_closures`; `season_reports` (consecutivo, versión, snapshot, huella) ya existía desde V11.
+
+| Endpoint | Acceso | Notas |
+|---|---|---|
+| `POST /api/v1/players/{id}/season-reports` | `COORDINATOR` | Genera el PDF. Cuerpo `{seasonId, reason?}`; `reason` es obligatorio desde la segunda versión. 201. |
+| `GET /api/v1/players/{id}/season-reports?seasonId=` | coordinador, comité | Versiones generadas, la más reciente primero. |
+| `GET /api/v1/season-reports/{reportId}` | coordinador, comité | Metadatos. El PDF se descarga con `GET /api/v1/files/{fileId}`. |
+| `GET /api/v1/season-reports/verify?code=` | coordinador, comité | Comprueba el código impreso; `current` indica si es la versión vigente. |
+| `POST /api/v1/players/{id}/season-closure` | `COORDINATOR` | Cierra el expediente (ACTIVE → SEASON_CLOSED). Cuerpo `{seasonId, reportId}`. 201. |
+| `POST /api/v1/players/{id}/season-closure/reopen` | `COORDINATOR` | Reabre (SEASON_CLOSED → ACTIVE). Cuerpo `{reason, detail, confirmation}`. |
+| `GET /api/v1/players/{id}/season-closure` | coordinador, comité | Último cierre, vigente o ya reabierto. |
+
+**Decisiones.** (1) *Contenido* (RF-049): asistencia (sesiones cerradas de eventos no cancelados, misma fórmula del módulo de asistencia), evaluaciones **publicadas**
+(rondas cerradas, con el concepto de cada evaluador y el plan de seguimiento; sin las justificaciones, que pueden ser sensibles) y participación en partidos
+(convocatoria confirmada, minutos y goles). No incluye documento de identidad ni datos de salud (RN-17). El periodo es el de la temporada; si aún no termina, el
+informe cubre hasta hoy y lo declara «parcial». (2) *Identificación*: consecutivo `IT-000012` (secuencia que no se reutiliza, puede dejar huecos si una transacción se
+revierte), código de verificación `XXXX-XXXX-XXXX` de 60 bits sin caracteres confundibles, y SHA-256 del archivo. Los datos usados se congelan en `season_reports.snapshot`.
+(3) *Versionado*: regenerar no sobrescribe; la versión nueva apunta a la anterior y exige motivo (lo exige también la base). La generación por jugador y temporada se
+serializa con un bloqueo consultivo. (4) *Generador de PDF propio* (`SimplePdf`, ~250 líneas, sin dependencias nuevas): A4, Helvetica, WinAnsi, paginación y pie
+numerado, y determinista (mismo contenido, mismos bytes); si el club exige un diseño más rico, el puerto `SeasonReportRenderer` permite sustituirlo por OpenPDF o
+similar sin tocar el resto. (5) *Archivo*: el PDF se guarda con la misma ruta de los demás archivos (`documents.api.FileArchive`), con el coordinador como autor;
+`GET /files/{id}` lo entrega a quien lo subió, al coordinador y al comité. (6) *Cierre*: exige la **última** versión del informe y que el expediente deportivo no haya
+cambiado después de generarlo (marcas o correcciones de asistencia, cierre de sesiones, rondas cerradas o resultados de partidos); si cambió, 409 y hay que generar
+una versión nueva. El jugador debe estar `ACTIVE`: uno en evaluación o con un ascenso aprobado pendiente debe resolverlo antes. El cierre conserva la categoría y todo el
+historial, y deja rastro en `season_closures`, `state_history` (T-11) y auditoría. (7) *Reapertura*: solo el coordinador, con motivo, detalle y **confirmación reforzada**
+(escribir el código del jugador); marca el cierre como reabierto (quién, cuándo, por qué) sin borrar nada, deja T-12 en `state_history` y auditoría con el motivo. Se
+reabre siempre a `ACTIVE`, que es el único estado desde el que se cierra. (8) *Solo lectura* (RN-18): el cierre saca al jugador de la plantilla y de los flujos deportivos
+porque estos exigen el estado `ACTIVE` o `IN_EVALUATION` (asistencia, evaluaciones, convocatorias); **pagos y documentos siguen aceptando escrituras** de un expediente
+cerrado (saldar una deuda, renovar un certificado) y no se bloquearon a propósito. (9) *Plantilla provisional* (`plantilla-1`): P-09 sigue sin respuesta del club; el
+formato definitivo solo cambiaría el renderizador.
+
+**Pendiente.** Verificación pública del código sin sesión (hoy exige rol; hace falta un límite de tasa antes de exponerla), acceso del acudiente a su informe, cierre de la
+temporada como entidad (`seasons.status = CLOSED`, hoy no se toca) y cierre en lote, notificación al acudiente (RF-047 en lo que le corresponde), la plantilla y los campos
+definitivos del informe (P-09), el Excel y PDF de las exportaciones de ERS 7.3, y una carrera residual: un cambio confirmado entre la lectura de datos del informe y su
+inserción puede no detectarse como «posterior» (ventana de milisegundos; se cierra con aislamiento serializable si el club lo exige).
 
 ## Siguiente paso
 
-Siguiente incremento: **informe de temporada por jugador y cierre de temporada (CU-10, CU-11)** si el club define la plantilla del informe (P-09). Mientras tanto: procesador
-de notificaciones, alcance de entrenador y evaluador en `PlayerAccessPolicy`, Dockerfile multi-etapa, pipeline CI con quality gates, pruebas de carga con k6 y Swagger UI en `dev`.
+Siguiente incremento: procesador de notificaciones (los avisos ya se encolan como `PENDING`), alcance de entrenador y evaluador en `PlayerAccessPolicy`, Dockerfile
+multi-etapa, pipeline CI con quality gates, pruebas de carga con k6 y Swagger UI en `dev`. CU-10 y CU-11 quedan con plantilla provisional hasta que el club defina P-09.
