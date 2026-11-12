@@ -62,6 +62,7 @@ class SmtpEmailSenderTest {
         assertThat(mime).hasSize(1);
         MimeMessage message = mime.get(0);
         assertThat(message.getSubject()).isEqualTo("Entrenamiento programado");
+        message.saveChanges(); // lo que hace JavaMailSender antes de entregar: fija los encabezados de cada parte
 
         List<BodyPart> parts = new ArrayList<>();
         collect((Multipart) message.getContent(), parts);
