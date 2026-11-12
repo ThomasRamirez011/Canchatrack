@@ -17,8 +17,10 @@ import org.springframework.stereotype.Repository;
 
 import co.edu.unipamplona.canchatrack.scheduling.application.ConflictView;
 import co.edu.unipamplona.canchatrack.scheduling.application.DuplicateVenueException;
+import co.edu.unipamplona.canchatrack.scheduling.application.EventContext;
 import co.edu.unipamplona.canchatrack.scheduling.application.EventView;
 import co.edu.unipamplona.canchatrack.scheduling.application.ReferenceNotFoundException;
+import co.edu.unipamplona.canchatrack.scheduling.application.ReminderCandidate;
 import co.edu.unipamplona.canchatrack.scheduling.application.SchedulingStore;
 import co.edu.unipamplona.canchatrack.scheduling.application.VenueInfo;
 
@@ -159,6 +161,41 @@ public class JdbcSchedulingStore implements SchedulingStore {
     public void cancel(UUID eventId, String reason) {
         jdbc.update("UPDATE sports_events SET status = 'CANCELLED', cancellation_reason = ?, optimistic_version = optimistic_version + 1 WHERE id = ?",
                 reason, eventId);
+    }
+
+    /**
+     * Lee el nombre del entrenador de {@code users} (tabla de identity) solo para redactar el aviso; se hace con SQL de solo
+     * lectura para no acoplar este módulo a las clases de identity. Un cambio en esa tabla obliga a revisar esta consulta.
+     */
+    @Override
+    public EventContext contextOf(EventView event) {
+        List<EventContext> found = jdbc.query("""
+                SELECT c.name AS category_name, COALESCE(v.address, v.reference) AS venue_address, u.full_name AS coach_name
+                FROM sports_events e
+                         JOIN categories c ON c.id = e.category_id
+                         JOIN venues v ON v.id = e.venue_id
+                         LEFT JOIN users u ON u.id = ?::uuid
+                WHERE e.id = ?
+                """, (rs, rowNum) -> new EventContext(rs.getString("category_name"), rs.getString("venue_address"),
+                rs.getString("coach_name")), event.headCoachId(), event.id());
+        return found.isEmpty() ? new EventContext(null, null, null) : found.get(0);
+    }
+
+    @Override
+    public List<ReminderCandidate> findUpcomingForReminders(Instant from, Instant to) {
+        List<Object[]> rows = jdbc.query("""
+                SELECT e.id, e.created_at
+                FROM sports_events e
+                WHERE e.status = 'CONFIRMED' AND e.event_type IN ('TRAINING', 'EVALUATION')
+                  AND e.start_at > ? AND e.start_at <= ?
+                ORDER BY e.start_at, e.id
+                """, (rs, rowNum) -> new Object[]{rs.getObject("id", UUID.class),
+                rs.getObject("created_at", OffsetDateTime.class).toInstant()}, utc(from), utc(to));
+        List<ReminderCandidate> candidates = new ArrayList<>();
+        for (Object[] row : rows) {
+            findEvent((UUID) row[0]).ifPresent(event -> candidates.add(new ReminderCandidate(event, (Instant) row[1])));
+        }
+        return candidates;
     }
 
     @Override
