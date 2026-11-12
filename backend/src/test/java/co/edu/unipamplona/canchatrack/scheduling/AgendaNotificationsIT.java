@@ -166,10 +166,12 @@ class AgendaNotificationsIT {
 
     /** Evento insertado como si se hubiera programado hace una semana: la API siempre lo crea "ahora". */
     private UUID scheduledLongAgo(Club club, Instant start) {
-        return jdbc.queryForObject("""
+        UUID event = jdbc.queryForObject("""
                 INSERT INTO sports_events (event_type, category_id, venue_id, start_at, end_at, created_at)
                 VALUES ('TRAINING', ?, ?, ?, ?, now() - interval '7 days') RETURNING id
                 """, UUID.class, club.category(), club.venue(), Timestamp.from(start), Timestamp.from(start.plus(90, ChronoUnit.MINUTES)));
+        jdbc.update("INSERT INTO event_participants (event_id, user_id, role) VALUES (?, ?, 'HEAD_COACH')", event, club.coach());
+        return event;
     }
 
     private List<Map<String, Object>> notices(UUID event, String type) {
