@@ -76,3 +76,14 @@ canchatrack:
   files:
     directory: ./data/files # almacenamiento en disco (dev); en producción, un almacén de objetos con el mismo puerto
     max-size: 10MB
+  notifications:
+    sender: log # log = simulado (dev/pruebas); smtp = correo real (prod, ver application-prod.yml)
+    processor:
+      enabled: true
+      interval: PT10S # espera entre pasadas del procesador de la cola
+      batch-size: 50
+      lease: 5m # arriendo de un aviso reclamado: debe superar lo que tarda un envío
+    retry:
+      max-attempts: 5 # intentos totales; luego el aviso queda FAILED
+      base-delay: 1m # espera tras el primer fallo; crece x4 hasta max-delay
+      max-delay: 6h
