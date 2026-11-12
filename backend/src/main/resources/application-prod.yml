@@ -12,6 +12,17 @@ spring:
     password: ${DB_MIGRATION_PASSWORD}
   jpa:
     show-sql: false
+  mail:
+    host: ${MAIL_HOST}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USER:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: ${MAIL_AUTH:true}
+      mail.smtp.starttls.enable: ${MAIL_STARTTLS:true}
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 10000
+      mail.smtp.writetimeout: 10000
 
 canchatrack:
   security:
@@ -23,6 +34,10 @@ canchatrack:
       coordinator-email: ${BOOTSTRAP_COORDINATOR_EMAIL:}
       coordinator-name: ${BOOTSTRAP_COORDINATOR_NAME:Coordinador}
       coordinator-password: ${BOOTSTRAP_COORDINATOR_PASSWORD:}
+
+  notifications:
+    sender: ${NOTIFICATIONS_SENDER:smtp} # en producción el valor por defecto es correo real, nunca el simulado
+    from: ${MAIL_FROM} # remitente; sin valor por defecto
 
 server:
   forward-headers-strategy: framework # TLS termina en el proxy inverso (HTTPS obligatorio, SEC-03)
