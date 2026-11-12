@@ -34,11 +34,13 @@ public class SchedulingService {
     private final SchedulingStore store;
     private final StaffDirectory staff;
     private final AuditWriter audit;
+    private final AgendaNotices notices;
 
-    public SchedulingService(SchedulingStore store, StaffDirectory staff, AuditWriter audit) {
+    public SchedulingService(SchedulingStore store, StaffDirectory staff, AuditWriter audit, AgendaNotices notices) {
         this.store = store;
         this.staff = staff;
         this.audit = audit;
+        this.notices = notices;
     }
 
     @Transactional
@@ -66,7 +68,9 @@ public class SchedulingService {
 
     @Transactional
     public EventView schedule(SchedulingActor actor, ScheduleEventCommand command) {
-        return scheduleOfTypes(actor, command, SchedulingRules.EVENT_TYPES);
+        EventView event = scheduleOfTypes(actor, command, SchedulingRules.EVENT_TYPES);
+        notices.scheduled(event); // RF-016: acudientes y entrenador; en la misma transacción, el procesador los envía
+        return event;
     }
 
     /**
@@ -134,7 +138,9 @@ public class SchedulingService {
             throw new DomainException(ErrorCode.RESOURCE_STATE_CONFLICT,
                     "Los partidos se cancelan desde su propio recurso (/matches/{id}/cancel) para avisar a los acudientes.");
         }
-        return cancelEvent(actor, eventId, reason);
+        EventView cancelled = cancelEvent(actor, eventId, reason);
+        notices.cancelled(cancelled); // RF-018
+        return cancelled;
     }
 
     /** Cancela cualquier evento confirmado con motivo; {@link #cancel} lo usa tras descartar los partidos. */

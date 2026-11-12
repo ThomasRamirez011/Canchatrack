@@ -18,6 +18,9 @@ canchatrack:
   documents:
     alerts:
       enabled: false # las pruebas invocan las alertas de vencimiento a mano
+  scheduling:
+    reminders:
+      enabled: false # las pruebas invocan los recordatorios a mano
   identity:
     bcrypt-strength: 4 # mínimo de BCrypt: acelera las pruebas, no es un valor de producción
 

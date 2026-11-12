@@ -144,6 +144,100 @@ class NotificationRulesTest {
                 .orElseThrow().body().contains("Bcc")).isFalse();
     }
 
+    private static Map<String, String> eventPayload() {
+        Map<String, String> payload = new LinkedHashMap<>();
+        payload.put("eventId", "7b1e1c4a-6a4b-4b5e-9b64-0a5d9f1f2c10");
+        payload.put("eventType", "TRAINING");
+        payload.put("categoryName", "Sub-12");
+        payload.put("venueName", "Cancha Municipal");
+        payload.put("venueAddress", "Calle 5 # 3-20");
+        payload.put("coachName", "Carlos Ruiz");
+        payload.put("startAt", "2026-12-01T22:00:00Z");   // 17:00 en Bogotá
+        payload.put("endAt", "2026-12-01T23:30:00Z");     // 18:30
+        payload.put("meetingAt", "2026-12-01T21:30:00Z");
+        payload.put("meetingPoint", "Puerta principal");
+        payload.put("instructions", "Traer uniforme de color azul");
+        payload.put("appUrl", "https://app.club.example");
+        payload.put("stamp", "2026-11-12T15:00:00Z");
+        return payload;
+    }
+
+    @Test
+    void scheduledEventEmailCarriesTheDetailsAndACalendarInvitation() {
+        OutboundEmail email = EmailTemplates.render("EVENT_SCHEDULED", "padre@example.com",
+                "Entrenamiento programado · Sub-12", eventPayload(), BOGOTA).orElseThrow();
+
+        assertThat(email.subject()).isEqualTo("Entrenamiento programado · Sub-12");
+        assertThat(email.body()).contains("entrenamiento de la categoría Sub-12", "01/12/2026 17:00 a 18:30",
+                "Cancha Municipal (Calle 5 # 3-20)", "Entrenador: Carlos Ruiz", "Concentración: 01/12/2026 16:30 en Puerta principal",
+                "Indicaciones: Traer uniforme de color azul", "https://app.club.example");
+        assertThat(email.calendar().method()).isEqualTo("REQUEST");
+        assertThat(email.calendar().content()).contains("METHOD:REQUEST", "DTSTART:20261201T220000Z", "DTEND:20261201T233000Z",
+                "UID:7b1e1c4a-6a4b-4b5e-9b64-0a5d9f1f2c10@canchatrack", "SEQUENCE:0", "STATUS:CONFIRMED");
+    }
+
+    @Test
+    void cancelledEventEmailIsHighlightedAndCancelsTheInvitation() {
+        Map<String, String> payload = eventPayload();
+        payload.put("reason", "Lluvia\nBcc: x@y.z");
+
+        OutboundEmail email = EmailTemplates.render("EVENT_CANCELLED", "padre@example.com", null, payload, BOGOTA).orElseThrow();
+
+        assertThat(email.subject()).startsWith("CANCELADO:");
+        assertThat(email.body()).contains("CANCELACIÓN", "fue cancelado", "Motivo: Lluvia Bcc: x@y.z");
+        assertThat(email.body().contains("\nBcc")).isFalse();
+        assertThat(email.calendar().method()).isEqualTo("CANCEL");
+        assertThat(email.calendar().content()).contains("METHOD:CANCEL", "STATUS:CANCELLED", "SEQUENCE:1");
+    }
+
+    @Test
+    void reminderEmailSaysHowMuchTimeIsLeftAndHasNoInvitation() {
+        Map<String, String> payload = eventPayload();
+        payload.put("hoursBefore", "2");
+
+        OutboundEmail email = EmailTemplates.render("EVENT_REMINDER", "padre@example.com", null, payload, BOGOTA).orElseThrow();
+
+        assertThat(email.subject()).startsWith("Recordatorio:");
+        assertThat(email.body()).contains("Faltan 2 horas para el entrenamiento", "Sub-12");
+        assertThat(email.calendar()).isNull();
+        payload.put("hoursBefore", "1");
+        assertThat(EmailTemplates.render("EVENT_REMINDER", "a@b.co", null, payload, BOGOTA).orElseThrow().body())
+                .contains("Faltan 1 hora para");
+        payload.put("hoursBefore", "2\nBcc: x@y.z");
+        assertThat(EmailTemplates.render("EVENT_REMINDER", "a@b.co", null, payload, BOGOTA).orElseThrow().body().contains("Bcc")).isFalse();
+    }
+
+    @Test
+    void eventEmailsNeverNameOrDescribeAnyPlayer() {
+        for (String type : List.of("EVENT_SCHEDULED", "EVENT_CANCELLED", "EVENT_REMINDER")) {
+            String body = EmailTemplates.render(type, "a@b.co", null, eventPayload(), BOGOTA).orElseThrow().body();
+            assertThat(body.toLowerCase().contains("jugador")).isFalse();
+            assertThat(body.toLowerCase().contains("salud")).isFalse();
+        }
+    }
+
+    @Test
+    void anEventEmailWithoutTheMinimumToBuildAnInvitationStillGoesOut() {
+        Map<String, String> payload = eventPayload();
+        payload.remove("stamp");
+
+        OutboundEmail email = EmailTemplates.render("EVENT_SCHEDULED", "a@b.co", null, payload, BOGOTA).orElseThrow();
+
+        assertThat(email.calendar()).isNull();
+        assertThat(email.body()).contains("Sub-12");
+        assertThat(EmailTemplates.render("EVENT_SCHEDULED", "a@b.co", null, Map.of(), BOGOTA).orElseThrow().body())
+                .contains("fecha por confirmar");
+    }
+
+    @Test
+    void anEventSpanningTwoDaysShowsBothDates() {
+        Map<String, String> payload = eventPayload();
+        payload.put("endAt", "2026-12-02T14:00:00Z");
+
+        assertThat(EmailTemplates.render("EVENT_SCHEDULED", "a@b.co", null, payload, BOGOTA).orElseThrow().body())
+                .contains("01/12/2026 17:00 a 02/12/2026 09:00");
+    }
+
     @Test
     void unknownTypesAndMissingRecipientsAreNotRendered() {
         assertThat(EmailTemplates.render("NO_SUCH_TYPE", "a@b.co", "s", Map.of(), BOGOTA)).isEmpty();

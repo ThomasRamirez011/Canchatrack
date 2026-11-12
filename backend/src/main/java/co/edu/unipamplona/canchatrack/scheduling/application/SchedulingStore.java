@@ -41,6 +41,15 @@ public interface SchedulingStore {
     /** CONFIRMED → COMPLETED; no toca eventos en otro estado. */
     void complete(UUID eventId);
 
+    /** Nombre de la categoría, dirección del escenario y nombre del entrenador responsable del evento. */
+    EventContext contextOf(EventView event);
+
+    /**
+     * Entrenamientos y evaluaciones confirmados que empiezan después de {@code from} y hasta {@code to} (incluido), con el
+     * momento en que se programaron. Los partidos avisan por su propia convocatoria.
+     */
+    List<ReminderCandidate> findUpcomingForReminders(Instant from, Instant to);
+
     /** @param coachId si no es nulo, solo los eventos de los que es entrenador responsable */
     List<EventView> findEvents(UUID categoryId, Instant from, Instant to, UUID coachId, int limit);
 }
