@@ -9,7 +9,7 @@
         <artifactId>spring-boot-starter-parent</artifactId>
         <!-- Línea 3.5.x, SIN soporte OSS desde el 30-06-2026: 3.5.16 es el último parche público. Ver README
              (sección "Decisiones que debe confirmar") y .trivyignore. -->
-        <version>3.5.16</version>
+        <version>4.1.2</version>
         <relativePath/>
     </parent>
 
@@ -24,11 +24,8 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <archunit.version>1.5.1</archunit.version>
         <jacoco.plugin.version>0.8.13</jacoco.plugin.version>
-        <!-- Versiones forzadas por encima de la BOM de Spring Boot 3.5.16 para cerrar CVE con corrección publicada
-             (informe de Trivy, PR #30). Retirar cada una cuando la BOM la iguale o supere. -->
-        <tomcat.version>10.1.60</tomcat.version>
-        <jackson-bom.version>2.21.7</jackson-bom.version>
-        <postgresql.version>42.7.12</postgresql.version>
+        <!-- Boot 4: se retiraron tomcat.version, jackson-bom.version y postgresql.version (forzados en 3.5 para cerrar CVE);
+             la BOM de Boot 4 trae Tomcat 11 y Jackson 3. Lo que Trivy siga marcando se vuelve a forzar con una justificación. -->
     </properties>
 
     <dependencies>
@@ -41,7 +38,7 @@
         <!-- API REST -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -66,14 +63,25 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
+        <!-- Boot 4 usa Jackson 3 (tools.jackson). El código aún usa Jackson 2 (com.fasterxml.jackson, 39 archivos):
+             se mantiene con el módulo de compatibilidad, de forma transitoria. Migrarlo es la fase 2. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-jackson2</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
         <!-- Correo saliente (notifications): solo se usa con canchatrack.notifications.sender=smtp -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-mail</artifactId>
         </dependency>
+        <!-- Boot 4: la auto-configuración de Flyway vive en su propio starter -->
         <dependency>
-            <groupId>org.flywaydb</groupId>
-            <artifactId>flyway-core</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-flyway</artifactId>
         </dependency>
         <dependency>
             <groupId>org.flywaydb</groupId>
@@ -91,6 +99,12 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Boot 4: @AutoConfigureMockMvc y MockMvc viven en el starter de pruebas de webmvc -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-test</artifactId>
@@ -103,12 +117,12 @@
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
-            <artifactId>junit-jupiter</artifactId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
-            <artifactId>postgresql</artifactId>
+            <artifactId>testcontainers-postgresql</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
