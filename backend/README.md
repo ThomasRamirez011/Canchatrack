@@ -68,6 +68,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
   avisa por correo a los acudientes de la categoría y al entrenador, con invitación `.ics`; recordatorios 24 h y 2 h antes, sin repetirse (RF-016, RF-018 a RF-020).
 - `scheduling` + `competitions` + `notifications` (reprogramación, ver «Reprogramación»): el coordinador cambia fecha, escenario, entrenador o indicaciones de un evento o de un partido confirmado, con motivo; el calendario recibe la misma cita actualizada, los acudientes un aviso y, en un partido, se revisa de nuevo la convocatoria (RF-017, RF-018).
 - `scheduling` + `notifications` (sesiones recurrentes y calendario, ver «Sesiones recurrentes y calendario»): el coordinador programa una serie semanal de entrenamientos o evaluaciones (días de la semana, hora local del club, fecha final; hasta 60 sesiones), todo o nada ante cruces, con un solo correo con la invitación `.ics` de todas las sesiones; cancela la serie de una vez; el calendario se filtra por categoría, entrenador, escenario, tipo, estado, serie y rango de fechas (RF-013, RF-014).
+- `players` + `documents` (documentos iniciales en la radicación, ver «Inscripción»): al radicar, el acudiente adjunta archivos que ya subió con `POST /files`; cada uno pasa a ser la primera versión inmutable de su tipo de documento, en la misma transacción que la radicación (todo o nada); ninguno es obligatorio para radicar y la constancia informa los obligatorios pendientes (CU-02, RF-006, RF-007).
 - `audit`: puerto `AuditWriter` (`write` en la transacción de negocio; `writeIndependent` para intentos rechazados,
   p. ej. PA-01), adaptador JDBC y consulta de la bitácora con filtros y cursor (CU-14, ver «Auditoría y reportes»).
 - `reports` (ver «Auditoría y reportes» e «Informe de temporada y cierre del expediente»): cartera por categoría con exportación a CSV y resumen de temporada, como modelo de lectura; informe PDF versionado por jugador y cierre o reapertura del expediente (CU-10, CU-11).
@@ -100,6 +101,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 | Recordatorios de partidos y aviso al entrenador (`scheduling`, `competitions`, `notifications`, `AgendaNoticesTest`, `EventReminderServiceTest`, `NotificationRulesTest`, `ReminderPolicyTest`, `AgendaNotificationsIT`, `CompetitionsIT`) | Sin migración nueva. Las consultas nuevas (contexto del evento con el rival, jugadores confirmados de un evento-partido, eventos próximos con los cuatro tipos) ejecutadas sobre PostgreSQL 16 real con V1..V17; dominio y aplicación compilados con `javac -Xlint:all` y 62 pruebas unitarias ejecutadas con un sustituto mínimo de JUnit y AssertJ; sintaxis de los 23 fuentes modificados analizada con el parser de `javac`. Adaptador JDBC, `MatchAudienceService` y las pruebas de integración nuevas se verificaron en el pipeline | **Verificado** en GitHub Actions (PR #20): 388 pruebas unitarias y 160 de integración, 0 fallos; imagen Docker y smoke test en verde |
 | Avisos de mora y del resultado del comité (`payments`, `players`, `notifications`, `ArrearsPolicyTest`, `ArrearsNoticeServiceTest`, `CommitteeDecisionServiceTest`, `NotificationRulesTest`, `ArrearsNoticeIT`, `CommitteeIT`) | Sin migración nueva. La consulta de cargos vencidos con saldo ejecutada sobre PostgreSQL 16 real con V1..V17 (excluye pagados, futuros, demasiado antiguos y jugadores rechazados; el pago parcial deja su saldo); dominio y aplicación compilados con `javac -Xlint:all` y 107 pruebas unitarias ejecutadas con un sustituto mínimo de JUnit y AssertJ (incluye las de agenda ya existentes); sintaxis de las clases Spring y de las pruebas de integración analizada con el parser de `javac`. Adaptador JDBC, programador, configuración y las pruebas de integración nuevas se verificaron en el pipeline | **Verificado** en GitHub Actions (PR #21): 409 pruebas unitarias y 166 de integración, 0 fallos; imagen Docker y smoke test en verde. La primera corrida falló en `DocumentsIT` por un borde horario de la propia prueba (UTC frente a Bogotá), corregido en el mismo PR |
 | Sesiones recurrentes y calendario filtrable (`scheduling`, `notifications`, V18, `RecurrenceRulesTest`, `SchedulingRulesTest`, `IcsCalendarTest`, `NotificationRulesTest`, `AgendaNoticesTest`, `OpenApiContractTest`, `RecurringSessionsIT`) | V18 y `schema-invariants.sql` sobre PostgreSQL 16 real (`scripts/check-schema.sh`, con cinco aserciones nuevas); las sentencias nuevas del almacén (alta de la serie con el arreglo de días, sesiones ligadas por posición, lectura ordenada de la serie, calendario con los ocho filtros opcionales, rango inclusivo-exclusivo) y las ocho restricciones de la serie ejecutadas contra esa base; dominio, aplicación y plantillas compilados con `javac -Xlint:all` y 102 pruebas unitarias ejecutadas con un sustituto mínimo de JUnit y AssertJ; sintaxis de los 24 fuentes modificados o nuevos analizada con el parser de `javac`; OpenAPI validado con `openapi-spec-validator` (76 rutas, 122 esquemas). Adaptador JDBC, controlador, configuración y `RecurringSessionsIT` **no** se compilaron contra Spring en el sandbox | **Verificado** en GitHub Actions (PR #22, commit 3101f1a): `mvn verify` en BUILD SUCCESS con 436 pruebas unitarias y 176 de integración, 0 fallos, incluidas `RecurrenceRulesTest` (10), `SchedulingRulesTest` (6), `IcsCalendarTest` (9), `NotificationRulesTest` (40), `AgendaNoticesTest` (22), `OpenApiContractTest` (17) y `RecurringSessionsIT` (10); imagen Docker y smoke test en verde. Una sola corrida |
+| Documentos iniciales en la radicación (`documents`, `players`, `EnrollmentDocumentServiceTest`, `EnrollmentServiceTest`, `DocumentRulesTest`, `PlayerDocumentServiceTest`, `OpenApiContractTest`, `EnrollmentDocumentsIT`) | Sin migración nueva. Las dos sentencias nuevas del almacén (existencia de una versión que usa el archivo y bloqueo de la fila del archivo) ejecutadas sobre PostgreSQL 16 real con V1..V18; la fachada, el servicio de documentos, la integración en `EnrollmentService`, el comando y la constancia compilados con `javac` y 55 pruebas unitarias ejecutadas con un sustituto mínimo de JUnit y AssertJ (`EnrollmentDocumentServiceTest`, `EnrollmentServiceTest`, `DocumentRulesTest`, `PlayerDocumentServiceTest`); OpenAPI validado con un lector YAML (76 rutas, 123 esquemas). Adaptador JDBC, DTO, controlador y `EnrollmentDocumentsIT` **no** se compilaron contra Spring en el sandbox | **Verificado** en GitHub Actions (PR #23, commit 337fb51): `mvn verify` en BUILD SUCCESS con 463 pruebas unitarias y 181 de integración, 0 fallos, incluidas `EnrollmentDocumentServiceTest` (17), `EnrollmentServiceTest` (19), `DocumentRulesTest` (11), `PlayerDocumentServiceTest` (8), `OpenApiContractTest` (18) y `EnrollmentDocumentsIT` (5); imagen Docker y smoke test en verde. Una sola corrida |
 | Contenedor e integración continua (`Dockerfile`, `.github/workflows/backend-ci.yml`) | El pipeline es su propia verificación: se ejecutó en GitHub Actions sobre el PR | **Verificado:** `mvn verify` (unitarias + integración con Testcontainers), construcción de la imagen y smoke test (health `UP`, login del coordinador de desarrollo, 401 sin token) en verde (2026-11-12). La primera ejecución falló por Docker Engine 29 (ver «Contenedor e integración continua») |
 | Código Spring (filtro, handler, seguridad, `JdbcAuditWriter`), `ArchitectureTest`, unitarias | `mvn test` en Windows 11, JDK 24 (compila con `--release 21`), Maven 3.10.0 | Ejecutado: OK (19 pruebas, 0 fallos) |
 | `*IT` con Testcontainers (`DatabaseSchemaIT`, `AuditWriterIT`) | `mvn verify`, Docker Desktop 4.98 / Engine 29.9.2 | Ejecutado: OK (7 pruebas, 0 fallos) |
@@ -139,6 +141,7 @@ api.version=1.44
    y las "acciones concretas" de RN-11 (la base exige solo la justificación, como el DDS).
 10. Requiere **PostgreSQL ≥ 15** (`UNIQUE NULLS NOT DISTINCT` en `charges`).
 11. **Sesiones recurrentes (RF-014):** el ERS no define la repetición. Se implementó semanal por días de la semana y fecha final (máx. 60 sesiones), todo o nada ante cruces y un correo por serie con el `.ics` de todas las sesiones (decisiones del usuario). Confirmar con el club si necesita feriados excluidos o repetición cada N semanas.
+12. **Documentos iniciales (CU-02, RF-006):** el DAD pide adjuntar documentos al radicar sin precisar si los obligatorios bloquean la radicación. Decisiones del usuario: los archivos se suben antes con `POST /files` y se referencian en `documents`; **ningún tipo es obligatorio para radicar** (los pendientes se devuelven en la constancia y la activación los exige). Confirmar con el club cuáles tipos serán obligatorios (D-04) y si quiere impedir radicar sin ellos.
 
 ## Convenciones
 
@@ -260,13 +263,14 @@ conserva el alcance de acudiente en el listado.
 
 **Flujo.** El acudiente se registra, inicia sesión, consulta las convocatorias abiertas y radica la inscripción de su jugador
 (DAD CU-02 / DDS UC-01). La radicación crea el expediente (estado `SUBMITTED`), vincula al acudiente como principal,
-registra el consentimiento de datos y la autorización de participación (RF-011) y devuelve el código de radicación.
+registra el consentimiento de datos y la autorización de participación (RF-011), crea las versiones de los documentos
+iniciales que se adjunten y devuelve el código de radicación con los documentos obligatorios que aún faltan.
 
 | Endpoint | Acceso | Notas |
 |---|---|---|
 | `POST /api/v1/guardians` | **público** | Autorregistro: cuenta con rol `GUARDIAN` + ficha de acudiente (CC, CE o PA). |
 | `GET /api/v1/calls/open` | autenticado | Publicadas y dentro de su ventana, con el reloj de la **base de datos** (RN-01). |
-| `POST /api/v1/enrollments` | `GUARDIAN` | Radica la inscripción. 409 `ENROLLMENT_CLOSED` si la convocatoria no está abierta y no hay habilitación excepcional vigente. |
+| `POST /api/v1/enrollments` | `GUARDIAN` | Radica la inscripción, con `documents` opcional (ver «Documentos iniciales»). 409 `ENROLLMENT_CLOSED` si la convocatoria no está abierta y no hay habilitación excepcional vigente. |
 | `GET /api/v1/players` | roles con alcance | Coordinador y comité: todos; acudiente: solo los vinculados; entrenador y evaluador: 403. Filtro `status`, paginación (`size` ≤ 100). |
 | `GET /api/v1/players/{id}` | según `PlayerAccessPolicy` | Sin acceso y sin existencia responden igual (404). |
 
@@ -277,12 +281,36 @@ expediente (RN-20); `WITHDRAWN` y cualquier proceso en curso dan 409. Los confli
 existen. Todo rechazo de negocio deja rastro de auditoría en una transacción aparte (PA-01); la auditoría no guarda nombres,
 documentos ni contactos. Las vigencias (convocatoria abierta, habilitaciones, vínculos) se evalúan con `now()` de la base de datos.
 
+**Documentos iniciales (CU-02, RF-006).** El cuerpo de `POST /enrollments` admite `documents`, una lista opcional de hasta 20
+elementos `{documentTypeId, fileId, issuedOn, expiresOn, notes}`. Cada `fileId` es un archivo que el propio acudiente subió antes
+con `POST /files` (así se reutilizan las validaciones de formato, tamaño e integridad y el cuerpo sigue siendo JSON) y cada
+`documentTypeId` un tipo activo del catálogo (`GET /document-types`).
+
+- **Validación acumulada.** Tipo activo y sin repetir, archivo propio y sin uso previo, tamaño y formato del tipo, emisión no futura y
+  vencimiento (obligatorio si el tipo vence y no define vigencia en días). Los errores de los adjuntos llegan junto con los del
+  formulario en un solo 422, con campos como `documents[1].fileId`, y no se escribe nada.
+- **Un archivo, un documento.** Un archivo ya asociado a una versión no se reutiliza (la fila del archivo se bloquea mientras se
+  radica, de modo que dos radicaciones simultáneas no lo reclaman a la vez). Un archivo ajeno o inexistente responde igual
+  («El archivo no existe.»): no se revela qué archivos hay.
+- **Todo o nada.** Las versiones se crean en la misma transacción que el expediente, los consentimientos y la auditoría; si algo
+  falla no queda nada. Cada versión deja `DOCUMENT_VERSION_UPLOADED` (con `source: enrollment`) y la radicación guarda cuántas se adjuntaron.
+- **Ninguno es obligatorio para radicar.** La constancia devuelve `attachedDocuments` y `missingDocuments` (nombres de los tipos
+  obligatorios que el jugador aún no tiene vigentes) para que el front indique qué falta; esos se cargan después con
+  `POST /players/{id}/documents` y la activación sigue exigiéndolos (RF-048).
+- **Expediente reutilizado (RN-20).** Un jugador nuevo no tiene versiones, así que la primera de cada tipo se admite siempre. Si se
+  reutiliza un expediente que ya tiene una versión de ese tipo, rige la misma regla que la carga normal (ventana habilitada o
+  vencimiento a 30 días o menos, RN-05): sin ella, la radicación completa se rechaza con 409 `DOCUMENT_UPLOAD_NOT_ALLOWED` y deja
+  `ENROLLMENT_REJECTED` en una transacción aparte.
+- **Privacidad.** Un adjunto de un tipo de salud pasa a regirse por RF-009 desde ese momento: `GET /files/{id}` ya no lo entrega al
+  comité ni a otros usuarios, y el acudiente, la coordinación y el entrenador titular lo consultan por la vía de documentos, que audita.
+- **Modularidad.** `players` solo conoce la fachada `documents.api.EnrollmentDocuments`; `documents` valida y crea las versiones.
+
 **Límites conocidos y pendientes (confirmar).**
 1. **El registro público de acudientes no verifica el correo ni limita la tasa por IP**, y por ser un alta abierta revela si
    un correo o documento ya está registrado. Conviene añadir verificación por correo y límite de tasa antes de exponerlo.
 2. Las convocatorias y temporadas se administran con la API de «Convocatorias y temporadas» (abajo); sin una convocatoria
    publicada y abierta no se puede radicar.
-3. **No se adjuntan documentos** en la radicación (`documents`) ni se envían notificaciones (`notifications`).
+3. **No se envían notificaciones** al acudiente ni a la coordinación al radicar (`notifications`).
 4. Si el jugador ya existe y es del mismo acudiente, se **ignoran** los nombres y la fecha de nacimiento enviados (manda el
    expediente existente); corregirlos será una operación aparte con auditoría.
 5. Rangos de edad por categoría pendientes del cliente (DP-01): solo se rechazan fechas imposibles (futuras o de hace más de 100 años).
@@ -477,8 +505,9 @@ y la vista `current_document_versions`.
 los documentos de salud de su propio hijo aunque RF-009 solo nombre a coordinador y entrenador. (4) Solo el certificado médico viene
 sembrado (obligatorio, vence, salud); los demás documentos, sus vigencias y formatos los carga la coordinación desde el catálogo.
 
-**Pendiente.** Adjuntar los documentos iniciales dentro de la radicación (CU-02) en lugar de cargarlos después; alerta de documentos
-vencidos para el coordinador; antivirus.
+Los documentos iniciales también pueden adjuntarse al radicar (ver «Inscripción»).
+
+**Pendiente.** Alerta de documentos vencidos para el coordinador; antivirus.
 
 ## Agenda y asistencia (scheduling, attendance)
 
@@ -807,5 +836,5 @@ registro, despliegue, y que `main` exija el pipeline en verde (protección de ra
 
 ## Siguiente paso
 
-Siguiente incremento: adjuntos en la radicación,
-exportaciones, seguridad (recuperación de contraseña, verificación de correo, límite de tasa) y puertas de calidad. CORS ya está resuelto. CU-10 y CU-11 quedan con plantilla provisional hasta que el club defina P-09.
+Siguiente incremento: exportaciones del ERS 7.3,
+seguridad (recuperación de contraseña, verificación de correo, límite de tasa) y puertas de calidad. CORS ya está resuelto. CU-10 y CU-11 quedan con plantilla provisional hasta que el club defina P-09.

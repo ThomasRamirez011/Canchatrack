@@ -120,4 +120,37 @@ class DocumentRulesTest {
                 .containsExactly("closesAt");
         assertThat(fields(DocumentRules.windowViolations(NOW, NOW.plusSeconds(60), "x".repeat(501), NOW))).containsExactly("reason");
     }
+
+    // ---------- archivo frente al tipo ----------
+
+    @Test
+    void aFileWithinTheTypeLimitAndFormatHasNoViolations() {
+        assertThat(DocumentRules.fileViolations("file", 1_000, "application/pdf", 2_000L, SYSTEM_MAX, List.of("application/pdf")))
+                .isEmpty();
+        assertThat(DocumentRules.fileViolations("file", 1_000, "image/png", null, SYSTEM_MAX, List.of())).isEmpty();
+    }
+
+    @Test
+    void theLimitIsTheSmallerOfTheTypeAndTheSystemOne() {
+        List<FieldError> overType = DocumentRules.fileViolations("fileId", 3_000, "application/pdf", 2_000L, SYSTEM_MAX, List.of());
+        assertThat(fields(overType)).containsExactly("fileId");
+        assertThat(overType.get(0).message()).contains("2000 bytes");
+
+        // Un tipo que declara más que el sistema no puede superar al sistema.
+        List<FieldError> overSystem = DocumentRules.fileViolations("fileId", SYSTEM_MAX + 1, "application/pdf", SYSTEM_MAX * 2, SYSTEM_MAX,
+                List.of());
+        assertThat(overSystem.get(0).message()).contains(SYSTEM_MAX + " bytes");
+    }
+
+    @Test
+    void aFormatOutsideTheTypeListIsRejectedAndTheContentTypeIsNormalized() {
+        List<FieldError> errors = DocumentRules.fileViolations("fileId", 10, "image/jpeg", null, SYSTEM_MAX, List.of("image/png"));
+        assertThat(errors).singleElement().satisfies(e -> {
+            assertThat(e.field()).isEqualTo("fileId");
+            assertThat(e.message()).contains("image/png");
+        });
+        // Mayúsculas y parámetros del tipo declarado no cuentan.
+        assertThat(DocumentRules.fileViolations("fileId", 10, "IMAGE/PNG; charset=binary", null, SYSTEM_MAX, List.of("image/png")))
+                .isEmpty();
+    }
 }

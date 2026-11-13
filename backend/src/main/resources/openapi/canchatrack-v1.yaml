@@ -617,8 +617,18 @@ paths:
         Reglas: convocatoria publicada y dentro de su ventana, o habilitación excepcional vigente del acudiente
         (RN-01, RF-044); sin proceso en curso del jugador; ambas aceptaciones obligatorias. Todo rechazo de negocio
         deja rastro de auditoría. Los conflictos con jugadores existentes responden siempre con el mismo mensaje
-        genérico (PLAYER_STATE_CONFLICT) para no revelar qué documentos existen. Pendiente: adjuntar documentos
-        (módulo documents) y notificaciones.
+        genérico (PLAYER_STATE_CONFLICT) para no revelar qué documentos existen.
+
+        Documentos iniciales (CU-02, RF-006): `documents` es opcional y cada elemento referencia un archivo que el propio
+        acudiente subió antes con `POST /files` y un tipo activo del catálogo (`GET /document-types`). Cada adjunto pasa a
+        ser la primera versión inmutable de ese tipo (RF-007, RF-008); se valida tipo, tamaño y formato del tipo, vigencia
+        y que el archivo sea propio y no respalde ya otro documento (un archivo ajeno o inexistente responde igual:
+        "El archivo no existe."). Hasta 20 adjuntos, sin repetir tipo ni archivo. Los errores de los adjuntos se acumulan
+        con los del formulario en un solo 422 (campos `documents[i].campo`) y no se escribe nada. Ningún tipo es obligatorio
+        para radicar: los obligatorios que falten se devuelven en `missingDocuments` y se cargan después con
+        `POST /players/{playerId}/documents`; la activación del jugador sí los exige. Si se reutiliza un expediente que ya
+        tiene una versión de ese tipo, rige la regla de ventana o vencimiento cercano (RN-05) y, sin ella, la radicación
+        completa se rechaza con 409 DOCUMENT_UPLOAD_NOT_ALLOWED. Pendiente: notificaciones al acudiente y a la coordinación.
       requestBody:
         required: true
         content:
@@ -638,7 +648,9 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
         '409':
-          description: Convocatoria cerrada o cancelada (ENROLLMENT_CLOSED), o conflicto con el jugador (PLAYER_STATE_CONFLICT).
+          description: |
+            Convocatoria cerrada o cancelada (ENROLLMENT_CLOSED), conflicto con el jugador (PLAYER_STATE_CONFLICT) o un
+            documento que el expediente reutilizado no puede recibir ahora (DOCUMENT_UPLOAD_NOT_ALLOWED).
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -2903,9 +2915,27 @@ components:
         relationship: { type: string, maxLength: 40, examples: [Madre] }
         acceptDataProcessing: { type: boolean, description: Debe ser true (RF-011). }
         acceptParticipation: { type: boolean, description: Debe ser true (RF-011). }
+        documents:
+          type: array
+          maxItems: 20
+          description: Documentos iniciales (opcionales). Cada tipo y cada archivo se usan una sola vez.
+          items: { $ref: '#/components/schemas/EnrollmentDocument' }
+    EnrollmentDocument:
+      type: object
+      required: [documentTypeId, fileId]
+      description: Un documento inicial de la radicación. El archivo se sube antes con `POST /files` y debe ser del propio acudiente.
+      properties:
+        documentTypeId: { type: string, format: uuid, description: Tipo activo del catálogo de documentos. }
+        fileId: { type: string, format: uuid, description: Archivo subido por el acudiente que aún no respalda otro documento. }
+        issuedOn: { type: string, format: date, description: Fecha de emisión; no puede ser futura. }
+        expiresOn:
+          type: string
+          format: date
+          description: Vencimiento. Obligatorio si el tipo vence y no define una vigencia en días (se calcula desde la emisión).
+        notes: { type: string, maxLength: 500 }
     EnrollmentResponse:
       type: object
-      required: [enrollmentId, filingCode, playerId, playerCode, playerStatus, callId, submittedAt, viaException]
+      required: [enrollmentId, filingCode, playerId, playerCode, playerStatus, callId, submittedAt, viaException, attachedDocuments, missingDocuments]
       properties:
         enrollmentId: { type: string, format: uuid }
         filingCode: { type: string, examples: [RAD-000001] }
@@ -2915,6 +2945,11 @@ components:
         callId: { type: string, format: uuid }
         submittedAt: { type: string, format: date-time }
         viaException: { type: boolean, description: true si se radicó con una habilitación excepcional. }
+        attachedDocuments: { type: integer, description: Documentos adjuntados en esta radicación. }
+        missingDocuments:
+          type: array
+          description: Nombres de los tipos obligatorios que el jugador aún no tiene vigentes; se cargan después y la activación los exige.
+          items: { type: string }
     PlayerSummaryResponse:
       type: object
       required: [id, code, firstName, lastName, birthDate, status]

@@ -1,5 +1,6 @@
 package co.edu.unipamplona.canchatrack.players.application;
 
+import java.net.InetAddress;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -18,6 +19,7 @@ import co.edu.unipamplona.canchatrack.audit.api.AuditRecord;
 import co.edu.unipamplona.canchatrack.audit.api.AuditWriter;
 import co.edu.unipamplona.canchatrack.documents.api.ConsentKind;
 import co.edu.unipamplona.canchatrack.documents.api.ConsentRecorder;
+import co.edu.unipamplona.canchatrack.documents.api.EnrollmentDocuments;
 import co.edu.unipamplona.canchatrack.identity.api.GuardianDirectory;
 import co.edu.unipamplona.canchatrack.identity.api.PlayerScope;
 import co.edu.unipamplona.canchatrack.players.domain.CallInfo;
@@ -209,6 +211,34 @@ final class Fakes {
         @Override
         public void recordAuthenticatedAcceptance(UUID guardianId, UUID playerId, ConsentKind kind, String versionText) {
             entries.add(new Entry(guardianId, playerId, kind, versionText));
+        }
+    }
+
+    /** Doble de la fachada de documentos de la radicación: registra lo adjuntado y permite forzar problemas o fallos. */
+    static final class FakeDocuments implements EnrollmentDocuments {
+
+        record Call(UUID userId, UUID playerId, List<Attachment> attachments) {
+        }
+
+        final List<Problem> problems = new ArrayList<>();
+        final List<Call> attachCalls = new ArrayList<>();
+        final List<UUID> checkedFor = new ArrayList<>();
+        List<String> missing = List.of();
+        RuntimeException attachFailure;
+
+        @Override
+        public List<Problem> check(UUID guardianUserId, List<Attachment> attachments) {
+            checkedFor.add(guardianUserId);
+            return List.copyOf(problems);
+        }
+
+        @Override
+        public Attached attach(UUID guardianUserId, UUID playerId, List<Attachment> attachments, InetAddress ip, String userAgent) {
+            if (attachFailure != null) {
+                throw attachFailure;
+            }
+            attachCalls.add(new Call(guardianUserId, playerId, attachments));
+            return new Attached(attachments.size(), missing);
         }
     }
 

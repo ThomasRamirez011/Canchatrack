@@ -431,6 +431,29 @@ class OpenApiContractTest {
         assertThat(count.get("maximum")).isEqualTo(co.edu.unipamplona.canchatrack.scheduling.domain.RecurrenceRules.MAX_OCCURRENCES);
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void enrollmentDocumentsAreDocumentedAndMatchTheDomain() throws Exception {
+        Map<String, Object> spec = load();
+        Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) spec.get("components")).get("schemas");
+
+        Map<String, Object> request = (Map<String, Object>) schemas.get("SubmitEnrollmentRequest");
+        Map<String, Object> documents = (Map<String, Object>) ((Map<String, Object>) request.get("properties")).get("documents");
+        assertThat(documents.get("maxItems")).isEqualTo(co.edu.unipamplona.canchatrack.documents.application.EnrollmentDocumentService.MAX_ATTACHMENTS);
+        assertThat(((Map<String, Object>) documents.get("items")).get("$ref")).isEqualTo("#/components/schemas/EnrollmentDocument");
+        // Los documentos son opcionales: no figuran entre los campos obligatorios de la radicación.
+        assertThat((List<String>) request.get("required")).doesNotContain("documents");
+
+        Map<String, Object> attachment = (Map<String, Object>) schemas.get("EnrollmentDocument");
+        assertThat((List<String>) attachment.get("required")).containsExactlyInAnyOrder("documentTypeId", "fileId");
+        Map<String, Object> notes = (Map<String, Object>) ((Map<String, Object>) attachment.get("properties")).get("notes");
+        assertThat(notes.get("maxLength")).isEqualTo(co.edu.unipamplona.canchatrack.documents.domain.DocumentRules.MAX_NOTES);
+
+        // La constancia informa cuántos se adjuntaron y qué obligatorios faltan.
+        Map<String, Object> receipt = (Map<String, Object>) schemas.get("EnrollmentResponse");
+        assertThat((List<String>) receipt.get("required")).contains("attachedDocuments", "missingDocuments");
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> load() throws Exception {
         try (InputStream in = getClass().getResourceAsStream(SPEC)) {

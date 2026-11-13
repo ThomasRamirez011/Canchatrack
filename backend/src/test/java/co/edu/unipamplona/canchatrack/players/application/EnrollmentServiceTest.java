@@ -13,7 +13,10 @@ import org.junit.jupiter.api.Test;
 
 import co.edu.unipamplona.canchatrack.audit.api.AuditRecord;
 import co.edu.unipamplona.canchatrack.documents.api.ConsentKind;
+import co.edu.unipamplona.canchatrack.documents.api.EnrollmentDocuments.Attachment;
+import co.edu.unipamplona.canchatrack.documents.api.EnrollmentDocuments.Problem;
 import co.edu.unipamplona.canchatrack.players.application.Fakes.FakeCalls;
+import co.edu.unipamplona.canchatrack.players.application.Fakes.FakeDocuments;
 import co.edu.unipamplona.canchatrack.players.application.Fakes.FakeGuardians;
 import co.edu.unipamplona.canchatrack.players.application.Fakes.InMemoryEnrollments;
 import co.edu.unipamplona.canchatrack.players.application.Fakes.InMemoryPlayers;
@@ -32,6 +35,7 @@ class EnrollmentServiceTest {
     private final InMemoryEnrollments enrollments = new InMemoryEnrollments();
     private final FakeGuardians guardians = new FakeGuardians();
     private final RecordingConsents consents = new RecordingConsents();
+    private final FakeDocuments documents = new FakeDocuments();
     private final RecordingAudit audit = new RecordingAudit();
     private EnrollmentService service;
 
@@ -40,7 +44,7 @@ class EnrollmentServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new EnrollmentService(calls, players, enrollments, guardians, consents, audit,
+        service = new EnrollmentService(calls, players, enrollments, guardians, consents, documents, audit,
                 new EnrollmentSettings("v1"), Fakes.CLOCK);
         guardianId = guardians.register(userId);
     }
@@ -236,5 +240,101 @@ class EnrollmentServiceTest {
 
         assertThat(e.getCode()).isEqualTo(ErrorCode.PLAYER_STATE_CONFLICT);
         assertThat(audit.independent).singleElement().satisfies(r -> assertThat(r.reason()).isEqualTo("ALREADY_ENROLLED_IN_CALL"));
+    }
+
+    // ---------- documentos iniciales (CU-02, RF-006) ----------
+
+    private SubmitEnrollmentCommand withDocuments(UUID callId, String documentNumber, List<Attachment> attachments) {
+        return new SubmitEnrollmentCommand(callId, "Juan", "Pérez", "TI", documentNumber, LocalDate.of(2014, 3, 9), "Madre",
+                true, true, attachments);
+    }
+
+    private static Attachment attachment() {
+        return new Attachment(UUID.randomUUID(), UUID.randomUUID(), LocalDate.of(2026, 11, 1), null, null);
+    }
+
+    @Test
+    void theAttachmentsAreCreatedForTheNewPlayerAndTheReceiptReportsWhatIsMissing() {
+        CallInfo call = calls.add(Fakes.call(CallStatus.PUBLISHED, true));
+        documents.missing = List.of("Registro civil");
+        List<Attachment> attachments = List.of(attachment(), attachment());
+
+        EnrollmentReceipt receipt = submit(withDocuments(call.id(), "TI-1001", attachments));
+
+        assertThat(documents.checkedFor).containsExactly(userId);
+        assertThat(documents.attachCalls).singleElement().satisfies(c -> {
+            assertThat(c.userId()).isEqualTo(userId);
+            assertThat(c.playerId()).isEqualTo(receipt.playerId());
+            assertThat(c.attachments()).isEqualTo(attachments);
+        });
+        assertThat(receipt.attachedDocuments()).isEqualTo(2);
+        assertThat(receipt.missingDocuments()).containsExactly("Registro civil");
+        assertThat(audit.inTransaction.get(0).afterJson()).contains("\"attachedDocuments\":2");
+    }
+
+    @Test
+    void aFilingWithoutAttachmentsIsAcceptedAndStillReportsTheMandatoryOnesPending() {
+        CallInfo call = calls.add(Fakes.call(CallStatus.PUBLISHED, true));
+        documents.missing = List.of("Certificado médico", "Registro civil");
+
+        EnrollmentReceipt receipt = submit(command(call.id(), "TI-1001"));
+
+        assertThat(receipt.attachedDocuments()).isZero();
+        assertThat(receipt.missingDocuments()).containsExactly("Certificado médico", "Registro civil");
+        assertThat(documents.attachCalls).singleElement().satisfies(c -> assertThat(c.attachments()).isEmpty());
+    }
+
+    @Test
+    void anInvalidAttachmentIsReportedTogetherWithTheFormErrorsAndNothingIsWritten() {
+        CallInfo call = calls.add(Fakes.call(CallStatus.PUBLISHED, true));
+        documents.problems.add(new Problem("documents[0].fileId", "El archivo no existe."));
+        SubmitEnrollmentCommand bad = new SubmitEnrollmentCommand(call.id(), "", "Pérez", "TI", "TI-1001",
+                LocalDate.of(2014, 3, 9), null, true, true, List.of(attachment()));
+
+        DomainException e = thrown(() -> submit(bad));
+
+        assertThat(e.getCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+        assertThat(errorFields(e)).contains("player.firstName", "documents[0].fileId");
+        assertThat(players.rows).isEmpty();
+        assertThat(enrollments.rows).isEmpty();
+        assertThat(consents.entries).isEmpty();
+        assertThat(documents.attachCalls).isEmpty();
+    }
+
+    @Test
+    void aRejectedDocumentUploadOnAReusedRecordLeavesAnIndependentTraceAndFilesNothing() {
+        CallInfo call = calls.add(Fakes.call(CallStatus.PUBLISHED, true));
+        players.seed("TI-4001", PlayerStatus.REJECTED, guardianId);
+        documents.attachFailure = new DomainException(ErrorCode.DOCUMENT_UPLOAD_NOT_ALLOWED, "sin ventana");
+
+        DomainException e = thrown(() -> submit(withDocuments(call.id(), "TI-4001", List.of(attachment()))));
+
+        assertThat(e.getCode()).isEqualTo(ErrorCode.DOCUMENT_UPLOAD_NOT_ALLOWED);
+        assertThat(audit.independent).singleElement().satisfies(r -> {
+            assertThat(r.action()).isEqualTo("ENROLLMENT_REJECTED");
+            assertThat(r.reason()).isEqualTo("DOCUMENT_UPLOAD_NOT_ALLOWED");
+        });
+        assertThat(audit.inTransaction).isEmpty(); // la radicación no llegó a auditarse como exitosa
+    }
+
+    @Test
+    void anyOtherAttachFailureIsPropagatedWithoutAnExtraTrace() {
+        CallInfo call = calls.add(Fakes.call(CallStatus.PUBLISHED, true));
+        documents.attachFailure = new DomainException(ErrorCode.VALIDATION_FAILED, null);
+
+        DomainException e = thrown(() -> submit(withDocuments(call.id(), "TI-1001", List.of(attachment()))));
+
+        assertThat(e.getCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+        assertThat(audit.independent).isEmpty();
+    }
+
+    @Test
+    void theNineArgumentCommandMeansNoAttachmentsAndNullIsTreatedAsEmpty() {
+        UUID callId = UUID.randomUUID();
+        SubmitEnrollmentCommand plain = command(callId, "TI-1001");
+        SubmitEnrollmentCommand nulls = withDocuments(callId, "TI-1001", null);
+
+        assertThat(plain.documents()).isEmpty();
+        assertThat(nulls.documents()).isEmpty();
     }
 }
