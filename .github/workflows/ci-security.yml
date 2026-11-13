@@ -49,6 +49,7 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: "1"           # falla ante una crítica o alta con corrección disponible y sin excepción justificada
+          limit-severities-for-sarif: true   # sin esto, en formato SARIF se evalúan todas las severidades y falla por MEDIUM/LOW
           trivyignores: backend/.trivyignore
           format: sarif
           output: trivy-fs.sarif
@@ -123,6 +124,7 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: "1"
+          limit-severities-for-sarif: true
           trivyignores: backend/.trivyignore
           format: sarif
           output: trivy-image.sarif
