@@ -4,8 +4,6 @@ import java.time.LocalDate;
 import java.util.Optional;
 import java.util.UUID;
 
-import co.edu.unipamplona.canchatrack.identity.api.PlayerScope;
-import co.edu.unipamplona.canchatrack.players.domain.PlayerStatus;
 import co.edu.unipamplona.canchatrack.shared.domain.IdDocumentType;
 
 /** Puerto de salida: expedientes de jugadores y su vínculo con acudientes. Las escrituras exigen transacción. */
@@ -27,10 +25,6 @@ public interface PlayerStore {
 
     Optional<PlayerDetail> findDetail(UUID playerId);
 
-    /**
-     * @param scope  alcance del usuario; {@code NONE} no devuelve nada
-     * @param userId cuenta del usuario (necesaria para {@code LINKED_GUARDIAN})
-     * @param status filtro opcional por estado
-     */
-    PageResult<PlayerSummary> list(PlayerScope scope, UUID userId, PlayerStatus status, int page, int size);
+    /** Una página del listado de jugadores que {@code filter} permite ver. */
+    PageResult<PlayerSummary> list(PlayerFilter filter, int page, int size);
 }

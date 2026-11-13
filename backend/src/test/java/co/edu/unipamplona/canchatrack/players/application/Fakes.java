@@ -21,7 +21,6 @@ import co.edu.unipamplona.canchatrack.documents.api.ConsentKind;
 import co.edu.unipamplona.canchatrack.documents.api.ConsentRecorder;
 import co.edu.unipamplona.canchatrack.documents.api.EnrollmentDocuments;
 import co.edu.unipamplona.canchatrack.identity.api.GuardianDirectory;
-import co.edu.unipamplona.canchatrack.identity.api.PlayerScope;
 import co.edu.unipamplona.canchatrack.players.domain.CallInfo;
 import co.edu.unipamplona.canchatrack.players.domain.CallStatus;
 import co.edu.unipamplona.canchatrack.players.domain.PlayerStatus;
@@ -145,9 +144,9 @@ final class Fakes {
         }
 
         @Override
-        public PageResult<PlayerSummary> list(PlayerScope scope, UUID userId, PlayerStatus status, int page, int size) {
+        public PageResult<PlayerSummary> list(PlayerFilter filter, int page, int size) {
             List<PlayerSummary> all = rows.values().stream()
-                    .filter(r -> status == null || r.status() == status)
+                    .filter(r -> filter.status() == null || r.status() == filter.status())
                     .map(r -> new PlayerSummary(r.id(), r.code(), r.firstName(), r.lastName(), r.birthDate(), r.status()))
                     .toList();
             return new PageResult<>(all, page, size, all.size());

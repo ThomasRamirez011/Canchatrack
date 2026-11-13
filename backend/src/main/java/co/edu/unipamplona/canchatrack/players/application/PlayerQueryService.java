@@ -67,7 +67,7 @@ public class PlayerQueryService {
         }
         int safePage = Math.max(page, 0);
         int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
-        return players.list(scope, userId, status, safePage, safeSize);
+        return players.list(new PlayerFilter(scope, userId, status), safePage, safeSize);
     }
 
     private static DomainException notFound() {
