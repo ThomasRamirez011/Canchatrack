@@ -3,7 +3,7 @@
 # El perfil por defecto es `prod`: sin DB_URL, DB_USER, DB_PASSWORD, JWT_SECRET, MFA_ENCRYPTION_KEY, MAIL_HOST y MAIL_FROM no arranca (a propósito).
 
 # ---- Etapa 1: compilar y extraer capas ------------------------------------------------------------
-FROM maven:3.9-eclipse-temurin-21 AS build
+FROM maven:3.9-eclipse-temurin-26 AS build
 WORKDIR /build
 
 # Primero solo el pom: la capa de dependencias se reutiliza mientras no cambien.
