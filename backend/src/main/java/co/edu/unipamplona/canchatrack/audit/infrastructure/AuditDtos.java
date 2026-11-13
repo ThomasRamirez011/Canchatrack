@@ -4,9 +4,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 import co.edu.unipamplona.canchatrack.audit.application.AuditEntry;
 import co.edu.unipamplona.canchatrack.audit.application.AuditPage;
@@ -14,7 +14,7 @@ import co.edu.unipamplona.canchatrack.audit.application.AuditPage;
 /** Contratos JSON de la consulta de auditoría (ver openapi/canchatrack-v1.yaml). */
 final class AuditDtos {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
     private AuditDtos() {
     }
@@ -42,7 +42,7 @@ final class AuditDtos {
         }
         try {
             return MAPPER.readTree(json);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             return null;
         }
     }
