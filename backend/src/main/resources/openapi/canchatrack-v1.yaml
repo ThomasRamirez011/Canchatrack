@@ -51,7 +51,7 @@ tags:
   - name: audit
     description: Consulta de la bitácora de auditoría (CU-14, RF-051), solo para la coordinación.
   - name: reports
-    description: Cartera por categoría con exportación a CSV, resumen de temporada (CU-10 a CU-12), informe PDF por jugador y cierre o reapertura del expediente.
+    description: Cartera por categoría y exportaciones CSV del ERS 7.3 (plantilla, asistencia, convocatorias y resultados, seguimiento de evaluación), resumen de temporada (CU-10 a CU-12), informe PDF por jugador y cierre o reapertura del expediente.
 paths:
   /auth/login:
     post:
@@ -2023,6 +2023,107 @@ paths:
       responses:
         '200':
           description: Archivo CSV (`cartera-AAAA-MM-DD.csv`).
+          content:
+            text/csv:
+              schema: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /reports/roster/export:
+    get:
+      tags: [reports]
+      operationId: exportRosterReport
+      summary: Exporta la plantilla vigente a CSV (ERS 7.3). Coordinador y comité.
+      description: |
+        Una fila por jugador con categoría vigente: categoría, código, nombre, fecha de nacimiento, estado, entrenador
+        titular, acudiente principal y fecha desde la que está en la categoría. No incluye documento de identidad, contacto ni
+        datos de salud (RN-17). Mismas garantías de CSV que la cartera (UTF-8 con BOM, neutralización de fórmulas, sin caché)
+        y auditoría `REPORT_EXPORTED`. Si el resultado supera 20000 filas se rechaza con 422 en vez de entregar un archivo
+        incompleto.
+      parameters:
+        - { name: categoryId, in: query, required: false, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Archivo CSV (`plantilla-AAAA-MM-DD.csv`).
+          content:
+            text/csv:
+              schema: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /reports/attendance/export:
+    get:
+      tags: [reports]
+      operationId: exportAttendanceReport
+      summary: Exporta la asistencia a CSV (ERS 7.3). Coordinador y comité.
+      description: |
+        Una fila por jugador y sesión cerrada (eventos no cancelados) que empieza en la ventana: fecha y hora locales, tipo,
+        categoría, escenario, jugador, asistencia (`PRESENT`, `LATE`, `EXCUSED`, `ABSENT`) y si la excusa fue aceptada.
+        Ventana: con `seasonId` parte del periodo de la temporada y `from` y `to` (inclusivos, día del club) solo la acotan;
+        sin temporada `from` y `to` son obligatorios y el rango no puede superar 366 días. Mismas garantías de CSV y límite de 20000 filas que las demás exportaciones.
+      parameters:
+        - { name: seasonId, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: categoryId, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: from, in: query, required: false, schema: { type: string, format: date } }
+        - { name: to, in: query, required: false, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: Archivo CSV (`asistencia-AAAA-MM-DD_AAAA-MM-DD.csv`).
+          content:
+            text/csv:
+              schema: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /reports/matches/export:
+    get:
+      tags: [reports]
+      operationId: exportMatchesReport
+      summary: Exporta convocatorias y resultados de partidos a CSV (ERS 7.3). Coordinador y comité.
+      description: |
+        Una fila por partido y convocado (sin los retirados de la convocatoria); un partido sin convocados sale con las celdas del
+        jugador vacías. Incluye fecha y hora locales, categoría, tipo, torneo, rival, escenario, estado, marcador, estado de la
+        convocatoria, minutos y goles. No publica las causas de no elegibilidad, que pueden revelar datos de salud (RN-17).
+        Ventana: con `seasonId` parte del periodo de la temporada y `from` y `to` (inclusivos, día del club) solo la acotan;
+        sin temporada `from` y `to` son obligatorios y el rango no puede superar 366 días. Mismas garantías de CSV y límite de 20000 filas que las demás exportaciones.
+      parameters:
+        - { name: seasonId, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: categoryId, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: tournamentId, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: from, in: query, required: false, schema: { type: string, format: date } }
+        - { name: to, in: query, required: false, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: Archivo CSV (`convocatorias-AAAA-MM-DD_AAAA-MM-DD.csv`).
+          content:
+            text/csv:
+              schema: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /reports/evaluations/export:
+    get:
+      tags: [reports]
+      operationId: exportEvaluationsReport
+      summary: Exporta el seguimiento de evaluación a CSV (ERS 7.3). Coordinador y comité.
+      description: |
+        Una fila por ronda de evaluación cuyo periodo toca la ventana: categoría actual, jugador, periodo, vencimiento, estado,
+        resultado, fecha de cierre y el conteo de conceptos vigentes (emitidos, favorables, de seguimiento y desfavorables). No
+        publica quién dio cada concepto ni sus justificaciones (RN-10, RN-17).
+        Ventana: con `seasonId` parte del periodo de la temporada y `from` y `to` (inclusivos, día del club) solo la acotan;
+        sin temporada `from` y `to` son obligatorios y el rango no puede superar 366 días. Mismas garantías de CSV y límite de 20000 filas que las demás exportaciones.
+      parameters:
+        - { name: seasonId, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: categoryId, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: from, in: query, required: false, schema: { type: string, format: date } }
+        - { name: to, in: query, required: false, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: Archivo CSV (`evaluaciones-AAAA-MM-DD_AAAA-MM-DD.csv`).
           content:
             text/csv:
               schema: { type: string }

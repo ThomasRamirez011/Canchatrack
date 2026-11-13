@@ -12,6 +12,7 @@ import org.yaml.snakeyaml.Yaml;
 
 import co.edu.unipamplona.canchatrack.shared.domain.ErrorCode;
 import co.edu.unipamplona.canchatrack.shared.web.ApiPaths;
+import co.edu.unipamplona.canchatrack.reports.domain.ExportRules;
 
 /**
  * Mantiene sincronizados el contrato OpenAPI y el código: "cada endpoint se documenta en OpenAPI antes de
@@ -292,6 +293,33 @@ class OpenApiContractTest {
             assertThat(((Map<String, Object>) documented.get("properties")).keySet())
                     .as("campos de %s", name).containsExactlyInAnyOrderElementsOf(actual);
         }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void ersExportsAreDocumentedAsCsvWithTheDomainLimits() throws Exception {
+        Map<String, Object> spec = load();
+        Map<String, Object> paths = (Map<String, Object>) spec.get("paths");
+        Map<String, List<String>> expectedParameters = Map.of(
+                "/reports/roster/export", List.of("categoryId"),
+                "/reports/attendance/export", List.of("seasonId", "categoryId", "from", "to"),
+                "/reports/matches/export", List.of("seasonId", "categoryId", "tournamentId", "from", "to"),
+                "/reports/evaluations/export", List.of("seasonId", "categoryId", "from", "to"));
+
+        expectedParameters.forEach((path, names) -> {
+            Map<String, Object> get = (Map<String, Object>) ((Map<String, Object>) paths.get(path)).get("get");
+            Map<String, Object> ok = (Map<String, Object>) ((Map<String, Object>) get.get("responses")).get("200");
+            assertThat(((Map<String, Object>) ok.get("content")).keySet()).containsExactly("text/csv");
+            assertThat(((Map<String, Object>) get.get("responses")).keySet()).contains("401", "403", "422");
+            List<Map<String, Object>> parameters = (List<Map<String, Object>>) get.get("parameters");
+            assertThat(parameters.stream().map(p -> (String) p.get("name")).toList()).containsExactlyElementsOf(names);
+            assertThat(parameters).allSatisfy(p -> assertThat(p.get("required")).isEqualTo(false));
+            // Los límites que el contrato anuncia son los del dominio.
+            assertThat((String) get.get("description")).contains(ExportRules.MAX_ROWS + " filas");
+            if (names.contains("from")) {
+                assertThat((String) get.get("description")).contains(ExportRules.MAX_RANGE_DAYS + " días");
+            }
+        });
     }
 
     @Test

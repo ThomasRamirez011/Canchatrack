@@ -69,6 +69,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 - `scheduling` + `competitions` + `notifications` (reprogramación, ver «Reprogramación»): el coordinador cambia fecha, escenario, entrenador o indicaciones de un evento o de un partido confirmado, con motivo; el calendario recibe la misma cita actualizada, los acudientes un aviso y, en un partido, se revisa de nuevo la convocatoria (RF-017, RF-018).
 - `scheduling` + `notifications` (sesiones recurrentes y calendario, ver «Sesiones recurrentes y calendario»): el coordinador programa una serie semanal de entrenamientos o evaluaciones (días de la semana, hora local del club, fecha final; hasta 60 sesiones), todo o nada ante cruces, con un solo correo con la invitación `.ics` de todas las sesiones; cancela la serie de una vez; el calendario se filtra por categoría, entrenador, escenario, tipo, estado, serie y rango de fechas (RF-013, RF-014).
 - `players` + `documents` (documentos iniciales en la radicación, ver «Inscripción»): al radicar, el acudiente adjunta archivos que ya subió con `POST /files`; cada uno pasa a ser la primera versión inmutable de su tipo de documento, en la misma transacción que la radicación (todo o nada); ninguno es obligatorio para radicar y la constancia informa los obligatorios pendientes (CU-02, RF-006, RF-007).
+- `reports` (exportaciones del ERS 7.3, ver «Exportaciones del ERS 7.3»): plantilla, asistencia, convocatorias y resultados, y seguimiento de evaluación en CSV (abre en Excel), solo coordinación y comité, con ventana por temporada o fechas, tope de 20000 filas, sin datos de identidad ni de salud y cada descarga auditada.
 - `audit`: puerto `AuditWriter` (`write` en la transacción de negocio; `writeIndependent` para intentos rechazados,
   p. ej. PA-01), adaptador JDBC y consulta de la bitácora con filtros y cursor (CU-14, ver «Auditoría y reportes»).
 - `reports` (ver «Auditoría y reportes» e «Informe de temporada y cierre del expediente»): cartera por categoría con exportación a CSV y resumen de temporada, como modelo de lectura; informe PDF versionado por jugador y cierre o reapertura del expediente (CU-10, CU-11).
@@ -102,6 +103,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 | Avisos de mora y del resultado del comité (`payments`, `players`, `notifications`, `ArrearsPolicyTest`, `ArrearsNoticeServiceTest`, `CommitteeDecisionServiceTest`, `NotificationRulesTest`, `ArrearsNoticeIT`, `CommitteeIT`) | Sin migración nueva. La consulta de cargos vencidos con saldo ejecutada sobre PostgreSQL 16 real con V1..V17 (excluye pagados, futuros, demasiado antiguos y jugadores rechazados; el pago parcial deja su saldo); dominio y aplicación compilados con `javac -Xlint:all` y 107 pruebas unitarias ejecutadas con un sustituto mínimo de JUnit y AssertJ (incluye las de agenda ya existentes); sintaxis de las clases Spring y de las pruebas de integración analizada con el parser de `javac`. Adaptador JDBC, programador, configuración y las pruebas de integración nuevas se verificaron en el pipeline | **Verificado** en GitHub Actions (PR #21): 409 pruebas unitarias y 166 de integración, 0 fallos; imagen Docker y smoke test en verde. La primera corrida falló en `DocumentsIT` por un borde horario de la propia prueba (UTC frente a Bogotá), corregido en el mismo PR |
 | Sesiones recurrentes y calendario filtrable (`scheduling`, `notifications`, V18, `RecurrenceRulesTest`, `SchedulingRulesTest`, `IcsCalendarTest`, `NotificationRulesTest`, `AgendaNoticesTest`, `OpenApiContractTest`, `RecurringSessionsIT`) | V18 y `schema-invariants.sql` sobre PostgreSQL 16 real (`scripts/check-schema.sh`, con cinco aserciones nuevas); las sentencias nuevas del almacén (alta de la serie con el arreglo de días, sesiones ligadas por posición, lectura ordenada de la serie, calendario con los ocho filtros opcionales, rango inclusivo-exclusivo) y las ocho restricciones de la serie ejecutadas contra esa base; dominio, aplicación y plantillas compilados con `javac -Xlint:all` y 102 pruebas unitarias ejecutadas con un sustituto mínimo de JUnit y AssertJ; sintaxis de los 24 fuentes modificados o nuevos analizada con el parser de `javac`; OpenAPI validado con `openapi-spec-validator` (76 rutas, 122 esquemas). Adaptador JDBC, controlador, configuración y `RecurringSessionsIT` **no** se compilaron contra Spring en el sandbox | **Verificado** en GitHub Actions (PR #22, commit 3101f1a): `mvn verify` en BUILD SUCCESS con 436 pruebas unitarias y 176 de integración, 0 fallos, incluidas `RecurrenceRulesTest` (10), `SchedulingRulesTest` (6), `IcsCalendarTest` (9), `NotificationRulesTest` (40), `AgendaNoticesTest` (22), `OpenApiContractTest` (17) y `RecurringSessionsIT` (10); imagen Docker y smoke test en verde. Una sola corrida |
 | Documentos iniciales en la radicación (`documents`, `players`, `EnrollmentDocumentServiceTest`, `EnrollmentServiceTest`, `DocumentRulesTest`, `PlayerDocumentServiceTest`, `OpenApiContractTest`, `EnrollmentDocumentsIT`) | Sin migración nueva. Las dos sentencias nuevas del almacén (existencia de una versión que usa el archivo y bloqueo de la fila del archivo) ejecutadas sobre PostgreSQL 16 real con V1..V18; la fachada, el servicio de documentos, la integración en `EnrollmentService`, el comando y la constancia compilados con `javac` y 55 pruebas unitarias ejecutadas con un sustituto mínimo de JUnit y AssertJ (`EnrollmentDocumentServiceTest`, `EnrollmentServiceTest`, `DocumentRulesTest`, `PlayerDocumentServiceTest`); OpenAPI validado con un lector YAML (76 rutas, 123 esquemas). Adaptador JDBC, DTO, controlador y `EnrollmentDocumentsIT` **no** se compilaron contra Spring en el sandbox | **Verificado** en GitHub Actions (PR #23, commit 337fb51): `mvn verify` en BUILD SUCCESS con 463 pruebas unitarias y 181 de integración, 0 fallos, incluidas `EnrollmentDocumentServiceTest` (17), `EnrollmentServiceTest` (19), `DocumentRulesTest` (11), `PlayerDocumentServiceTest` (8), `OpenApiContractTest` (18) y `EnrollmentDocumentsIT` (5); imagen Docker y smoke test en verde. Una sola corrida |
+| Exportaciones CSV del ERS 7.3 (`reports`, `ExportRulesTest`, `ExportServiceTest`, `OpenApiContractTest`, `ReportExportsIT`) | Sin migración nueva. Las cuatro consultas del almacén ejecutadas sobre PostgreSQL 16 real con V1..V18 y datos de prueba (excluyen sesiones abiertas o canceladas, convocados retirados y conceptos de otro periodo); reglas, servicio y encabezados compilados con `javac` y 24 pruebas unitarias ejecutadas con un sustituto mínimo de JUnit y AssertJ (`ExportRulesTest` 9, `ExportServiceTest` 15); OpenAPI validado con un lector YAML (80 rutas, 123 esquemas). Adaptador JDBC, controladores, `CsvResponses`, la nueva prueba de `OpenApiContractTest` y `ReportExportsIT` **no** se compilaron contra Spring en el sandbox | **Verificado** en GitHub Actions (PR #24, commit b3f265d): `mvn verify` en BUILD SUCCESS con 488 pruebas unitarias y 188 de integración, 0 fallos, incluidas `ExportRulesTest` (9), `ExportServiceTest` (15), `OpenApiContractTest` (19) y `ReportExportsIT` (7); imagen Docker y smoke test en verde. Una sola corrida |
 | Contenedor e integración continua (`Dockerfile`, `.github/workflows/backend-ci.yml`) | El pipeline es su propia verificación: se ejecutó en GitHub Actions sobre el PR | **Verificado:** `mvn verify` (unitarias + integración con Testcontainers), construcción de la imagen y smoke test (health `UP`, login del coordinador de desarrollo, 401 sin token) en verde (2026-11-12). La primera ejecución falló por Docker Engine 29 (ver «Contenedor e integración continua») |
 | Código Spring (filtro, handler, seguridad, `JdbcAuditWriter`), `ArchitectureTest`, unitarias | `mvn test` en Windows 11, JDK 24 (compila con `--release 21`), Maven 3.10.0 | Ejecutado: OK (19 pruebas, 0 fallos) |
 | `*IT` con Testcontainers (`DatabaseSchemaIT`, `AuditWriterIT`) | `mvn verify`, Docker Desktop 4.98 / Engine 29.9.2 | Ejecutado: OK (7 pruebas, 0 fallos) |
@@ -142,6 +144,7 @@ api.version=1.44
 10. Requiere **PostgreSQL ≥ 15** (`UNIQUE NULLS NOT DISTINCT` en `charges`).
 11. **Sesiones recurrentes (RF-014):** el ERS no define la repetición. Se implementó semanal por días de la semana y fecha final (máx. 60 sesiones), todo o nada ante cruces y un correo por serie con el `.ics` de todas las sesiones (decisiones del usuario). Confirmar con el club si necesita feriados excluidos o repetición cada N semanas.
 12. **Documentos iniciales (CU-02, RF-006):** el DAD pide adjuntar documentos al radicar sin precisar si los obligatorios bloquean la radicación. Decisiones del usuario: los archivos se suben antes con `POST /files` y se referencian en `documents`; **ningún tipo es obligatorio para radicar** (los pendientes se devuelven en la constancia y la activación los exige). Confirmar con el club cuáles tipos serán obligatorios (D-04) y si quiere impedir radicar sin ellos.
+13. **Exportaciones del ERS 7.3 (CU-12):** el ERS no fija las columnas de cada planilla. Decisiones del usuario: solo CSV y acceso para coordinación y comité. Supuestos propios: asistencia por sesión y jugador, convocatorias sin causas de no elegibilidad, evaluación con conteos de conceptos (sin evaluadores ni justificaciones), tope de 20000 filas. Confirmar con el club las columnas (CA-21) y si necesita Excel nativo o PDF.
 
 ## Convenciones
 
@@ -610,6 +613,10 @@ jugador (CU-10, RF-049) y el cierre o reapertura (CU-11, RF-050, RN-18) se descr
 | `GET /api/v1/audit/events` | `COORDINATOR` | Filtros `action`, `entityType`, `entityId`, `actorId`, `outcome`, `from` (inclusivo), `to` (exclusivo); `limit` 1..200 (50) y `cursor`. Más reciente primero. |
 | `GET /api/v1/reports/receivables` | coordinador, comité | Cargos con saldo pendiente con jugador, acudiente principal, concepto, valor, pagado, saldo y días de mora; totales por categoría. Filtros `seasonId`, `categoryId`, `asOf`. |
 | `GET /api/v1/reports/receivables/export` | coordinador, comité | Mismo contenido en CSV (UTF-8 con BOM, abre en Excel). Queda auditado (`REPORT_EXPORTED`). |
+| `GET /api/v1/reports/roster/export` | coordinador, comité | Plantilla vigente en CSV. Filtro `categoryId`. |
+| `GET /api/v1/reports/attendance/export` | coordinador, comité | Asistencia por sesión cerrada y jugador en CSV. Filtros `seasonId`, `categoryId`, `from`, `to`. |
+| `GET /api/v1/reports/matches/export` | coordinador, comité | Convocatorias y resultados de partidos en CSV. Filtros `seasonId`, `categoryId`, `tournamentId`, `from`, `to`. |
+| `GET /api/v1/reports/evaluations/export` | coordinador, comité | Seguimiento de las rondas de evaluación en CSV. Filtros `seasonId`, `categoryId`, `from`, `to`. |
 | `GET /api/v1/reports/season-summary?seasonId=` | coordinador, comité | Plantilla por categoría, eventos por tipo y estado, asistencia de sesiones cerradas, resultados de partidos y recaudo de la temporada. |
 
 **Decisiones.** (1) La paginación de auditoría es por claves `(occurred_at, id)` con cursor opaco, no por número de página: las páginas son estables aunque entren
@@ -623,11 +630,36 @@ que el sistema aún no modela. (5) `reports` es un modelo de lectura: consulta c
 (hoy en la zona del club por defecto), sin días de gracia. Un jugador sin categoría vigente aparece en «Sin categoría». `lines` se corta en 5000 filas
 (`truncated`), los totales por categoría siempre suman todo. (7) El porcentaje de asistencia usa la misma fórmula que el módulo de asistencia (se duplica en `reports.domain`
 para no acoplar módulos). (8) CSV seguro: los textos que empiezan por `=`, `+`, `-` o `@` se prefijan con `'` porque el acudiente escribe los nombres (inyección de fórmulas);
-respuesta con `Cache-Control: no-store`. (9) Las exportaciones que sustituyen las planillas (ERS 7.3) cubren hoy solo cartera; el CSV de plantilla, asistencia, convocatorias
-y seguimiento de evaluación, y el Excel (.xlsx) y el PDF, quedan pendientes.
+respuesta con `Cache-Control: no-store`. (9) Las otras cuatro exportaciones que sustituyen las planillas (ERS 7.3) se describen en «Exportaciones del ERS 7.3»; el Excel (.xlsx) nativo y el PDF
+quedan pendientes.
 
-**Pendiente.** Exportaciones restantes de ERS 7.3, política de publicación de IP y agente de usuario, rol de administrador autorizado, retención y archivo de la bitácora, y el historial
+**Pendiente.** Excel (.xlsx) nativo y PDF de las exportaciones de ERS 7.3, política de publicación de IP y agente de usuario, rol de administrador autorizado, retención y archivo de la bitácora, y el historial
 deportivo completo por jugador (RF-037).
+
+## Exportaciones del ERS 7.3 (reports)
+
+Cuatro exportaciones CSV que sustituyen las planillas del club (CU-12, CA-21), además de la cartera. Decisiones del usuario: **solo CSV** (UTF-8 con BOM, abre en Excel)
+y acceso para **coordinación y comité**. Todas son solo lectura, salvo el rastro de auditoría `REPORT_EXPORTED` (con el informe, los filtros y el número de filas, nunca
+el contenido), y responden con `Cache-Control: no-store`.
+
+| Exportación | Una fila por… | Columnas |
+|---|---|---|
+| Plantilla (`/reports/roster/export`) | jugador con categoría vigente | Categoría, Código, Jugador, Fecha de nacimiento, Estado, Entrenador titular, Acudiente principal, En la categoría desde |
+| Asistencia (`/reports/attendance/export`) | jugador y sesión cerrada (eventos no cancelados) | Fecha, Hora, Tipo, Categoría, Escenario, Código, Jugador, Asistencia, Excusa aceptada |
+| Convocatorias y resultados (`/reports/matches/export`) | partido y convocado (sin los retirados); un partido sin convocados sale con las celdas del jugador vacías | Fecha, Hora, Categoría, Tipo, Torneo, Rival, Escenario, Estado del partido, Goles a favor, Goles en contra, Código, Jugador, Convocatoria, Minutos, Goles |
+| Seguimiento de evaluación (`/reports/evaluations/export`) | ronda de evaluación cuyo periodo toca la ventana | Categoría, Código, Jugador, Periodo desde, Periodo hasta, Vence, Estado de la ronda, Resultado, Fecha de cierre, Conceptos emitidos, Favorables, Seguimiento, Desfavorables |
+
+**Decisiones.** (1) **Ventana:** con `seasonId` parte del periodo de la temporada y `from` y `to` (inclusivos, días del club) solo la acotan; sin temporada `from` y `to`
+son obligatorios y el rango no puede superar 366 días. Las fechas se convierten a medianoche de la zona del club (`canchatrack.zone-id`); fecha y hora salen en esa zona.
+La plantilla es siempre la vigente (no hay «plantilla a una fecha»). (2) **Tope de 20000 filas:** si el resultado lo supera se rechaza con 422 y se pide acotar por categoría
+o fechas; no se entrega un archivo recortado sin aviso. (3) **Privacidad (RN-17, RN-10):** ninguna columna lleva documento de identidad, datos de contacto ni de salud. El
+archivo de convocatorias no publica la causa de no elegibilidad (puede revelar un certificado médico) y el de evaluación cuenta los conceptos vigentes por tipo, sin decir
+quién dio cada uno ni su justificación; solo cuentan los conceptos emitidos sobre el periodo vigente de la ronda. (4) **Asistencia:** solo sesiones cerradas de eventos no
+cancelados, con la categoría del evento (no la actual del jugador). (5) **Encabezados en español**, valores de estado con el código del sistema (`PRESENT`, `CONFIRMED`, …), igual
+que la cartera. (6) El orden de las celdas de cada fila es un contrato entre `ExportColumns` y `JdbcExportStore`; la prueba de integración lo comprueba con los
+encabezados reales. (7) `CsvResponses` reúne la entrega común (BOM, `no-store`, actor auditado); la cartera la usa desde este incremento sin cambiar su contenido.
+
+**Pendiente.** Excel (.xlsx) nativo y PDF; plantilla a una fecha; confirmar con el club las columnas de cada planilla (CA-21).
 
 ## Informe de temporada y cierre del expediente (reports, players, documents)
 
@@ -836,5 +868,5 @@ registro, despliegue, y que `main` exija el pipeline en verde (protección de ra
 
 ## Siguiente paso
 
-Siguiente incremento: exportaciones del ERS 7.3,
+Siguiente incremento:
 seguridad (recuperación de contraseña, verificación de correo, límite de tasa) y puertas de calidad. CORS ya está resuelto. CU-10 y CU-11 quedan con plantilla provisional hasta que el club defina P-09.
