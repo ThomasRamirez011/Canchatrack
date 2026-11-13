@@ -17,7 +17,7 @@ RUN mvn -B -q -ntp -DskipTests package \
     && java -Djarmode=tools -jar application.jar extract --layers --destination extracted
 
 # ---- Etapa 2: ejecución ---------------------------------------------------------------------------
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:25-jre-alpine
 RUN addgroup -S canchatrack && adduser -S -G canchatrack canchatrack \
     && mkdir -p /data/files && chown -R canchatrack:canchatrack /data
 WORKDIR /app
