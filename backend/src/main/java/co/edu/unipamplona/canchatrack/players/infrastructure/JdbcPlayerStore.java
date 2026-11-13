@@ -15,6 +15,7 @@ import co.edu.unipamplona.canchatrack.identity.api.PlayerScope;
 import co.edu.unipamplona.canchatrack.players.application.DuplicatePlayerDocumentException;
 import co.edu.unipamplona.canchatrack.players.application.PageResult;
 import co.edu.unipamplona.canchatrack.players.application.PlayerDetail;
+import co.edu.unipamplona.canchatrack.players.application.PlayerFilter;
 import co.edu.unipamplona.canchatrack.players.application.PlayerRecord;
 import co.edu.unipamplona.canchatrack.players.application.PlayerStore;
 import co.edu.unipamplona.canchatrack.players.application.PlayerSummary;
@@ -121,11 +122,13 @@ public class JdbcPlayerStore implements PlayerStore {
     }
 
     @Override
-    public PageResult<PlayerSummary> list(PlayerScope scope, UUID userId, PlayerStatus status, int page, int size) {
-        boolean needsUser = scope == PlayerScope.LINKED_GUARDIAN || scope == PlayerScope.ASSIGNED_STAFF;
-        if (scope == PlayerScope.NONE || (needsUser && userId == null)) {
+    public PageResult<PlayerSummary> list(PlayerFilter filter, int page, int size) {
+        if (filter.matchesNothing()) {
             return new PageResult<>(List.of(), page, size, 0);
         }
+        PlayerScope scope = filter.scope();
+        UUID userId = filter.userId();
+        PlayerStatus status = filter.status();
         StringBuilder where = new StringBuilder(" WHERE TRUE");
         List<Object> args = new ArrayList<>();
         if (scope == PlayerScope.LINKED_GUARDIAN) {
