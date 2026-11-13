@@ -45,16 +45,23 @@ public final class PlayersDtos {
             @NotNull(message = "Los datos del jugador son obligatorios.") @Valid PlayerData player,
             @Size(max = 40, message = "El parentesco no puede superar 40 caracteres.") String relationship,
             @NotNull(message = "Debe indicar si acepta el tratamiento de datos.") Boolean acceptDataProcessing,
-            @NotNull(message = "Debe indicar si otorga la autorización de participación.") Boolean acceptParticipation) {
+            @NotNull(message = "Debe indicar si otorga la autorización de participación.") Boolean acceptParticipation,
+            List<EnrollmentDocumentRequest> documents) {
+    }
+
+    /** Documento inicial: tipo del catálogo y archivo ya subido con {@code POST /files}. Se valida en el servicio. */
+    public record EnrollmentDocumentRequest(UUID documentTypeId, UUID fileId, LocalDate issuedOn, LocalDate expiresOn,
+                                            String notes) {
     }
 
     public record EnrollmentResponse(UUID enrollmentId, String filingCode, UUID playerId, String playerCode,
-                                     String playerStatus, UUID callId, Instant submittedAt, boolean viaException) {
+                                     String playerStatus, UUID callId, Instant submittedAt, boolean viaException,
+                                     int attachedDocuments, List<String> missingDocuments) {
 
         static EnrollmentResponse from(EnrollmentReceipt receipt) {
             return new EnrollmentResponse(receipt.enrollmentId(), receipt.filingCode(), receipt.playerId(),
                     receipt.playerCode(), receipt.playerStatus().name(), receipt.callId(), receipt.submittedAt(),
-                    receipt.viaException());
+                    receipt.viaException(), receipt.attachedDocuments(), receipt.missingDocuments());
         }
     }
 

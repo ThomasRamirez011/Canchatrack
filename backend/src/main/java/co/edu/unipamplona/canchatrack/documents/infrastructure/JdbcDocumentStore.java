@@ -265,6 +265,17 @@ public class JdbcDocumentStore implements DocumentStore {
         return findVersion(id).orElseThrow();
     }
 
+    @Override
+    public boolean isFileAttached(UUID fileId) {
+        return Boolean.TRUE.equals(jdbc.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM document_versions WHERE file_id = ?)", Boolean.class, fileId));
+    }
+
+    @Override
+    public void lockFile(UUID fileId) {
+        jdbc.queryForList("SELECT id FROM stored_files WHERE id = ? FOR UPDATE", UUID.class, fileId);
+    }
+
     // ---------- requisitos y alertas ----------
 
     @Override

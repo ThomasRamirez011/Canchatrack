@@ -14,7 +14,6 @@ import co.edu.unipamplona.canchatrack.audit.api.AuditWriter;
 import co.edu.unipamplona.canchatrack.documents.application.DocumentCommands.UploadVersion;
 import co.edu.unipamplona.canchatrack.documents.domain.DocumentRules;
 import co.edu.unipamplona.canchatrack.documents.domain.FieldError;
-import co.edu.unipamplona.canchatrack.documents.domain.FileRules;
 import co.edu.unipamplona.canchatrack.identity.api.PlayerAccessPolicy;
 import co.edu.unipamplona.canchatrack.shared.domain.DomainException;
 import co.edu.unipamplona.canchatrack.shared.domain.ErrorCode;
@@ -222,15 +221,8 @@ public class PlayerDocumentService {
             errors.add(new FieldError("file", "El archivo es obligatorio y no puede estar vacío."));
             return errors;
         }
-        long limit = type.maxSizeBytes() == null ? settings.maxFileSizeBytes() : Math.min(type.maxSizeBytes(), settings.maxFileSizeBytes());
-        if (command.content().length > limit) {
-            errors.add(new FieldError("file", "El archivo supera el tamaño máximo de este documento (" + limit + " bytes)."));
-        }
-        if (!type.allowedContentTypes().isEmpty()
-                && !type.allowedContentTypes().contains(FileRules.normalizeContentType(command.contentType()))) {
-            errors.add(new FieldError("file", "Formato no admitido para este documento; use "
-                    + String.join(", ", type.allowedContentTypes()) + "."));
-        }
+        errors.addAll(DocumentRules.fileViolations("file", command.content().length, command.contentType(), type.maxSizeBytes(),
+                settings.maxFileSizeBytes(), type.allowedContentTypes()));
         return errors;
     }
 

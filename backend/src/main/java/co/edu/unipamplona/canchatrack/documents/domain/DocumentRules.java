@@ -148,6 +148,24 @@ public final class DocumentRules {
         return errors;
     }
 
+    /**
+     * Tamaño y formato de un archivo frente a su tipo de documento. El límite es el menor entre el del tipo y el del
+     * sistema; {@code allowedContentTypes} vacío admite los formatos generales del sistema.
+     */
+    public static List<FieldError> fileViolations(String field, long sizeBytes, String contentType, Long typeMaxBytes,
+                                                  long systemMaxBytes, Collection<String> allowedContentTypes) {
+        List<FieldError> errors = new ArrayList<>();
+        long limit = typeMaxBytes == null ? systemMaxBytes : Math.min(typeMaxBytes, systemMaxBytes);
+        if (sizeBytes > limit) {
+            errors.add(new FieldError(field, "El archivo supera el tamaño máximo de este documento (" + limit + " bytes)."));
+        }
+        if (!allowedContentTypes.isEmpty() && !allowedContentTypes.contains(FileRules.normalizeContentType(contentType))) {
+            errors.add(new FieldError(field, "Formato no admitido para este documento; use "
+                    + String.join(", ", allowedContentTypes) + "."));
+        }
+        return errors;
+    }
+
     /** Estado frente a {@code today}; {@code present=false} es que no hay versión. Sin fecha de vencimiento no vence. */
     public static Status statusOf(boolean present, LocalDate expiresOn, LocalDate today) {
         if (!present) {

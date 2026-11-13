@@ -14,6 +14,7 @@ import co.edu.unipamplona.canchatrack.audit.api.AuditRecord;
 import co.edu.unipamplona.canchatrack.audit.api.AuditWriter;
 import co.edu.unipamplona.canchatrack.documents.api.ConsentKind;
 import co.edu.unipamplona.canchatrack.documents.api.ConsentRecorder;
+import co.edu.unipamplona.canchatrack.documents.api.EnrollmentDocuments;
 import co.edu.unipamplona.canchatrack.identity.api.GuardianDirectory;
 import co.edu.unipamplona.canchatrack.players.domain.Admission;
 import co.edu.unipamplona.canchatrack.players.domain.CallInfo;
@@ -34,8 +35,12 @@ import co.edu.unipamplona.canchatrack.shared.domain.IdDocumentType;
  * rechazado deja rastro de auditoría aunque la transacción se revierta (PA-01). Para no revelar qué documentos existen,
  * los conflictos con un jugador que no es del acudiente responden igual que los demás (409 genérico).
  *
- * <p>Pendiente de otros incrementos: adjuntar documentos (documents), notificar al acudiente y a la coordinación
- * (notifications) y evento {@code EnrollmentSubmitted}.
+ * <p>Documentos iniciales (CU-02, RF-006): se adjuntan archivos que el acudiente ya subió; ninguno es obligatorio para
+ * radicar, los obligatorios pendientes se devuelven en la constancia y la activación los exige. Un adjunto inválido se
+ * suma a los demás errores del formulario (422) antes de escribir nada.
+ *
+ * <p>Pendiente de otros incrementos: notificar al acudiente y a la coordinación (notifications) y evento
+ * {@code EnrollmentSubmitted}.
  */
 @Service
 public class EnrollmentService {
@@ -51,18 +56,20 @@ public class EnrollmentService {
     private final EnrollmentStore enrollments;
     private final GuardianDirectory guardians;
     private final ConsentRecorder consents;
+    private final EnrollmentDocuments documents;
     private final AuditWriter audit;
     private final EnrollmentSettings settings;
     private final Clock clock;
 
     public EnrollmentService(CallCatalog calls, PlayerStore players, EnrollmentStore enrollments,
-                             GuardianDirectory guardians, ConsentRecorder consents, AuditWriter audit,
-                             EnrollmentSettings settings, Clock clock) {
+                             GuardianDirectory guardians, ConsentRecorder consents, EnrollmentDocuments documents,
+                             AuditWriter audit, EnrollmentSettings settings, Clock clock) {
         this.calls = calls;
         this.players = players;
         this.enrollments = enrollments;
         this.guardians = guardians;
         this.consents = consents;
+        this.documents = documents;
         this.audit = audit;
         this.settings = settings;
         this.clock = clock;
@@ -73,7 +80,7 @@ public class EnrollmentService {
         UUID guardianId = guardians.guardianIdOf(userId)
                 .orElseThrow(() -> new DomainException(ErrorCode.AUTH_FORBIDDEN, null));
 
-        validate(command);
+        validate(userId, command);
         IdDocumentType type = IdDocumentType.parse(command.documentType()).orElseThrow();
         String number = IdDocumentNumber.normalize(command.documentNumber()).orElseThrow();
 
@@ -99,17 +106,34 @@ public class EnrollmentService {
         consents.recordAuthenticatedAcceptance(guardianId, player.id(), ConsentKind.DATA_PROCESSING, settings.consentVersion());
         consents.recordAuthenticatedAcceptance(guardianId, player.id(), ConsentKind.PARTICIPATION, settings.consentVersion());
 
+        EnrollmentDocuments.Attached attached = attachDocuments(userId, player.id(), command, ip, userAgent);
+
         boolean viaException = admission.exceptionId() != null;
         audit.write(AuditRecord.builder(ACTION_SUBMITTED, "enrollment")
                 .actor(userId, "GUARDIAN")
                 .entity(enrollment.id())
                 .after("{\"filingCode\":\"" + enrollment.filingCode() + "\",\"callId\":\"" + call.id()
-                        + "\",\"playerId\":\"" + player.id() + "\",\"viaException\":" + viaException + "}")
+                        + "\",\"playerId\":\"" + player.id() + "\",\"viaException\":" + viaException
+                        + ",\"attachedDocuments\":" + attached.count() + "}")
                 .origin(ip, userAgent)
                 .build());
 
         return new EnrollmentReceipt(enrollment.id(), enrollment.filingCode(), player.id(), player.code(),
-                PlayerStatus.SUBMITTED, call.id(), enrollment.submittedAt(), viaException);
+                PlayerStatus.SUBMITTED, call.id(), enrollment.submittedAt(), viaException, attached.count(),
+                attached.missingMandatory());
+    }
+
+    /** Crea las versiones iniciales; un rechazo por la regla de ventana (RN-05) deja rastro aparte, como los demás (PA-01). */
+    private EnrollmentDocuments.Attached attachDocuments(UUID userId, UUID playerId, SubmitEnrollmentCommand command,
+                                                         InetAddress ip, String userAgent) {
+        try {
+            return documents.attach(userId, playerId, command.documents(), ip, userAgent);
+        } catch (DomainException e) {
+            if (e.getCode() == ErrorCode.DOCUMENT_UPLOAD_NOT_ALLOWED) {
+                reject(userId, "DOCUMENT_UPLOAD_NOT_ALLOWED", playerId, ip, userAgent);
+            }
+            throw e;
+        }
     }
 
     private PlayerRecord resolvePlayer(UUID userId, UUID guardianId, SubmitEnrollmentCommand command,
@@ -142,7 +166,7 @@ public class EnrollmentService {
         return created;
     }
 
-    private void validate(SubmitEnrollmentCommand command) {
+    private void validate(UUID userId, SubmitEnrollmentCommand command) {
         List<FieldError> errors = new java.util.ArrayList<>(PlayerDataRules.violations(
                 command.firstName(), command.lastName(), command.documentType(), command.documentNumber(),
                 command.birthDate(), LocalDate.now(clock)));
@@ -158,6 +182,7 @@ public class EnrollmentService {
         if (!command.acceptParticipation()) {
             errors.add(new FieldError("acceptParticipation", "Debe otorgar la autorización de participación."));
         }
+        documents.check(userId, command.documents()).forEach(p -> errors.add(new FieldError(p.field(), p.message())));
         if (!errors.isEmpty()) {
             List<Map<String, String>> body = errors.stream()
                     .map(e -> Map.of("field", e.field(), "message", e.message()))

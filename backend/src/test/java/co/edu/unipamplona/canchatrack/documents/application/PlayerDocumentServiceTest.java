@@ -404,6 +404,16 @@ class PlayerDocumentServiceTest {
         }
 
         @Override
+        public boolean isFileAttached(UUID fileId) {
+            return versions.stream().anyMatch(v -> v.fileId().equals(fileId));
+        }
+
+        @Override
+        public void lockFile(UUID fileId) {
+            // sin concurrencia en memoria
+        }
+
+        @Override
         public List<String> findMissingMandatory(UUID playerId, LocalDate onDate) {
             throw new UnsupportedOperationException();
         }

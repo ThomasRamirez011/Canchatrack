@@ -49,6 +49,12 @@ public interface DocumentStore {
     DocumentVersionInfo insertVersion(UUID playerId, UUID documentTypeId, UUID fileId, LocalDate issuedOn, LocalDate expiresOn,
                                       String notes, UUID uploadedBy);
 
+    /** ¿Algún documento de algún jugador ya usa el archivo? Un archivo respalda una sola versión. */
+    boolean isFileAttached(UUID fileId);
+
+    /** Bloquea la fila del archivo hasta el fin de la transacción: serializa dos radicaciones que lo reclamen. */
+    void lockFile(UUID fileId);
+
     /** Nombres de los tipos obligatorios y activos sin versión vigente en la fecha. */
     List<String> findMissingMandatory(UUID playerId, LocalDate onDate);
 
