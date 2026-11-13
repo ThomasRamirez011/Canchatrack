@@ -2215,10 +2215,10 @@ paths:
     put:
       tags: [competitions]
       operationId: recordMatchResult
-      summary: Registra el resultado, los minutos y los goles (entrenador responsable o coordinador, RF-036).
+      summary: Registra el resultado, los minutos y los puntos (entrenador responsable o coordinador, RF-036).
       description: |
-        Desde que el partido comienza. Los jugadores deben tener convocatoria confirmada y la suma de goles individuales
-        no puede superar los goles a favor. El partido pasa a `COMPLETED`. Un resultado ya registrado solo se corrige
+        Desde que el partido comienza. Los jugadores deben tener convocatoria confirmada y la suma de puntos individuales
+        no puede superar los puntos a favor. El partido pasa a `COMPLETED`. Un resultado ya registrado solo se corrige
         con `reason`, y la corrección queda auditada con el marcador anterior.
       parameters:
         - { name: matchId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -2416,7 +2416,7 @@ paths:
       description: |
         Una fila por partido y convocado (sin los retirados de la convocatoria); un partido sin convocados sale con las celdas del
         jugador vacías. Incluye fecha y hora locales, categoría, tipo, torneo, rival, escenario, estado, marcador, estado de la
-        convocatoria, minutos y goles. No publica las causas de no elegibilidad, que pueden revelar datos de salud (RN-17).
+        convocatoria, minutos y puntos. No publica las causas de no elegibilidad, que pueden revelar datos de salud (RN-17).
         Ventana: con `seasonId` parte del periodo de la temporada y `from` y `to` (inclusivos, día del club) solo la acotan;
         sin temporada `from` y `to` son obligatorios y el rango no puede superar 366 días. Mismas garantías de CSV y límite de 20000 filas que las demás exportaciones.
       parameters:

@@ -17,7 +17,7 @@ function initialsOf(name: string) {
     .toUpperCase();
 }
 
-/** «Sub-15» → «S15», «Escuela de Fútbol» → «EF». */
+/** «Sub-15» → «S15», «Mini Baloncesto» → «MB». */
 function teamInitials(name: string) {
   const sub = /^sub[-\s]?(\d+)/i.exec(name.trim());
   if (sub) return `S${sub[1]}`;

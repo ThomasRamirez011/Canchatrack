@@ -15,10 +15,10 @@ public final class CompetitionRules {
     public static final int MAX_OPPONENT = 150;
     public static final int MAX_TEXT = 2000;
     public static final int MAX_OBSERVATIONS = 1000;
-    /** Tamaño máximo de una convocatoria por solicitud (plantillas de fútbol base). */
+    /** Tamaño máximo de una convocatoria por solicitud (plantillas de formación). */
     public static final int MAX_SQUAD = 40;
     public static final int MAX_MINUTES = 150;
-    public static final int MAX_GOALS = 99;
+    public static final int MAX_POINTS = 199;
 
     private CompetitionRules() {
     }
@@ -89,21 +89,21 @@ public final class CompetitionRules {
     }
 
     /**
-     * Resultado del partido (RF-036). El marcador es obligatorio; los goles individuales no pueden superar los del equipo.
+     * Resultado del partido (RF-036). El marcador es obligatorio; los puntos individuales no pueden superar los del equipo.
      * Si ya había un resultado, la corrección exige motivo (queda auditada).
      */
     public static List<FieldError> resultViolations(Integer scoreFor, Integer scoreAgainst, String notes,
                                                     List<PlayerResultLine> lines, boolean correction, String reason) {
         List<FieldError> errors = new ArrayList<>();
         if (scoreFor == null) {
-            errors.add(new FieldError("scoreFor", "Los goles a favor son obligatorios."));
-        } else if (scoreFor < 0 || scoreFor > MAX_GOALS) {
-            errors.add(new FieldError("scoreFor", "Los goles a favor deben estar entre 0 y " + MAX_GOALS + "."));
+            errors.add(new FieldError("scoreFor", "Los puntos a favor son obligatorios."));
+        } else if (scoreFor < 0 || scoreFor > MAX_POINTS) {
+            errors.add(new FieldError("scoreFor", "Los puntos a favor deben estar entre 0 y " + MAX_POINTS + "."));
         }
         if (scoreAgainst == null) {
-            errors.add(new FieldError("scoreAgainst", "Los goles en contra son obligatorios."));
-        } else if (scoreAgainst < 0 || scoreAgainst > MAX_GOALS) {
-            errors.add(new FieldError("scoreAgainst", "Los goles en contra deben estar entre 0 y " + MAX_GOALS + "."));
+            errors.add(new FieldError("scoreAgainst", "Los puntos en contra son obligatorios."));
+        } else if (scoreAgainst < 0 || scoreAgainst > MAX_POINTS) {
+            errors.add(new FieldError("scoreAgainst", "Los puntos en contra deben estar entre 0 y " + MAX_POINTS + "."));
         }
         if (notes != null && notes.trim().length() > MAX_TEXT) {
             errors.add(new FieldError("resultNotes", "Las observaciones no pueden superar " + MAX_TEXT + " caracteres."));
@@ -125,8 +125,8 @@ public final class CompetitionRules {
                     errors.add(new FieldError(prefix + "minutesPlayed", "Los minutos deben estar entre 0 y " + MAX_MINUTES + "."));
                 }
                 if (line.goals() != null) {
-                    if (line.goals() < 0 || line.goals() > MAX_GOALS) {
-                        errors.add(new FieldError(prefix + "goals", "Los goles deben estar entre 0 y " + MAX_GOALS + "."));
+                    if (line.goals() < 0 || line.goals() > MAX_POINTS) {
+                        errors.add(new FieldError(prefix + "goals", "Los puntos deben estar entre 0 y " + MAX_POINTS + "."));
                     } else {
                         individualGoals += line.goals();
                     }
@@ -137,7 +137,7 @@ public final class CompetitionRules {
             }
         }
         if (scoreFor != null && scoreFor >= 0 && individualGoals > scoreFor) {
-            errors.add(new FieldError("players", "La suma de goles individuales supera los goles a favor del equipo."));
+            errors.add(new FieldError("players", "La suma de puntos individuales supera los puntos a favor del equipo."));
         }
         if (correction) {
             if (reason == null || reason.isBlank()) {

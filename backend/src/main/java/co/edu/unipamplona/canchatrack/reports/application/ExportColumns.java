@@ -16,8 +16,8 @@ public final class ExportColumns {
             "Jugador", "Asistencia", "Excusa aceptada");
 
     public static final List<String> MATCHES = List.of("Fecha", "Hora", "Categoría", "Tipo", "Torneo", "Rival", "Escenario",
-            "Estado del partido", "Goles a favor", "Goles en contra", "Código", "Jugador", "Convocatoria", "Minutos",
-            "Goles");
+            "Estado del partido", "Puntos a favor", "Puntos en contra", "Código", "Jugador", "Convocatoria", "Minutos",
+            "Puntos");
 
     public static final List<String> EVALUATIONS = List.of("Categoría", "Código", "Jugador", "Periodo desde",
             "Periodo hasta", "Vence", "Estado de la ronda", "Resultado", "Fecha de cierre", "Conceptos emitidos",

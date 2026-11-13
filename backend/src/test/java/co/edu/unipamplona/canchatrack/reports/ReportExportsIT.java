@@ -271,7 +271,7 @@ class ReportExportsIT {
         List<String> lines = lines(download("/reports/matches/export?categoryId=" + club.category() + "&from=2030-02-01&to=2030-02-28",
                 club.coordinator().token()));
 
-        assertThat(lines.get(0)).isEqualTo("Fecha,Hora,Categoría,Tipo,Torneo,Rival,Escenario,Estado del partido,Goles a favor,Goles en contra,Código,Jugador,Convocatoria,Minutos,Goles");
+        assertThat(lines.get(0)).isEqualTo("Fecha,Hora,Categoría,Tipo,Torneo,Rival,Escenario,Estado del partido,Puntos a favor,Puntos en contra,Código,Jugador,Convocatoria,Minutos,Puntos");
         assertThat(lines).hasSize(3);
         assertThat(lines.get(1)).startsWith("2030-02-10,09:30," + club.categoryName() + ",TOURNAMENT_MATCH," + tournamentName
                 + ",Rival FC," + club.venueName() + ",COMPLETED,3,1,JG-").endsWith(",Ana Ruiz,CONFIRMED,60,2");

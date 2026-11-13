@@ -419,7 +419,7 @@ public class CompetitionService {
     // ---------- resultado ----------
 
     /**
-     * Registra el marcador, los minutos y goles de los convocados y las observaciones (RF-036) una vez comenzado el
+     * Registra el marcador, los minutos y puntos de los convocados y las observaciones (RF-036) una vez comenzado el
      * partido. Un resultado ya registrado solo se corrige con motivo, y la corrección queda auditada con el valor anterior.
      */
     @Transactional

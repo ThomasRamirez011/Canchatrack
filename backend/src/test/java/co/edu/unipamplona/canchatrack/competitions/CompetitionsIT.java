@@ -400,7 +400,7 @@ class CompetitionsIT {
                 .andExpect(status().isConflict());
         kickOff(match);
 
-        // Jugador no convocado, goles individuales por encima del marcador y rol sin permiso.
+        // Jugador no convocado, puntos individuales por encima del marcador y rol sin permiso.
         JsonNode invalid = body(putJson("/matches/" + match + "/result", result(1, 0, null, line(notCalled, 90, 0), line(first, 80, 3)),
                 club.coach().token()).andExpect(status().isUnprocessableEntity()));
         assertThat(invalid.toString()).contains("players[0].playerId", "players");

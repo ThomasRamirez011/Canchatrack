@@ -39,7 +39,7 @@ class DemoDataSeeder {
     private static final BigDecimal MONTHLY = new BigDecimal("140000.00");
     private static final BigDecimal ENROLLMENT = new BigDecimal("80000.00");
 
-    /** {nombre, apellidos} por categoría, en el orden Sub-15, Sub-13, Escuela de Fútbol. */
+    /** {nombre, apellidos} por categoría, en el orden Sub-15, Sub-13, Mini Baloncesto. */
     private static final String[][][] PLAYERS = {
             {{"Santiago", "Rojas Vélez"}, {"Mateo", "Gómez Cárdenas"}, {"Daniel", "Herrera Mejía"}, {"Samuel", "Ortiz Pineda"},
                     {"Emmanuel", "Castro Salazar"}, {"Juan José", "Londoño Arias"}, {"Tomás", "Restrepo Ruiz"},
@@ -50,7 +50,7 @@ class DemoDataSeeder {
             {{"Lucas", "Palacio Vargas"}, {"Martín", "Cano Torres"}, {"Benjamín", "Aristizábal Mesa"},
                     {"Dylan", "Echeverri Soto"}, {"Joaquín", "Marín Agudelo"}, {"Simón", "Uribe Patiño"}}
     };
-    private static final String[] CATEGORY_NAMES = {"Sub-15", "Sub-13", "Escuela de Fútbol"};
+    private static final String[] CATEGORY_NAMES = {"Sub-15", "Sub-13", "Mini Baloncesto"};
     private static final int[] CAPACITY = {25, 25, 30};
     private static final String[] COACHES = {"Carlos Ramírez", "Laura Gómez", "Andrés Pérez"};
     private static final String[] COACH_EMAILS = {"carlos.ramirez@canchatrack.local", "laura.gomez@canchatrack.local",
@@ -125,7 +125,7 @@ class DemoDataSeeder {
         venue[1] = jdbc.queryForObject("INSERT INTO venues (name, address, created_by) VALUES (?, ?, ?) RETURNING id",
                 UUID.class, "Coliseo Norte", "Carrera 45 # 95-30", coordinator);
 
-        // Rangos de nacimiento contiguos y sin cruces: Sub-15, Sub-13 y Escuela de Fútbol.
+        // Rangos de nacimiento contiguos y sin cruces: Sub-15, Sub-13 y Mini Baloncesto.
         int[][] birth = {{year - 15, year - 14}, {year - 13, year - 12}, {year - 11, year - 8}};
         UUID[] category = new UUID[3];
         for (int c = 0; c < 3; c++) {
