@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type FormEvent, type ReactNode } from "react";
-import type { ApiUser, Venue } from "@/lib/api";
+import type { ApiUser, Callup, IneligibilityCause, MatchDetail, Venue } from "@/lib/api";
 
 export type TeamData = {
   id: string;
@@ -17,6 +17,7 @@ export type TeamData = {
   opponent: string;
   matchTime: string;
   matchVenue: string;
+  nextMatchEventId: string | null;
   matchDate: { weekday: string; day: string; month: string } | null;
   coach: string;
   coachId: string | null;
@@ -33,6 +34,7 @@ export type PlayerData = {
   tone: "blue" | "green" | "orange" | "purple";
   attendance: number;
   enabled: boolean;
+  state: string; // ACTIVE | IN_EVALUATION | SUSPENDED
   pending: { chargeId: string; amount: number; amountLabel: string; concept: string; dueLabel: string; overdue: boolean } | null;
 };
 
@@ -46,6 +48,27 @@ export type NewEventInput = {
 };
 
 type ActionOutcome = { ok: true; message: string } | { ok: false; error: string };
+export type CallupLoad = { ok: true; detail: MatchDetail | null } | { ok: false; error: string };
+export type ReportKind = "attendance" | "receivables" | "roster";
+
+const causeLabels: Record<IneligibilityCause, string> = {
+  PLAYER_NOT_ACTIVE: "No está activo",
+  MEDICAL_CERTIFICATE_INVALID: "Certificado médico no vigente",
+  PARTICIPATION_AUTHORIZATION_INVALID: "Falta la autorización de participación",
+  ARREARS_POLICY: "Tiene cargos vencidos",
+};
+
+const reportCards: { kind: ReportKind; icon: "chart" | "wallet" | "users"; title: string; text: string }[] = [
+  { kind: "attendance", icon: "chart", title: "Reporte de asistencia", text: "Asistencia por jugador y sesión de los últimos 120 días." },
+  { kind: "receivables", icon: "wallet", title: "Estado de cartera", text: "Cargos pendientes y vencidos de la categoría." },
+  { kind: "roster", icon: "users", title: "Plantilla del equipo", text: "Jugadores, estado, entrenador y acudiente principal." },
+];
+
+function calloutStatus(callup: Callup) {
+  if (callup.status === "CONFIRMED") return { label: "Convocado", tone: "status-ok" };
+  if (callup.status === "PROPOSED") return { label: "Propuesto", tone: "status-info" };
+  return { label: "No elegible", tone: "status-warn" };
+}
 
 export type EventData = {
   id: string;
@@ -170,7 +193,7 @@ function Sidebar({ active, setActive, open, onClose, paymentCount, user, onLogou
   );
 }
 
-export default function CanchaTrackApp({ teams, players, events, venues, user, onLogout, onCreateEvent, onRecordPayment }: {
+export default function CanchaTrackApp({ teams, players, events, venues, user, onLogout, onCreateEvent, onRecordPayment, onSetPlayerStatus, onLoadCallup, onProposeCallup, onConfirmCallup, onDownloadReport }: {
   teams: TeamData[];
   players: PlayerData[];
   events: EventData[];
@@ -179,6 +202,11 @@ export default function CanchaTrackApp({ teams, players, events, venues, user, o
   onLogout: () => void;
   onCreateEvent: (input: NewEventInput) => Promise<ActionOutcome>;
   onRecordPayment: (playerId: string, chargeId: string, amount: number, playerName: string) => Promise<ActionOutcome>;
+  onSetPlayerStatus: (player: PlayerData, mode: "suspend" | "reinstate", reason: string) => Promise<ActionOutcome>;
+  onLoadCallup: (categoryId: string, eventId: string) => Promise<CallupLoad>;
+  onProposeCallup: (matchId: string, playerIds: string[]) => Promise<ActionOutcome>;
+  onConfirmCallup: (matchId: string) => Promise<ActionOutcome>;
+  onDownloadReport: (kind: ReportKind, team: TeamData) => Promise<ActionOutcome>;
 }) {
   const [isCreatingEvent, setIsCreatingEvent] = useState(false);
   const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
@@ -204,6 +232,12 @@ export default function CanchaTrackApp({ teams, players, events, venues, user, o
   const [eventError, setEventError] = useState("");
   const [verifyingPlayerId, setVerifyingPlayerId] = useState("");
   const [calendarMonth, setCalendarMonth] = useState(todayLocal().slice(0, 7));
+  const [callup, setCallup] = useState<{ open: boolean; loading: boolean; busy: boolean; error: string; detail: MatchDetail | null }>({ open: false, loading: false, busy: false, error: "", detail: null });
+  const [statusModal, setStatusModal] = useState<{ player: PlayerData; mode: "suspend" | "reinstate" } | null>(null);
+  const [statusReason, setStatusReason] = useState("");
+  const [statusError, setStatusError] = useState("");
+  const [statusBusy, setStatusBusy] = useState(false);
+  const [downloading, setDownloading] = useState("");
   const team = teams.find((item) => item.label === selectedTeam) ?? teams[0];
   const teamPlayers = players.filter((player) => player.categoryId === team?.id);
   const teamEvents = events.filter((event) => event.categoryId === team?.id);
@@ -274,6 +308,69 @@ export default function CanchaTrackApp({ teams, players, events, venues, user, o
     setVerifyingPlayerId("");
     showToast(result.ok ? result.message : result.error);
   };
+  const fetchCallup = async (keepOpen: boolean) => {
+    if (!team?.nextMatchEventId) return;
+    setCallup((current) => ({ ...current, open: true, loading: !keepOpen, error: "" }));
+    const result = await onLoadCallup(team.id, team.nextMatchEventId);
+    setCallup((current) => ({ ...current, loading: false, busy: false, detail: result.ok ? result.detail : null, error: result.ok ? "" : result.error }));
+  };
+  const openCallup = () => {
+    setCallup({ open: true, loading: true, busy: false, error: "", detail: null });
+    void fetchCallup(false);
+  };
+  const runCallupAction = async (action: () => Promise<ActionOutcome>) => {
+    setCallup((current) => ({ ...current, busy: true, error: "" }));
+    const result = await action();
+    if (!result.ok) {
+      setCallup((current) => ({ ...current, busy: false, error: result.error }));
+      return;
+    }
+    showToast(result.message);
+    await fetchCallup(true);
+  };
+  const proposeEnabledPlayers = () => {
+    const detail = callup.detail;
+    const ids = teamPlayers.filter((player) => player.enabled).map((player) => player.id);
+    if (!detail) return;
+    if (ids.length === 0) {
+      setCallup((current) => ({ ...current, error: "No hay jugadores habilitados para proponer." }));
+      return;
+    }
+    void runCallupAction(() => onProposeCallup(detail.match.id, ids));
+  };
+  const confirmCallupPlayers = () => {
+    const detail = callup.detail;
+    if (detail) void runCallupAction(() => onConfirmCallup(detail.match.id));
+  };
+  const openStatus = (player: PlayerData, mode: "suspend" | "reinstate") => {
+    setStatusModal({ player, mode });
+    setStatusReason("");
+    setStatusError("");
+  };
+  const submitStatus = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!statusModal) return;
+    if (statusModal.mode === "suspend" && !statusReason.trim()) {
+      setStatusError("Escribe el motivo para deshabilitar al jugador.");
+      return;
+    }
+    setStatusBusy(true);
+    const result = await onSetPlayerStatus(statusModal.player, statusModal.mode, statusReason.trim());
+    setStatusBusy(false);
+    if (!result.ok) {
+      setStatusError(result.error);
+      return;
+    }
+    setStatusModal(null);
+    showToast(result.message);
+  };
+  const handleDownload = async (kind: ReportKind) => {
+    if (!team) return;
+    setDownloading(kind);
+    const result = await onDownloadReport(kind, team);
+    setDownloading("");
+    showToast(result.ok ? result.message : result.error);
+  };
   const shiftCalendarMonth = (offset: number) => {
     const [year, month] = calendarMonth.split("-").map(Number);
     const next = new Date(Date.UTC(year, month - 1 + offset, 1));
@@ -340,7 +437,7 @@ export default function CanchaTrackApp({ teams, players, events, venues, user, o
 
           {active === "Resumen" ? <>
           <section className="metrics-grid">
-            <MetricCard icon="users" label="JUGADORES ACTIVOS" value={`${team.total}`} tone="blue" detail={<span className="positive">{team.shortLabel} <span>· {team.coach}</span></span>} />
+            <MetricCard icon="users" label="PLANTILLA" value={`${team.total}`} tone="blue" detail={<span className="positive">{team.shortLabel} <span>· {team.coach}</span></span>} />
             <MetricCard icon="check" label="ASISTENCIA PROMEDIO" value={`${team.attendanceAverage}%`} tone="green" detail={<span className="positive">Equipo <span>seleccionado</span></span>} />
             <MetricCard icon="wallet" label="RECAUDO DEL MES" value={team.revenue} tone="purple" detail={<span><strong>{team.collection}%</strong> de lo que vence este mes</span>} />
             <MetricCard icon="alert" label="CARTERA PENDIENTE" value={team.debt} tone="orange" detail={<span className="warning-text">{pendingCount} cargos por cobrar</span>} />
@@ -363,11 +460,11 @@ export default function CanchaTrackApp({ teams, players, events, venues, user, o
                     <div className="status-icon"><Icon name="check" /></div>
                     <div><strong>{team.enabled} jugadores habilitados</strong><span>Activos y sin cargos vencidos</span></div>
                   </div>
-                  <button type="button" className="text-link">Ver convocatoria <Icon name="arrow" className="size-4" /></button>
+                  {team.nextMatchEventId && <button type="button" className="text-link" onClick={openCallup}>Ver convocatoria <Icon name="arrow" className="size-4" /></button>}
                 </div>
                 <div className="blocked-alert">
                   <Icon name="alert" />
-                  <div><strong>{blockedCount} jugadores aún no están habilitados</strong><span>Tienen cargos vencidos o siguen en evaluación.</span></div>
+                  <div><strong>{blockedCount} jugadores aún no están habilitados</strong><span>Tienen cargos vencidos, siguen en evaluación o fueron deshabilitados.</span></div>
                   <button type="button" onClick={() => setActive("Pagos")}>Revisar pagos</button>
                 </div>
               </div>
@@ -376,7 +473,7 @@ export default function CanchaTrackApp({ teams, players, events, venues, user, o
             <div className="panel attendance-panel">
               <div className="panel-heading">
                 <div><div className="section-title">Asistencia reciente</div><div className="section-subtitle">Últimos 5 entrenamientos</div></div>
-                <button type="button" className="text-link">Ver reporte <Icon name="arrow" className="size-4" /></button>
+                <button type="button" className="text-link" onClick={() => setActive("Reportes")}>Ver reporte <Icon name="arrow" className="size-4" /></button>
               </div>
               <div className="chart-area">
                 <div className="chart-average"><strong>{team.attendanceAverage}%</strong><span>Promedio del equipo</span></div>
@@ -413,7 +510,7 @@ export default function CanchaTrackApp({ teams, players, events, venues, user, o
             <div className="panel players-panel">
               <div className="panel-heading">
                 <div><div className="section-title">Estado de jugadores</div><div className="section-subtitle">Habilitación para competencia</div></div>
-                <button type="button" className="text-link">Ver plantilla <Icon name="arrow" className="size-4" /></button>
+                <button type="button" className="text-link" onClick={() => setActive("Jugadores")}>Ver plantilla <Icon name="arrow" className="size-4" /></button>
               </div>
               <div className="players-list">
                 {teamPlayers.length === 0 && <div className="agenda-empty">Esta categoría aún no tiene jugadores.</div>}
@@ -421,7 +518,7 @@ export default function CanchaTrackApp({ teams, players, events, venues, user, o
                   <div className="player-row" key={player.id}>
                     <div className={`avatar avatar-${player.tone}`}>{player.initials}</div>
                     <div className="player-copy"><strong>{player.name}</strong><span>Código {player.number}</span></div>
-                    <span className={`status-chip ${player.enabled ? "status-ok" : "status-warn"}`}>{player.status}</span>
+                    <span className={`status-chip ${player.enabled ? "status-ok" : "status-warn"}`}>{player.state === "SUSPENDED" ? "Deshabilitado" : player.status}</span>
                   </div>
                 ))}
               </div>
@@ -443,15 +540,17 @@ export default function CanchaTrackApp({ teams, players, events, venues, user, o
                   <span className="result-count">{visiblePlayers.length} jugadores</span>
                 </div>
                 <div className="data-table">
-                  <div className="table-head"><span>JUGADOR</span><span>ASISTENCIA</span><span>MENSUALIDAD</span><span>ESTADO</span><span /></div>
+                  <div className="table-head"><span>JUGADOR</span><span>ASISTENCIA</span><span>MENSUALIDAD</span><span>ESTADO</span><span>ACCIÓN</span></div>
                   {visiblePlayers.length === 0 && <div className="agenda-empty">No hay jugadores para este filtro.</div>}
                   {visiblePlayers.map((player) => (
                     <div className="table-row" key={player.id}>
                       <div className="table-player"><div className={`avatar avatar-${player.tone}`}>{player.initials}</div><div className="player-copy"><strong>{player.name}</strong><span>Código {player.number} · {team.shortLabel}</span></div></div>
                       <strong>{player.attendance}%</strong>
                       <span className={player.pending ? "orange-copy" : "green-copy"}>{player.pending ? (player.pending.overdue ? "Vencida" : "Pendiente") : "Al día"}</span>
-                      <span className={`status-chip ${player.enabled ? "status-ok" : "status-warn"}`}>{player.enabled ? "Habilitado" : "No habilitado"}</span>
-                      <Button variant="ghost" onClick={() => showToast(player.pending ? `${player.name} debe ${player.pending.amountLabel} (${player.pending.concept})` : `${player.name} está al día`)}><Icon name="chevron" className="size-4" /></Button>
+                      <span className={`status-chip ${player.enabled ? "status-ok" : "status-warn"}`}>{player.enabled ? "Habilitado" : player.state === "SUSPENDED" ? "Deshabilitado" : "No habilitado"}</span>
+                      {player.state === "ACTIVE" ? <Button variant="soft" onClick={() => openStatus(player, "suspend")}>Deshabilitar</Button>
+                        : player.state === "SUSPENDED" ? <Button variant="soft" onClick={() => openStatus(player, "reinstate")}>Rehabilitar</Button>
+                        : <span className="table-note">En evaluación</span>}
                     </div>
                   ))}
                 </div>
@@ -512,10 +611,10 @@ export default function CanchaTrackApp({ teams, players, events, venues, user, o
           ) : active === "Reportes" ? (
             <section className="workspace-view">
               <div className="report-cards">
-                {[["chart", "Reporte de asistencia", "Histórico por jugador y entrenamiento", "Actualizado hoy"], ["wallet", "Estado de cartera", "Pagos recibidos, pendientes y vencidos", "Actualizado hace 1 h"], ["users", "Habilitación deportiva", "Jugadores disponibles para competencia", "Actualizado hoy"]].map((report) => <div className="panel report-card" key={report[1]}><div className="metric-icon blue"><Icon name={report[0] as IconName} /></div><div><strong>{report[1]}</strong><p>{report[2]}</p><span>{report[3]}</span></div><Button variant="soft" onClick={() => showToast(`${report[1]} descargado`)}>Descargar</Button></div>)}
+                {reportCards.map((report) => <div className="panel report-card" key={report.kind}><div className="metric-icon blue"><Icon name={report.icon} /></div><div><strong>{report.title}</strong><p>{report.text}</p><span>{team.shortLabel} · archivo CSV, abre en Excel</span></div><Button variant="soft" disabled={downloading === report.kind} onClick={() => handleDownload(report.kind)}>{downloading === report.kind ? "Descargando…" : "Descargar"}</Button></div>)}
               </div>
               <div className="panel report-summary">
-                <div className="panel-heading"><div><div className="section-title">Resumen de los últimos 6 meses</div><div className="section-subtitle">Evolución consolidada del equipo</div></div></div>
+                <div className="panel-heading"><div><div className="section-title">Resumen de los últimos 6 meses</div><div className="section-subtitle">Gráfico ilustrativo: aún no usa datos reales</div></div></div>
                 <div className="summary-bars">
                   {[["Mar", 72, 68], ["Abr", 78, 74], ["May", 75, 82], ["Jun", 84, 79], ["Jul", 82, 88], ["Ago", 87, 83]].map(item => <div className="summary-column" key={item[0]}><div><i style={{ height: `${item[1]}%` }} /><i style={{ height: `${item[2]}%` }} /></div><span>{item[0]}</span></div>)}
                 </div>
@@ -617,6 +716,72 @@ export default function CanchaTrackApp({ teams, players, events, venues, user, o
               <div className="modal-actions form-wide">
                 <button type="button" className="button button-soft" onClick={() => setEventModalOpen(false)} disabled={isCreatingEvent}>Cancelar</button>
                 <button type="submit" className="button button-primary" disabled={isCreatingEvent}>{isCreatingEvent ? "Guardando…" : "Crear evento"}</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+      {callup.open && (() => {
+        const listed = (callup.detail?.callups ?? []).filter((item) => item.status !== "REMOVED");
+        const proposed = listed.filter((item) => item.status === "PROPOSED").length;
+        const confirmed = listed.filter((item) => item.status === "CONFIRMED").length;
+        const enabledCount = teamPlayers.filter((player) => player.enabled).length;
+        return (
+          <div className="modal-layer" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !callup.busy) setCallup((current) => ({ ...current, open: false })); }}>
+            <section className="player-modal callup-modal" role="dialog" aria-modal="true" aria-labelledby="callup-title">
+              <div className="modal-heading">
+                <div><div className="section-title" id="callup-title">Convocatoria · vs {team.opponent}</div><div className="section-subtitle">{team.matchDate ? `${team.matchDate.weekday} ${team.matchDate.day} ${team.matchDate.month} · ` : ""}{team.matchTime} · {team.matchVenue}</div></div>
+                <button type="button" onClick={() => setCallup((current) => ({ ...current, open: false }))} disabled={callup.busy} aria-label="Cerrar"><Icon name="close" /></button>
+              </div>
+              <div className="callup-body">
+                {callup.loading && <div className="agenda-empty">Cargando la convocatoria…</div>}
+                {!callup.loading && callup.error && <div className="form-error"><Icon name="alert" />{callup.error}</div>}
+                {!callup.loading && !callup.detail && !callup.error && <div className="agenda-empty">Este partido no se encontró en el sistema.</div>}
+                {!callup.loading && callup.detail && <>
+                  <div className="callup-summary">{confirmed} convocados · {proposed} propuestos · {listed.length - confirmed - proposed} no elegibles</div>
+                  {listed.length === 0 ? <div className="agenda-empty">Aún no se han propuesto jugadores para este partido.</div> : (
+                    <div className="callup-list">
+                      {listed.map((item) => {
+                        const state = calloutStatus(item);
+                        return <div className="callup-row" key={item.playerId}>
+                          <div className="player-copy"><strong>{item.firstName} {item.lastName}</strong><span>Código {item.playerCode}{item.status === "NOT_ELIGIBLE" && item.ineligibilityCode ? ` · ${causeLabels[item.ineligibilityCode] ?? item.ineligibilityCode}` : ""}</span></div>
+                          <span className={`status-chip ${state.tone}`}>{state.label}</span>
+                        </div>;
+                      })}
+                    </div>
+                  )}
+                  <div className="modal-actions">
+                    <button type="button" className="button button-soft" onClick={proposeEnabledPlayers} disabled={callup.busy || enabledCount === 0}>{callup.busy ? "Procesando…" : `Proponer habilitados (${enabledCount})`}</button>
+                    {proposed > 0 && <button type="button" className="button button-primary" onClick={confirmCallupPlayers} disabled={callup.busy}>Confirmar convocatoria</button>}
+                  </div>
+                </>}
+              </div>
+            </section>
+          </div>
+        );
+      })()}
+      {statusModal && (
+        <div className="modal-layer" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !statusBusy) setStatusModal(null); }}>
+          <section className="player-modal" role="dialog" aria-modal="true" aria-labelledby="status-title">
+            <div className="modal-heading">
+              <div>
+                <div className="section-title" id="status-title">{statusModal.mode === "suspend" ? "Deshabilitar jugador" : "Rehabilitar jugador"}</div>
+                <div className="section-subtitle">{statusModal.player.name} · Código {statusModal.player.number}</div>
+              </div>
+              <button type="button" onClick={() => setStatusModal(null)} disabled={statusBusy} aria-label="Cerrar"><Icon name="close" /></button>
+            </div>
+            <form className="player-form" onSubmit={submitStatus}>
+              <p className="modal-note">{statusModal.mode === "suspend"
+                ? "El jugador conserva su categoría y su historial, pero deja de estar habilitado: sale de la lista de asistencia, no recibe cobro mensual y no puede ser convocado."
+                : "El jugador vuelve a estar activo en su categoría."}</p>
+              <label>
+                {statusModal.mode === "suspend" ? "Motivo (obligatorio)" : "Motivo (opcional)"}
+                <textarea value={statusReason} maxLength={500} onChange={(event) => setStatusReason(event.target.value)} placeholder={statusModal.mode === "suspend" ? "Por ejemplo: lesión prolongada, solicitud del acudiente…" : "Por ejemplo: ya fue dado de alta"} autoFocus />
+              </label>
+              {statusError && <div className="form-error"><Icon name="alert" />{statusError}</div>}
+              <div className="modal-actions">
+                <button type="button" className="button button-soft" onClick={() => setStatusModal(null)} disabled={statusBusy}>Cancelar</button>
+                <button type="submit" className="button button-primary" disabled={statusBusy}>{statusBusy ? "Guardando…" : statusModal.mode === "suspend" ? "Deshabilitar" : "Rehabilitar"}</button>
               </div>
             </form>
           </section>

@@ -3,18 +3,24 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ApiError,
+  confirmCallup,
+  downloadCsv,
+  fetchMatchByEvent,
   fetchOverview,
   fetchVenues,
   loadSession,
   logout,
+  proposeCallup,
   recordPayment,
+  reinstatePlayer,
   scheduleEvent,
+  suspendPlayer,
   type ClubOverview,
   type Session,
   type Venue,
 } from "@/lib/api";
 import { formatMoney, mapOverview } from "@/lib/map-overview";
-import CanchaTrackApp, { type NewEventInput } from "./CanchaTrackApp";
+import CanchaTrackApp, { type CallupLoad, type NewEventInput, type PlayerData, type ReportKind, type TeamData } from "./CanchaTrackApp";
 import LoginScreen from "./LoginScreen";
 
 type Phase = "starting" | "login" | "loading" | "ready" | "failed";
@@ -101,6 +107,64 @@ export default function ClubApp() {
     }
   };
 
+  const fail = (failure: unknown, fallback: string) => ({ ok: false as const, error: failure instanceof Error ? failure.message : fallback });
+
+  const handleSetPlayerStatus = async (player: PlayerData, mode: "suspend" | "reinstate", reason: string) => {
+    try {
+      if (mode === "suspend") await suspendPlayer(player.id, reason);
+      else await reinstatePlayer(player.id, reason || undefined);
+      await load();
+      return { ok: true as const, message: mode === "suspend" ? `${player.name} fue deshabilitado.` : `${player.name} fue rehabilitado.` };
+    } catch (failure) {
+      return fail(failure, "No fue posible cambiar el estado del jugador.");
+    }
+  };
+
+  const handleLoadCallup = async (categoryId: string, eventId: string): Promise<CallupLoad> => {
+    try {
+      return { ok: true, detail: await fetchMatchByEvent(categoryId, eventId) };
+    } catch (failure) {
+      return fail(failure, "No fue posible cargar la convocatoria.");
+    }
+  };
+
+  const handleProposeCallup = async (matchId: string, playerIds: string[]) => {
+    try {
+      await proposeCallup(matchId, playerIds);
+      return { ok: true as const, message: "Jugadores propuestos para la convocatoria." };
+    } catch (failure) {
+      return fail(failure, "No fue posible proponer la convocatoria.");
+    }
+  };
+
+  const handleConfirmCallup = async (matchId: string) => {
+    try {
+      await confirmCallup(matchId);
+      return { ok: true as const, message: "Convocatoria confirmada." };
+    } catch (failure) {
+      return fail(failure, "No fue posible confirmar la convocatoria.");
+    }
+  };
+
+  const handleDownloadReport = async (kind: ReportKind, team: TeamData) => {
+    const pad = (value: number) => String(value).padStart(2, "0");
+    const iso = (date: Date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    const today = new Date();
+    const from = new Date(today);
+    from.setDate(from.getDate() - 120);
+    const query = `categoryId=${encodeURIComponent(team.id)}`;
+    const path = kind === "attendance"
+      ? `/reports/attendance/export?${query}&from=${iso(from)}&to=${iso(today)}`
+      : `/reports/${kind}/export?${query}`;
+    const slug = team.label.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    try {
+      await downloadCsv(path, `${kind}-${slug}-${iso(today)}.csv`);
+      return { ok: true as const, message: "Reporte descargado." };
+    } catch (failure) {
+      return fail(failure, "No fue posible descargar el reporte.");
+    }
+  };
+
   if (phase === "starting" || phase === "loading") {
     return <main className="grid min-h-screen place-items-center bg-slate-100 text-sm text-slate-500">Cargando el tablero…</main>;
   }
@@ -132,6 +196,11 @@ export default function ClubApp() {
       onLogout={() => signOut()}
       onCreateEvent={handleCreateEvent}
       onRecordPayment={handleRecordPayment}
+      onSetPlayerStatus={handleSetPlayerStatus}
+      onLoadCallup={handleLoadCallup}
+      onProposeCallup={handleProposeCallup}
+      onConfirmCallup={handleConfirmCallup}
+      onDownloadReport={handleDownloadReport}
     />
   );
 }

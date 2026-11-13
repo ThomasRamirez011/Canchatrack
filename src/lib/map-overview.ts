@@ -65,6 +65,7 @@ export function mapOverview(overview: ClubOverview): { teams: TeamData[]; player
           month: part(team.nextMatch.startAt, { month: "short" }).toUpperCase(),
         }
       : null,
+    nextMatchEventId: team.nextMatch?.eventId ?? null,
     coach: team.headCoach ?? "Sin entrenador",
     coachId: team.headCoachId,
     attendance: team.recentAttendance.map((session) => ({
@@ -84,6 +85,7 @@ export function mapOverview(overview: ClubOverview): { teams: TeamData[]; player
     tone: tones[index % tones.length],
     attendance: player.attendance,
     enabled: player.enabled,
+    state: player.status,
     pending: player.pendingCharge
       ? {
           chargeId: player.pendingCharge.chargeId,

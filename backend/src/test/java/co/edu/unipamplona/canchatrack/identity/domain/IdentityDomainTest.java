@@ -65,12 +65,19 @@ class IdentityDomainTest {
     @Test
     void acceptableOrRejectedPasswords() {
         assertThat(PasswordPolicy.violations("Entrenador-2026", "x@club.test")).isEmpty();
-        assertThat(PasswordPolicy.violations("corta1", "x@club.test")).isNotEmpty();
+        assertThat(PasswordPolicy.violations("cor1", "x@club.test")).isNotEmpty();
         assertThat(PasswordPolicy.violations("soloLetrasLargas", "x@club.test")).isNotEmpty();
         assertThat(PasswordPolicy.violations("123456789012345", "x@club.test")).isNotEmpty();
         assertThat(PasswordPolicy.violations(null, "x@club.test")).isNotEmpty();
         assertThat(PasswordPolicy.violations("x@club.test1", "x@club.test1")).isNotEmpty(); // igual al correo
         assertThat(PasswordPolicy.violations("a1".repeat(40), "x@club.test")).isNotEmpty(); // > 72 bytes
+    }
+
+    @Test
+    void passwordMinimumIsSixCharacters() {
+        assertThat(PasswordPolicy.violations("AdmiN01", "x@club.test")).isEmpty();
+        assertThat(PasswordPolicy.violations("Abcd12", "x@club.test")).isEmpty();
+        assertThat(PasswordPolicy.violations("Abcd1", "x@club.test")).isNotEmpty();
     }
 
     @Test

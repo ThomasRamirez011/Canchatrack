@@ -76,7 +76,7 @@ public class JdbcDashboardStore implements DashboardStore {
                     WHERE cb.player_id = p.id AND cb.status IN ('PENDING', 'PARTIAL')
                     ORDER BY cb.due_date, cb.charge_id
                     LIMIT 1) pc ON true
-                WHERE p.status IN ('ACTIVE', 'IN_EVALUATION')
+                WHERE p.status IN ('ACTIVE', 'IN_EVALUATION', 'SUSPENDED')
                 ORDER BY ca.category_id, p.last_name, p.first_name, p.id
                 """, (rs, n) -> {
             UUID chargeId = rs.getObject("charge_id", UUID.class);

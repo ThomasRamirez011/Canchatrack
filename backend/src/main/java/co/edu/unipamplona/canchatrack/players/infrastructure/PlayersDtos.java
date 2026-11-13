@@ -17,6 +17,7 @@ import co.edu.unipamplona.canchatrack.players.application.MonthlyBillingResult;
 import co.edu.unipamplona.canchatrack.players.application.RegistrationResult;
 import co.edu.unipamplona.canchatrack.players.application.PageResult;
 import co.edu.unipamplona.canchatrack.players.application.PlayerDetail;
+import co.edu.unipamplona.canchatrack.players.application.PlayerStatusChange;
 import co.edu.unipamplona.canchatrack.players.application.PlayerSummary;
 import co.edu.unipamplona.canchatrack.players.application.PlayerWithEnrollments;
 import co.edu.unipamplona.canchatrack.players.application.SeasonInfo;
@@ -223,6 +224,16 @@ public final class PlayersDtos {
             UUID headCoachId,
             List<UUID> evaluatorIds,
             String capacityExceptionReason) {
+    }
+
+    public record PlayerStatusRequest(String reason) {
+    }
+
+    public record PlayerStatusResponse(UUID playerId, String previousStatus, String status) {
+
+        public static PlayerStatusResponse from(PlayerStatusChange change) {
+            return new PlayerStatusResponse(change.playerId(), change.previousStatus().name(), change.status().name());
+        }
     }
 
     public record RejectEnrollmentRequest(

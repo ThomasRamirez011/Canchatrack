@@ -172,7 +172,7 @@ class EnrollmentIT {
 
     @Test
     void registrationReportsEveryInvalidFieldAndRejectsDuplicates() throws Exception {
-        postJson("/guardians", Map.of("email", "no-es-correo", "fullName", "Ana", "password", "debil1",
+        postJson("/guardians", Map.of("email", "no-es-correo", "fullName", "Ana", "password", "deb1",
                 "documentType", "TI", "documentNumber", "ab"), null)
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))

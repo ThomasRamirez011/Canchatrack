@@ -279,7 +279,7 @@ class AuthIT {
         String token = login(newAccount("COORDINATOR"), PASSWORD).get("accessToken").asText();
 
         // Reglas de dominio: contraseña débil, rol de acudiente no permitido
-        postJson("/users", Map.of("email", "ok-" + UUID.randomUUID() + "@club.test", "fullName", "X", "password", "debil1",
+        postJson("/users", Map.of("email", "ok-" + UUID.randomUUID() + "@club.test", "fullName", "X", "password", "deb1",
                 "roles", List.of("GUARDIAN")), token)
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
