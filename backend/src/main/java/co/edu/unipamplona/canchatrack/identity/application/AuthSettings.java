@@ -10,8 +10,10 @@ import co.edu.unipamplona.canchatrack.identity.domain.LockoutPolicy;
  *
  * @param refreshTtl         vigencia de cada refresh token (se renueva al rotar)
  * @param refreshAbsoluteTtl tope de toda la sesión desde el inicio de sesión; no se extiende al rotar
+ * @param requireVerifiedEmail si es {@code true}, una cuenta con el correo sin confirmar no puede abrir sesión
  */
-public record AuthSettings(Duration refreshTtl, Duration refreshAbsoluteTtl, LockoutPolicy lockout) {
+public record AuthSettings(Duration refreshTtl, Duration refreshAbsoluteTtl, LockoutPolicy lockout,
+                           boolean requireVerifiedEmail) {
 
     public AuthSettings {
         Objects.requireNonNull(lockout, "lockout");

@@ -24,6 +24,8 @@ canchatrack:
       # Servidores de desarrollo habituales del front (Next.js, Vite); CORS_ALLOWED_ORIGINS los reemplaza.
       allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
   identity:
+    # En desarrollo el correo no sale (solo se registra), así que no se exige confirmarlo para iniciar sesión.
+    require-verified-email: false
     bootstrap:
       # Cuenta inicial desechable de desarrollo (solo se crea si la base no tiene usuarios).
       coordinator-email: ${BOOTSTRAP_COORDINATOR_EMAIL:coordinador@canchatrack.local}

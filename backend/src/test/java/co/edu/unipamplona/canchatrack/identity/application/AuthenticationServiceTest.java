@@ -37,7 +37,7 @@ class AuthenticationServiceTest {
     @BeforeEach
     void setUp() {
         AuthSettings settings = new AuthSettings(Duration.ofDays(7), Duration.ofDays(30),
-                new LockoutPolicy(5, Duration.ofMinutes(15)));
+                new LockoutPolicy(5, Duration.ofMinutes(15)), false);
         auth = new AuthenticationService(users, refreshTokens, hasher, new FakeIssuer(), audit, settings, clock);
         userId = new UserAdministrationService(users, hasher, audit)
                 .createStaffUser(new CreateUserCommand(EMAIL, "Entrenador Uno", PASSWORD, List.of("COACH")),
@@ -207,5 +207,61 @@ class AuthenticationServiceTest {
                 .doesNotContain(opened.tokens().accessToken());
         assertThat(new CreateUserCommand("a@b.co", "N", "secreta-123456", List.of("COACH")).toString())
                 .doesNotContain("secreta-123456");
+    }
+
+    // --- verificación de correo
+
+    private AuthenticationService strictAuth() {
+        AuthSettings strict = new AuthSettings(Duration.ofDays(7), Duration.ofDays(30),
+                new LockoutPolicy(5, Duration.ofMinutes(15)), true);
+        return new AuthenticationService(users, refreshTokens, hasher, new FakeIssuer(), audit, strict, clock);
+    }
+
+    private UUID unverifiedGuardian() {
+        return users.create(new UserAccountRepository.NewUser("padre@club.test", "Padre", hasher.hash(PASSWORD),
+                java.util.EnumSet.of(co.edu.unipamplona.canchatrack.identity.domain.RoleCode.GUARDIAN), null, false)).id();
+    }
+
+    @Test
+    void anUnverifiedAccountWithTheRightPasswordIsToldToConfirmItsEmailAndGetsNoSession() {
+        unverifiedGuardian();
+
+        SessionResult result = strictAuth().login("padre@club.test", PASSWORD, ClientOrigin.UNKNOWN);
+
+        assertThat(result).isInstanceOf(SessionResult.EmailNotVerified.class);
+        assertThat(refreshTokens.size()).isZero();
+        assertThat(audit.count("AUTH_LOGIN_SUCCESS")).isZero();
+        assertThat(audit.records.get(audit.records.size() - 1).reason()).isEqualTo("EMAIL_NOT_VERIFIED");
+    }
+
+    @Test
+    void anUnverifiedAccountWithAWrongPasswordLooksLikeAnyOtherBadLogin() {
+        unverifiedGuardian();
+
+        assertThat(strictAuth().login("padre@club.test", "otra-clave-1234", ClientOrigin.UNKNOWN))
+                .isInstanceOf(SessionResult.Rejected.class);
+    }
+
+    @Test
+    void verifiedAccountsStillLogInWhenVerificationIsRequired() {
+        assertThat(strictAuth().login(EMAIL, PASSWORD, ClientOrigin.UNKNOWN)).isInstanceOf(SessionResult.Opened.class);
+    }
+
+    @Test
+    void whenVerificationIsNotRequiredAnUnverifiedAccountCanLogIn() {
+        unverifiedGuardian();
+
+        assertThat(auth.login("padre@club.test", PASSWORD, ClientOrigin.UNKNOWN)).isInstanceOf(SessionResult.Opened.class);
+    }
+
+    @Test
+    void aSessionOfAnAccountThatBecameUnverifiedCannotBeRenewedUnderTheStrictRule() {
+        UUID id = unverifiedGuardian();
+        SessionResult.Opened opened = (SessionResult.Opened) auth.login("padre@club.test", PASSWORD, ClientOrigin.UNKNOWN);
+
+        SessionResult result = strictAuth().refresh(opened.tokens().refreshToken(), ClientOrigin.UNKNOWN);
+
+        assertThat(result).isInstanceOf(SessionResult.Rejected.class);
+        assertThat(refreshTokens.allRevoked(id)).isTrue();
     }
 }

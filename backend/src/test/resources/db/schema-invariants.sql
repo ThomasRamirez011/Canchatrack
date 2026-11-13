@@ -470,6 +470,29 @@ $test$
                 format($q$INSERT INTO event_series (event_type, category_id, venue_id, head_coach_id, weekdays, start_date, end_date, start_time, end_time, time_zone, occurrence_count) VALUES ('FRIENDLY_MATCH', %L, %L, %L, '{1}'::smallint[], DATE '2027-03-01', DATE '2027-03-10', '17:00', '19:00', 'x', 1)$q$, v_cat, v_venue, v_coach),
                 '23514'); -- solo entrenamientos y evaluaciones
 
+        -- V19: tokens de un solo uso y límite de tasa (seguridad de cuentas)
+        INSERT INTO account_tokens (user_id, purpose, token_hash, created_at, expires_at)
+        VALUES (v_coach, 'PASSWORD_RESET', repeat('a', 64), now(), now() + interval '30 minutes');
+        PERFORM pg_temp.expect_error(
+                format($q$INSERT INTO account_tokens (user_id, purpose, token_hash, created_at, expires_at) VALUES (%L, 'PASSWORD_RESET', repeat('a', 64), now(), now() + interval '1 hour')$q$, v_coach),
+                '23505'); -- el hash del token es único
+        PERFORM pg_temp.expect_error(
+                format($q$INSERT INTO account_tokens (user_id, purpose, token_hash, created_at, expires_at) VALUES (%L, 'OTRO', repeat('b', 64), now(), now() + interval '1 hour')$q$, v_coach),
+                '23514'); -- solo restablecimiento y verificación
+        PERFORM pg_temp.expect_error(
+                format($q$INSERT INTO account_tokens (user_id, purpose, token_hash, created_at, expires_at) VALUES (%L, 'PASSWORD_RESET', 'corto', now(), now() + interval '1 hour')$q$, v_coach),
+                '23514'); -- el hash es SHA-256 en hexadecimal
+        PERFORM pg_temp.expect_error(
+                format($q$INSERT INTO account_tokens (user_id, purpose, token_hash, created_at, expires_at) VALUES (%L, 'PASSWORD_RESET', repeat('c', 64), now(), now())$q$, v_coach),
+                '23514'); -- debe vencer después de crearse
+        PERFORM pg_temp.expect_error(
+                format($q$INSERT INTO account_tokens (user_id, purpose, token_hash, created_at, expires_at, used_at, revoked_at) VALUES (%L, 'PASSWORD_RESET', repeat('d', 64), now(), now() + interval '1 hour', now(), now())$q$, v_coach),
+                '23514'); -- un token se usa o se revoca, no ambas cosas
+        INSERT INTO rate_limit_events (bucket, subject_hash, occurred_at) VALUES ('LOGIN_IP', repeat('e', 64), now());
+        PERFORM pg_temp.expect_error(
+                $q$INSERT INTO rate_limit_events (bucket, subject_hash, occurred_at) VALUES ('LOGIN_IP', '192.168.0.1', now())$q$,
+                '23514'); -- solo huellas, nunca la IP o el correo en claro
+
         INSERT INTO notifications (notification_type, recipient_email, dedup_key)
         VALUES ('EVENT_SCHEDULED', 'a@test.local', 'evt:1:a@test.local') RETURNING id INTO v_notif;
         PERFORM pg_temp.expect_error($q$INSERT INTO notifications (notification_type, recipient_email, dedup_key) VALUES ('EVENT_SCHEDULED', 'a@test.local', 'evt:1:a@test.local')$q$, '23505'); -- PA-10: sin duplicar

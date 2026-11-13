@@ -10,6 +10,7 @@ import java.util.UUID;
  *
  * @param passwordHash   hash BCrypt; {@code null} si la cuenta usa solo OIDC (DT-06): no puede entrar con contraseña
  * @param lockedUntil    bloqueo temporal por intentos fallidos; {@code null} si no está bloqueada
+ * @param emailVerifiedAt momento en que se confirmó el correo; {@code null} si aún no se confirma
  */
 public record UserAccount(
         UUID id,
@@ -19,7 +20,8 @@ public record UserAccount(
         AccountStatus status,
         int failedLoginAttempts,
         Instant lockedUntil,
-        Set<RoleCode> roles) {
+        Set<RoleCode> roles,
+        Instant emailVerifiedAt) {
 
     public UserAccount {
         Objects.requireNonNull(id, "id");
@@ -32,6 +34,10 @@ public record UserAccount(
     /** {@code true} mientras el bloqueo temporal por intentos fallidos siga vigente. */
     public boolean isTemporarilyLockedAt(Instant now) {
         return lockedUntil != null && lockedUntil.isAfter(now);
+    }
+
+    public boolean isEmailVerified() {
+        return emailVerifiedAt != null;
     }
 
     /** Puede iniciar sesión con contraseña: activa, con contraseña y sin bloqueo vigente. */

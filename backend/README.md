@@ -70,6 +70,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 - `scheduling` + `notifications` (sesiones recurrentes y calendario, ver «Sesiones recurrentes y calendario»): el coordinador programa una serie semanal de entrenamientos o evaluaciones (días de la semana, hora local del club, fecha final; hasta 60 sesiones), todo o nada ante cruces, con un solo correo con la invitación `.ics` de todas las sesiones; cancela la serie de una vez; el calendario se filtra por categoría, entrenador, escenario, tipo, estado, serie y rango de fechas (RF-013, RF-014).
 - `players` + `documents` (documentos iniciales en la radicación, ver «Inscripción»): al radicar, el acudiente adjunta archivos que ya subió con `POST /files`; cada uno pasa a ser la primera versión inmutable de su tipo de documento, en la misma transacción que la radicación (todo o nada); ninguno es obligatorio para radicar y la constancia informa los obligatorios pendientes (CU-02, RF-006, RF-007).
 - `reports` (exportaciones del ERS 7.3, ver «Exportaciones del ERS 7.3»): plantilla, asistencia, convocatorias y resultados, y seguimiento de evaluación en CSV (abre en Excel), solo coordinación y comité, con ventana por temporada o fechas, tope de 20000 filas, sin datos de identidad ni de salud y cada descarga auditada.
+- `identity` + `notifications` (seguridad de cuentas, ver «Seguridad de cuentas»): confirmación del correo obligatoria para iniciar sesión (acudientes autorregistrados), recuperación de contraseña por enlace de un solo uso, cambio de contraseña con cierre de todas las sesiones, límite de tasa guardado en PostgreSQL por IP y por correo, y limpieza programada de tokens y eventos antiguos.
 - `audit`: puerto `AuditWriter` (`write` en la transacción de negocio; `writeIndependent` para intentos rechazados,
   p. ej. PA-01), adaptador JDBC y consulta de la bitácora con filtros y cursor (CU-14, ver «Auditoría y reportes»).
 - `reports` (ver «Auditoría y reportes» e «Informe de temporada y cierre del expediente»): cartera por categoría con exportación a CSV y resumen de temporada, como modelo de lectura; informe PDF versionado por jugador y cierre o reapertura del expediente (CU-10, CU-11).
@@ -104,6 +105,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 | Sesiones recurrentes y calendario filtrable (`scheduling`, `notifications`, V18, `RecurrenceRulesTest`, `SchedulingRulesTest`, `IcsCalendarTest`, `NotificationRulesTest`, `AgendaNoticesTest`, `OpenApiContractTest`, `RecurringSessionsIT`) | V18 y `schema-invariants.sql` sobre PostgreSQL 16 real (`scripts/check-schema.sh`, con cinco aserciones nuevas); las sentencias nuevas del almacén (alta de la serie con el arreglo de días, sesiones ligadas por posición, lectura ordenada de la serie, calendario con los ocho filtros opcionales, rango inclusivo-exclusivo) y las ocho restricciones de la serie ejecutadas contra esa base; dominio, aplicación y plantillas compilados con `javac -Xlint:all` y 102 pruebas unitarias ejecutadas con un sustituto mínimo de JUnit y AssertJ; sintaxis de los 24 fuentes modificados o nuevos analizada con el parser de `javac`; OpenAPI validado con `openapi-spec-validator` (76 rutas, 122 esquemas). Adaptador JDBC, controlador, configuración y `RecurringSessionsIT` **no** se compilaron contra Spring en el sandbox | **Verificado** en GitHub Actions (PR #22, commit 3101f1a): `mvn verify` en BUILD SUCCESS con 436 pruebas unitarias y 176 de integración, 0 fallos, incluidas `RecurrenceRulesTest` (10), `SchedulingRulesTest` (6), `IcsCalendarTest` (9), `NotificationRulesTest` (40), `AgendaNoticesTest` (22), `OpenApiContractTest` (17) y `RecurringSessionsIT` (10); imagen Docker y smoke test en verde. Una sola corrida |
 | Documentos iniciales en la radicación (`documents`, `players`, `EnrollmentDocumentServiceTest`, `EnrollmentServiceTest`, `DocumentRulesTest`, `PlayerDocumentServiceTest`, `OpenApiContractTest`, `EnrollmentDocumentsIT`) | Sin migración nueva. Las dos sentencias nuevas del almacén (existencia de una versión que usa el archivo y bloqueo de la fila del archivo) ejecutadas sobre PostgreSQL 16 real con V1..V18; la fachada, el servicio de documentos, la integración en `EnrollmentService`, el comando y la constancia compilados con `javac` y 55 pruebas unitarias ejecutadas con un sustituto mínimo de JUnit y AssertJ (`EnrollmentDocumentServiceTest`, `EnrollmentServiceTest`, `DocumentRulesTest`, `PlayerDocumentServiceTest`); OpenAPI validado con un lector YAML (76 rutas, 123 esquemas). Adaptador JDBC, DTO, controlador y `EnrollmentDocumentsIT` **no** se compilaron contra Spring en el sandbox | **Verificado** en GitHub Actions (PR #23, commit 337fb51): `mvn verify` en BUILD SUCCESS con 463 pruebas unitarias y 181 de integración, 0 fallos, incluidas `EnrollmentDocumentServiceTest` (17), `EnrollmentServiceTest` (19), `DocumentRulesTest` (11), `PlayerDocumentServiceTest` (8), `OpenApiContractTest` (18) y `EnrollmentDocumentsIT` (5); imagen Docker y smoke test en verde. Una sola corrida |
 | Exportaciones CSV del ERS 7.3 (`reports`, `ExportRulesTest`, `ExportServiceTest`, `OpenApiContractTest`, `ReportExportsIT`) | Sin migración nueva. Las cuatro consultas del almacén ejecutadas sobre PostgreSQL 16 real con V1..V18 y datos de prueba (excluyen sesiones abiertas o canceladas, convocados retirados y conceptos de otro periodo); reglas, servicio y encabezados compilados con `javac` y 24 pruebas unitarias ejecutadas con un sustituto mínimo de JUnit y AssertJ (`ExportRulesTest` 9, `ExportServiceTest` 15); OpenAPI validado con un lector YAML (80 rutas, 123 esquemas). Adaptador JDBC, controladores, `CsvResponses`, la nueva prueba de `OpenApiContractTest` y `ReportExportsIT` **no** se compilaron contra Spring en el sandbox | **Verificado** en GitHub Actions (PR #24, commit b3f265d): `mvn verify` en BUILD SUCCESS con 488 pruebas unitarias y 188 de integración, 0 fallos, incluidas `ExportRulesTest` (9), `ExportServiceTest` (15), `OpenApiContractTest` (19) y `ReportExportsIT` (7); imagen Docker y smoke test en verde. Una sola corrida |
+| Seguridad de cuentas (V19, `identity`, `notifications`, `RateLimitRuleTest`, `RateLimiterTest`, `AccountSecuritySettingsTest`, `PasswordRecoveryServiceTest`, `EmailVerificationServiceTest`, `SecurityMaintenanceServiceTest`, `AuthenticationServiceTest`, `GuardianRegistrationServiceTest`, `NotificationRulesTest`, `OpenApiContractTest`, `AccountSecurityIT`) | V19 y `schema-invariants.sql` sobre PostgreSQL 16 real (`scripts/check-schema.sh`, con seis aserciones nuevas); las sentencias nuevas (depuración de `token` y `url` en el `payload` de la cola, bloqueo asesor por sujeto, alta, revocación y borrado de tokens, borrado de eventos de límite, consultas de `AccountSecurityIT`) ejecutadas contra esa base; dominio y aplicación compilados y ejecutados con dobles en memoria (116 comprobaciones); sintaxis de los 51 fuentes nuevos o modificados analizada con el parser de `javac`; OpenAPI validado como YAML (85 rutas) y las aserciones de la prueba de contrato reproducidas con un lector YAML. Adaptadores JDBC, controladores, programador, configuración y `AccountSecurityIT` **no** se compilaron contra Spring en el sandbox | **Verificado** en GitHub Actions (PR #25, commit d747e76): `mvn verify` en BUILD SUCCESS con 544 pruebas unitarias y 206 de integración, 0 fallos, incluidas `RateLimitRuleTest` (6), `RateLimiterTest` (10), `AccountSecuritySettingsTest` (3), `PasswordRecoveryServiceTest` (17), `EmailVerificationServiceTest` (7), `SecurityMaintenanceServiceTest` (2), `AuthenticationServiceTest` (19), `GuardianRegistrationServiceTest` (9), `NotificationRulesTest` (43), `OpenApiContractTest` (20) y `AccountSecurityIT` (18); imagen Docker y smoke test en verde. Una sola corrida. Las cifras coincidieron con lo previsto (488 + 56 = 544 unitarias); en integración se previeron 19 por un conteo que incluía `@TestConfiguration`, y son 18 (188 + 18 = 206) |
 | Contenedor e integración continua (`Dockerfile`, `.github/workflows/backend-ci.yml`) | El pipeline es su propia verificación: se ejecutó en GitHub Actions sobre el PR | **Verificado:** `mvn verify` (unitarias + integración con Testcontainers), construcción de la imagen y smoke test (health `UP`, login del coordinador de desarrollo, 401 sin token) en verde (2026-11-12). La primera ejecución falló por Docker Engine 29 (ver «Contenedor e integración continua») |
 | Código Spring (filtro, handler, seguridad, `JdbcAuditWriter`), `ArchitectureTest`, unitarias | `mvn test` en Windows 11, JDK 24 (compila con `--release 21`), Maven 3.10.0 | Ejecutado: OK (19 pruebas, 0 fallos) |
 | `*IT` con Testcontainers (`DatabaseSchemaIT`, `AuditWriterIT`) | `mvn verify`, Docker Desktop 4.98 / Engine 29.9.2 | Ejecutado: OK (7 pruebas, 0 fallos) |
@@ -185,6 +187,11 @@ OIDC (DT-06) queda como extensión posterior (`users.oidc_subject` ya existe).
 | `POST /api/v1/auth/logout` | público (con refresh token) | Idempotente; 204 siempre. |
 | `GET /api/v1/auth/me` | autenticado | Lee de la base: una cuenta no activa responde 401. |
 | `POST /api/v1/users` | `COORDINATOR` | Alta de personal. **No** admite `GUARDIAN`: esas cuentas nacen con la inscripción. |
+| `POST /api/v1/auth/password-reset/request` | público | Responde 202 exista o no la cuenta; envía un enlace de 30 min. |
+| `POST /api/v1/auth/password-reset/confirm` | público (con token) | 204; token de un solo uso; cierra todas las sesiones. |
+| `POST /api/v1/auth/password` | autenticado | Cambio con la contraseña actual; cierra todas las sesiones. |
+| `POST /api/v1/auth/email-verification/request` | público | Reenvío del enlace de confirmación (202 siempre). |
+| `POST /api/v1/auth/email-verification/confirm` | público (con token) | 204; token de un solo uso. |
 
 **Reglas de acceso a jugadores** (`identity.api.PlayerAccessPolicy`, la usarán los demás módulos): coordinador y comité,
 todos; acudiente, solo con vínculo vigente en `player_guardians`; **entrenador y evaluador, ninguno todavía** (su alcance
@@ -207,11 +214,60 @@ poder probar sin configurar nada. **Nunca despliegue con el perfil por defecto (
    hay que añadir una lista de `jti` revocados o consultar la base en cada solicitud.
 2. **Reutilización estricta:** dos renovaciones simultáneas con el mismo token (p. ej. doble clic) cuentan como reutilización y
    cierran la sesión. Una ventana de gracia de unos segundos es posible, a costa de debilitar la detección.
-3. **Faltan** (no estaban pedidos todavía): recuperación y cambio de contraseña (dependen de notificaciones por correo),
-   MFA del coordinador (DDS 12.1), limitación de tasa por IP, y limpieza periódica de refresh tokens vencidos (índice listo).
+3. **Falta** el MFA del coordinador y del comité (DDS 12.1), que irá en su propio incremento. La recuperación y el cambio de
+   contraseña, la verificación del correo, el límite de tasa y la limpieza de refresh tokens están en «Seguridad de cuentas».
 4. HS256 usa una clave simétrica: basta mientras un único servicio emite y valida. Si otro servicio debe validar sin poder
    emitir, migrar a RS256/ES256 sin cambiar el contrato.
 5. El origen (IP) de auditoría depende de `server.forward-headers-strategy` (activo en prod) detrás del proxy inverso.
+
+## Seguridad de cuentas (identity, notifications)
+
+**Decisiones del cliente.** Recuperación por **enlace de un solo uso enviado al correo**; el correo **confirmado es obligatorio para
+iniciar sesión** (acudientes autorregistrados); límite de tasa **guardado en la base** y contado por IP y por correo; el MFA
+queda para un incremento propio.
+
+**Tokens de un solo uso.** Valor opaco de 256 bits (base64url) que viaja solo en el correo; en `account_tokens` queda su SHA-256.
+Se gasta al usarse, se invalida al pedir otro del mismo tipo y vence (restablecimiento 30 min, confirmación 48 h). Cualquier
+token inservible (inexistente, usado, reemplazado o vencido) responde igual: 422 sobre el campo `token`. Mientras el aviso está en la
+cola el valor figura en su `payload`; al quedar `SENT` o `FAILED` definitivo se **borran** `token` y `url` del `payload`.
+
+**Flujos.**
+- *Registro:* el acudiente nace sin correo confirmado y recibe el enlace. Con la contraseña correcta y sin confirmar, el login responde
+  **403 `EMAIL_NOT_VERIFIED`** (con la errónea sigue el 401 genérico, así que no se revela nada a quien no conoce la clave); la renovación
+  de sesión también se niega. Las cuentas existentes antes de V19 y las de personal quedan confirmadas.
+- *Restablecer:* `request` responde 202 siempre. `confirm` fija la contraseña (misma política: 12 a 72 bytes, letra y dígito), **cierra
+  todas las sesiones**, levanta un bloqueo por intentos, da el correo por confirmado (recibir el enlace lo demuestra) y avisa por correo.
+  Un error de validación se informa sin gastar el enlace.
+- *Cambiar:* exige la contraseña actual; una errónea cuenta para el bloqueo de 5 intentos del login (un access token robado no sirve para
+  adivinarla) y, con la cuenta bloqueada, responde 429. Al cambiarla se cierran todas las sesiones y se avisa por correo.
+
+**Límite de tasa** (ventana deslizante en `rate_limit_events`, serializada con un bloqueo asesor de PostgreSQL y registrada en su propia
+transacción para que persista aunque la solicitud falle). Solo se guarda el SHA-256 de la IP (IPv6 agrupada por /64) o del correo
+normalizado. Al excederlo: **429 `RATE_LIMITED`** con la cabecera `Retry-After` y `retryAfterSeconds`; los intentos rechazados no se
+registran. Cuenta intentos, no cuentas, así que un correo inexistente se limita igual.
+
+| Propiedad (`canchatrack.identity.*`) | Predeterminado | Descripción |
+|---|---|---|
+| `require-verified-email` | `true` (dev y pruebas: `false`) | Exige el correo confirmado para iniciar sesión |
+| `recovery.reset-ttl` / `verification-ttl` | `30m` / `48h` | Vigencia de los enlaces |
+| `recovery.reset-path` / `verify-path` | `/reset-password` / `/verify-email` | Rutas del front que reciben el token (se añaden a `APP_URL`) |
+| `recovery.retention` | `7d` | Cuánto se conservan los tokens inservibles antes de la limpieza |
+| `rate-limit.enabled` | `true` | Interruptor general |
+| `rate-limit.login-per-ip` / `login-window` | `30` / `15m` | Inicios de sesión por IP |
+| `rate-limit.register-per-ip` / `register-window` | `10` / `1h` | Altas de acudientes por IP |
+| `rate-limit.recovery-per-ip` / `recovery-per-email` / `recovery-window` | `10` / `3` / `1h` | Correos de recuperación o confirmación pedidos |
+| `rate-limit.confirm-per-ip` / `confirm-window` | `30` / `15m` | Canje de enlaces por IP |
+| `maintenance.enabled` / `maintenance.cron` | `true` / `0 30 3 * * *` | Limpieza diaria de tokens y eventos viejos |
+
+`APP_URL` (ya usada por los avisos de agenda) arma el enlace del correo: `APP_URL` + `reset-path` o `verify-path` + `?token=…`. Sin ella el
+correo lleva el código para pegarlo en la pantalla correspondiente.
+
+**Límites conocidos (confirmar).**
+1. Los **access tokens ya emitidos siguen vigentes hasta 15 min** tras cambiar la contraseña (JWT sin estado); los refresh tokens sí se revocan.
+2. El registro público sigue revelando si un correo o documento ya existe; el restablecimiento solo difiere en el tiempo de respuesta.
+3. Con varios usuarios tras una misma IP (NAT del colegio) el tope por IP es compartido: ajustar los valores si molesta.
+4. Detrás de un proxy, la IP depende de `server.forward-headers-strategy` (activa en prod); sin IP no se aplica el tope por IP.
+5. Sin MFA todavía.
 
 ## CORS (shared.security)
 
@@ -309,8 +365,8 @@ con `POST /files` (así se reutilizan las validaciones de formato, tamaño e int
 - **Modularidad.** `players` solo conoce la fachada `documents.api.EnrollmentDocuments`; `documents` valida y crea las versiones.
 
 **Límites conocidos y pendientes (confirmar).**
-1. **El registro público de acudientes no verifica el correo ni limita la tasa por IP**, y por ser un alta abierta revela si
-   un correo o documento ya está registrado. Conviene añadir verificación por correo y límite de tasa antes de exponerlo.
+1. **El registro público de acudientes revela si un correo o documento ya está registrado** (es un alta abierta). La verificación
+   del correo y el límite de tasa por IP ya existen: ver «Seguridad de cuentas».
 2. Las convocatorias y temporadas se administran con la API de «Convocatorias y temporadas» (abajo); sin una convocatoria
    publicada y abierta no se puede radicar.
 3. **No se envían notificaciones** al acudiente ni a la coordinación al radicar (`notifications`).
@@ -869,4 +925,4 @@ registro, despliegue, y que `main` exija el pipeline en verde (protección de ra
 ## Siguiente paso
 
 Siguiente incremento:
-seguridad (recuperación de contraseña, verificación de correo, límite de tasa) y puertas de calidad. CORS ya está resuelto. CU-10 y CU-11 quedan con plantilla provisional hasta que el club defina P-09.
+MFA del coordinador y del comité (bloque propio) y puertas de calidad. CORS y la seguridad de cuentas ya están resueltos. CU-10 y CU-11 quedan con plantilla provisional hasta que el club defina P-09.

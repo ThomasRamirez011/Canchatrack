@@ -17,7 +17,8 @@ import co.edu.unipamplona.canchatrack.shared.web.ApiPaths;
 
 /**
  * Seguridad de la API: sin estado, todo requiere un access token (JWT) salvo el health check, los tres endpoints
- * que abren, renuevan o cierran la sesión y el autorregistro de acudientes. Los roles salen del claim {@code roles} del token y se exponen como
+ * que abren, renuevan o cierran la sesión, el autorregistro de acudientes y los cuatro de recuperación de contraseña y
+ * confirmación de correo (el cambio de contraseña con sesión sí exige token). Los roles salen del claim {@code roles} del token y se exponen como
  * {@code ROLE_<CÓDIGO>} para {@code hasRole(...)} y {@code @PreAuthorize}.
  *
  * <p>CORS: la lista blanca de orígenes sale de {@code canchatrack.security.cors.allowed-origins} ({@link CorsConfig});
@@ -49,6 +50,10 @@ public class SecurityConfig {
                                 ApiPaths.V1 + "/auth/login",
                                 ApiPaths.V1 + "/auth/refresh",
                                 ApiPaths.V1 + "/auth/logout",
+                                ApiPaths.V1 + "/auth/password-reset/request",
+                                ApiPaths.V1 + "/auth/password-reset/confirm",
+                                ApiPaths.V1 + "/auth/email-verification/request",
+                                ApiPaths.V1 + "/auth/email-verification/confirm",
                                 ApiPaths.V1 + "/guardians").permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2

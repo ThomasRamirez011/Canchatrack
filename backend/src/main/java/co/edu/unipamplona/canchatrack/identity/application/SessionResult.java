@@ -12,4 +12,11 @@ public sealed interface SessionResult {
 
     record Rejected() implements SessionResult {
     }
+
+    /**
+     * Las credenciales eran correctas pero el correo aún no se confirmó. Solo se devuelve tras acertar la contraseña,
+     * de modo que no permite descubrir qué correos existen.
+     */
+    record EmailNotVerified() implements SessionResult {
+    }
 }

@@ -25,8 +25,9 @@ import co.edu.unipamplona.canchatrack.shared.domain.IdDocumentType;
  * Autorregistro de acudientes (DAD CU-02 exige un usuario autenticado para radicar: esta es la forma de obtener la
  * cuenta). Crea la cuenta con el rol {@code GUARDIAN} y su ficha de acudiente en una sola transacción.
  *
- * <p>Límites conocidos: no verifica el correo ni limita la tasa por IP, y por ser un alta pública revela si un correo
- * o documento ya está registrado. Se documentan en el README como pendientes.
+ * <p>La cuenta nace con el correo sin confirmar y se envía el enlace de confirmación en la misma transacción. El límite
+ * de tasa por IP lo aplica el controlador. Límite conocido: por ser un alta pública revela si un correo o documento ya
+ * está registrado (se documenta en el README).
  */
 @Service
 public class GuardianRegistrationService {
@@ -39,13 +40,15 @@ public class GuardianRegistrationService {
     private final GuardianRegistry guardians;
     private final PasswordHasher hasher;
     private final AuditWriter audit;
+    private final EmailVerificationService verification;
 
     public GuardianRegistrationService(UserAccountRepository users, GuardianRegistry guardians, PasswordHasher hasher,
-                                       AuditWriter audit) {
+                                       AuditWriter audit, EmailVerificationService verification) {
         this.users = users;
         this.guardians = guardians;
         this.hasher = hasher;
         this.audit = audit;
+        this.verification = verification;
     }
 
     @Transactional
@@ -88,13 +91,15 @@ public class GuardianRegistrationService {
         UserAccount created;
         try {
             created = users.create(new UserAccountRepository.NewUser(
-                    email, fullName, hasher.hash(command.password()), EnumSet.of(RoleCode.GUARDIAN), null));
+                    email, fullName, hasher.hash(command.password()), EnumSet.of(RoleCode.GUARDIAN), null, false));
             guardians.create(created.id(), type.orElseThrow(), number.orElseThrow(), phone);
         } catch (DuplicateEmailException e) {
             throw validation(List.of(error("email", "El correo ya está registrado.")));
         } catch (DuplicateGuardianDocumentException e) {
             throw validation(List.of(error("documentNumber", "El documento ya está registrado.")));
         }
+
+        verification.sendFor(created.id(), origin);
 
         ClientOrigin from = origin == null ? ClientOrigin.UNKNOWN : origin;
         audit.write(AuditRecord.builder(ACTION_GUARDIAN_REGISTERED, "user")

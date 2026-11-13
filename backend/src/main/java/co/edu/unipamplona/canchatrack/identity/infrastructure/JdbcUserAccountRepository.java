@@ -23,7 +23,7 @@ import co.edu.unipamplona.canchatrack.identity.domain.UserAccount;
 public class JdbcUserAccountRepository implements UserAccountRepository {
 
     private static final String SELECT_USER = """
-            SELECT id, email, full_name, password_hash, status, failed_login_attempts, locked_until
+            SELECT id, email, full_name, password_hash, status, failed_login_attempts, locked_until, email_verified_at
             FROM users
             """;
 
@@ -58,6 +58,11 @@ public class JdbcUserAccountRepository implements UserAccountRepository {
     }
 
     @Override
+    public Optional<UserAccount> findByIdForUpdate(UUID id) {
+        return findOne(SELECT_USER + " WHERE id = ? FOR UPDATE", id);
+    }
+
+    @Override
     public boolean existsByEmail(String normalizedEmail) {
         Boolean exists = jdbc.queryForObject(
                 "SELECT EXISTS (SELECT 1 FROM users WHERE lower(email) = lower(?))", Boolean.class, normalizedEmail);
@@ -83,11 +88,28 @@ public class JdbcUserAccountRepository implements UserAccountRepository {
     }
 
     @Override
+    public void updatePassword(UUID id, String passwordHash, Instant at) {
+        jdbc.update("""
+                UPDATE users
+                SET password_hash = ?, failed_login_attempts = 0, locked_until = NULL,
+                    email_verified_at = COALESCE(email_verified_at, ?)
+                WHERE id = ?
+                """, passwordHash, toOffset(at), id);
+    }
+
+    @Override
+    public void markEmailVerified(UUID id, Instant at) {
+        jdbc.update("UPDATE users SET email_verified_at = ? WHERE id = ? AND email_verified_at IS NULL", toOffset(at), id);
+    }
+
+    @Override
     public UserAccount create(NewUser user) {
         UUID id = UUID.randomUUID();
         try {
-            jdbc.update("INSERT INTO users (id, email, full_name, password_hash, created_by) VALUES (?, ?, ?, ?, ?)",
-                    id, user.email(), user.fullName(), user.passwordHash(), user.createdBy());
+            jdbc.update("""
+                    INSERT INTO users (id, email, full_name, password_hash, created_by, email_verified_at)
+                    VALUES (?, ?, ?, ?, ?, CASE WHEN ? THEN now() END)
+                    """, id, user.email(), user.fullName(), user.passwordHash(), user.createdBy(), user.emailVerified());
         } catch (DuplicateKeyException e) {
             throw new DuplicateEmailException();
         }
@@ -106,7 +128,8 @@ public class JdbcUserAccountRepository implements UserAccountRepository {
                 rs.getString("password_hash"),
                 rs.getString("status"),
                 rs.getInt("failed_login_attempts"),
-                rs.getObject("locked_until", OffsetDateTime.class)), arg);
+                rs.getObject("locked_until", OffsetDateTime.class),
+                rs.getObject("email_verified_at", OffsetDateTime.class)), arg);
         if (rows.isEmpty()) {
             return Optional.empty();
         }
@@ -114,7 +137,7 @@ public class JdbcUserAccountRepository implements UserAccountRepository {
         return Optional.of(new UserAccount(
                 row.id(), row.email(), row.fullName(), row.passwordHash(), AccountStatus.parse(row.status()),
                 row.failedAttempts(), row.lockedUntil() == null ? null : row.lockedUntil().toInstant(),
-                loadRoles(row.id())));
+                loadRoles(row.id()), row.emailVerifiedAt() == null ? null : row.emailVerifiedAt().toInstant()));
     }
 
     private Set<RoleCode> loadRoles(UUID userId) {
@@ -131,6 +154,6 @@ public class JdbcUserAccountRepository implements UserAccountRepository {
     }
 
     private record UserRow(UUID id, String email, String fullName, String passwordHash, String status,
-                           int failedAttempts, OffsetDateTime lockedUntil) {
+                           int failedAttempts, OffsetDateTime lockedUntil, OffsetDateTime emailVerifiedAt) {
     }
 }

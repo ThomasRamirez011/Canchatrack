@@ -62,6 +62,10 @@ paths:
         Devuelve un access token (JWT, vigencia corta) y un refresh token opaco. Toda causa de rechazo (correo
         inexistente, contraseña errónea, cuenta bloqueada o inhabilitada) produce la MISMA respuesta 401, para no
         revelar qué cuentas existen. Tras 5 intentos fallidos consecutivos la cuenta se bloquea 15 minutos.
+
+        Única excepción: si la contraseña es correcta pero el correo de una cuenta autoregistrada aún no se ha
+        confirmado, responde 403 `EMAIL_NOT_VERIFIED` (quien llega aquí ya demostró conocer la contraseña). Además,
+        el número de intentos por IP está limitado: al excederlo responde 429 `RATE_LIMITED` con `Retry-After`.
       security: []
       requestBody:
         required: true
@@ -78,7 +82,9 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/SessionResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/EmailNotVerified' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
   /auth/refresh:
     post:
       tags: [auth]
@@ -133,6 +139,103 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/UserResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/password-reset/request:
+    post:
+      tags: [auth]
+      operationId: requestPasswordReset
+      summary: Solicita un enlace de un solo uso para restablecer la contraseña.
+      description: |
+        Responde SIEMPRE 202, exista o no la cuenta, para no revelar qué correos están registrados. Si la cuenta
+        existe y está activa se envía por correo un enlace con vigencia de 30 minutos; solicitar otro invalida el
+        anterior. Limitado por IP y por correo (429 `RATE_LIMITED`).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmailRequest' }
+      responses:
+        '202':
+          description: Solicitud recibida (no confirma que la cuenta exista).
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /auth/password-reset/confirm:
+    post:
+      tags: [auth]
+      operationId: confirmPasswordReset
+      summary: Fija una contraseña nueva con el token recibido por correo.
+      description: |
+        El token es de un solo uso. Cualquier token inservible (inexistente, usado, vencido o reemplazado) produce el
+        mismo 422 sobre el campo `token`. Al confirmar se cierran todas las sesiones de la cuenta (refresh tokens),
+        se levanta un bloqueo por intentos fallidos, se da por verificado el correo y se avisa por correo del cambio.
+        Los access tokens ya emitidos siguen vigentes hasta su expiración (15 minutos).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ResetPasswordRequest' }
+      responses:
+        '204':
+          description: Contraseña actualizada.
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /auth/password:
+    post:
+      tags: [auth]
+      operationId: changePassword
+      summary: Cambia la contraseña de la sesión actual.
+      description: |
+        Exige la contraseña actual. Un error en ella responde 422 sobre `currentPassword` y cuenta para el bloqueo por
+        intentos fallidos; si la cuenta ya está bloqueada responde 429. Al cambiarla se cierran todas las sesiones
+        (refresh tokens) y se avisa por correo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChangePasswordRequest' }
+      responses:
+        '204':
+          description: Contraseña actualizada.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /auth/email-verification/request:
+    post:
+      tags: [auth]
+      operationId: requestEmailVerification
+      summary: Reenvía el enlace de confirmación del correo.
+      description: |
+        Responde SIEMPRE 202. Solo se envía correo si la cuenta existe, está activa y su correo no está confirmado;
+        el enlace vigente anterior queda invalidado. Vigencia del enlace: 48 horas. Limitado por IP y por correo.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmailRequest' }
+      responses:
+        '202':
+          description: Solicitud recibida (no confirma que la cuenta exista).
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /auth/email-verification/confirm:
+    post:
+      tags: [auth]
+      operationId: confirmEmailVerification
+      summary: Confirma el correo con el token recibido.
+      description: Token de un solo uso; cualquier token inservible produce el mismo 422 sobre el campo `token`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TokenRequest' }
+      responses:
+        '204':
+          description: Correo confirmado.
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
   /users:
     post:
       tags: [users]
@@ -162,8 +265,9 @@ paths:
       summary: Autorregistro de un acudiente (público).
       description: |
         Crea la cuenta (rol GUARDIAN) y la ficha del acudiente; con ella se inicia sesión y se radica la inscripción.
-        El documento debe ser de adulto (CC, CE o PA). Limitaciones conocidas: no verifica el correo ni limita la tasa
-        por IP, y revela si un correo o documento ya está registrado.
+        El documento debe ser de adulto (CC, CE o PA). Se envía un correo de confirmación (48 horas) y, mientras no se
+        confirme, el inicio de sesión responde 403 `EMAIL_NOT_VERIFIED`. El registro está limitado por IP (429
+        `RATE_LIMITED`). Limitación conocida: revela si un correo o documento ya está registrado.
       security: []
       requestBody:
         required: true
@@ -177,6 +281,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/UserResponse' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
   /calls/open:
     get:
       tags: [calls]
@@ -2375,13 +2480,36 @@ components:
       type: string
       description: Roles asignables por el coordinador. GUARDIAN queda excluido a propósito.
       enum: [COORDINATOR, COACH, EVALUATOR, COMMITTEE]
+    EmailRequest:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, maxLength: 254 }
+    TokenRequest:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string, maxLength: 256, description: Token opaco recibido por correo; de un solo uso. }
+    ResetPasswordRequest:
+      type: object
+      required: [token, newPassword]
+      properties:
+        token: { type: string, maxLength: 256, description: Token opaco recibido por correo; de un solo uso. }
+        newPassword: { type: string, maxLength: 128, format: password, description: 12 a 72 bytes con al menos una letra y un dígito. }
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword: { type: string, maxLength: 128, format: password }
+        newPassword: { type: string, maxLength: 128, format: password, description: 12 a 72 bytes con al menos una letra y un dígito. }
     UserResponse:
       type: object
-      required: [id, email, fullName, roles]
+      required: [id, email, fullName, roles, emailVerified]
       properties:
         id: { type: string, format: uuid }
         email: { type: string }
         fullName: { type: string }
+        emailVerified: { type: boolean, description: Si el titular confirmó su correo. }
         roles:
           type: array
           items: { type: string, enum: [GUARDIAN, COORDINATOR, COACH, EVALUATOR, COMMITTEE] }
@@ -3152,6 +3280,8 @@ components:
           - NOTIFICATION_DELIVERY_FAILED
           - REPORT_GENERATION_FAILED
           - AUTH_UNAUTHENTICATED
+          - EMAIL_NOT_VERIFIED
+          - RATE_LIMITED
           - RESOURCE_NOT_FOUND
           - VALIDATION_FAILED
           - RESOURCE_STATE_CONFLICT
@@ -3624,6 +3754,20 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
     Unauthorized:
       description: Falta autenticación válida.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    EmailNotVerified:
+      description: La contraseña es correcta pero el correo aún no está confirmado (HTTP 403, código EMAIL_NOT_VERIFIED).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    TooManyRequests:
+      description: Se excedió el límite de intentos (HTTP 429, código RATE_LIMITED); `retryAfterSeconds` y la cabecera `Retry-After` indican la espera.
+      headers:
+        Retry-After:
+          description: Segundos que debe esperar el cliente antes de reintentar.
+          schema: { type: integer, minimum: 1 }
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }

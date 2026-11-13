@@ -482,6 +482,53 @@ class OpenApiContractTest {
         assertThat((List<String>) receipt.get("required")).contains("attachedDocuments", "missingDocuments");
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void accountSecurityEndpointsAreDocumentedAndSchemasMatchTheDtos() throws Exception {
+        Map<String, Object> spec = load();
+        Map<String, Object> paths = (Map<String, Object>) spec.get("paths");
+        Map<String, Object> components = (Map<String, Object>) spec.get("components");
+        Map<String, Object> schemas = (Map<String, Object>) components.get("schemas");
+        Map<String, Object> responses = (Map<String, Object>) components.get("responses");
+
+        List<String> publicPaths = List.of("/auth/password-reset/request", "/auth/password-reset/confirm",
+                "/auth/email-verification/request", "/auth/email-verification/confirm");
+        for (String path : publicPaths) {
+            Map<String, Object> post = (Map<String, Object>) ((Map<String, Object>) paths.get(path)).get("post");
+            assertThat(post.get("security")).as("%s no exige token", path).isEqualTo(List.of());
+            assertThat(((Map<String, Object>) post.get("responses")).keySet()).as("respuestas de %s", path)
+                    .contains("422", "429");
+        }
+        // Cambiar la contraseña exige sesión (hereda el esquema global).
+        Map<String, Object> change = (Map<String, Object>) ((Map<String, Object>) paths.get("/auth/password")).get("post");
+        assertThat(change).doesNotContainKey("security");
+        assertThat(((Map<String, Object>) change.get("responses")).keySet()).contains("204", "401", "422", "429");
+        // Las solicitudes de correo responden 202 siempre; los canjes, 204.
+        for (String path : List.of("/auth/password-reset/request", "/auth/email-verification/request")) {
+            Map<String, Object> post = (Map<String, Object>) ((Map<String, Object>) paths.get(path)).get("post");
+            assertThat(((Map<String, Object>) post.get("responses")).keySet()).contains("202");
+        }
+
+        // El inicio de sesión documenta el 403 de correo sin confirmar y el 429 con Retry-After.
+        Map<String, Object> login = (Map<String, Object>) ((Map<String, Object>) paths.get("/auth/login")).get("post");
+        assertThat(((Map<String, Object>) login.get("responses")).keySet()).contains("403", "429");
+        Map<String, Object> tooMany = (Map<String, Object>) responses.get("TooManyRequests");
+        assertThat(((Map<String, Object>) tooMany.get("headers")).keySet()).containsExactly("Retry-After");
+        assertThat(responses).containsKey("EmailNotVerified");
+
+        // Las solicitudes y la cuenta documentadas coinciden campo a campo con los DTO.
+        String dtos = "co.edu.unipamplona.canchatrack.identity.infrastructure.AuthDtos$";
+        for (String name : List.of("EmailRequest", "TokenRequest", "ResetPasswordRequest", "ChangePasswordRequest",
+                "UserResponse")) {
+            Class<?> type = Class.forName(dtos + name);
+            Map<String, Object> documented = (Map<String, Object>) schemas.get(name);
+            assertThat(documented).as("esquema %s", name).isNotNull();
+            List<String> actual = Arrays.stream(type.getRecordComponents()).map(java.lang.reflect.RecordComponent::getName).toList();
+            assertThat(((Map<String, Object>) documented.get("properties")).keySet())
+                    .as("campos de %s", name).containsExactlyInAnyOrderElementsOf(actual);
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> load() throws Exception {
         try (InputStream in = getClass().getResourceAsStream(SPEC)) {

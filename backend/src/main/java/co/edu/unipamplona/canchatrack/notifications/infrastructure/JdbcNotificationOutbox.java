@@ -64,9 +64,10 @@ public class JdbcNotificationOutbox implements NotificationOutbox {
     public void markSent(UUID id, int attemptNumber, String providerResponse) {
         int updated = jdbc.update("""
                 UPDATE notifications
-                SET status = 'SENT', sent_at = now(), attempt_count = ?, last_error = NULL
+                SET status = 'SENT', sent_at = now(), attempt_count = ?, last_error = NULL,
+                    payload = %s
                 WHERE id = ? AND status IN ('PENDING', 'RETRYING') AND attempt_count < ?
-                """, attemptNumber, id, attemptNumber);
+                """.formatted(SCRUBBED_PAYLOAD), attemptNumber, id, attemptNumber);
         if (updated == 1) {
             recordAttempt(id, attemptNumber, true, providerResponse, null);
         }
@@ -79,9 +80,10 @@ public class JdbcNotificationOutbox implements NotificationOutbox {
         if (retryAfter == null) {
             updated = jdbc.update("""
                     UPDATE notifications
-                    SET status = 'FAILED', attempt_count = ?, last_error = ?
+                    SET status = 'FAILED', attempt_count = ?, last_error = ?,
+                        payload = %s
                     WHERE id = ? AND status IN ('PENDING', 'RETRYING') AND attempt_count < ?
-                    """, attemptNumber, error, id, attemptNumber);
+                    """.formatted(SCRUBBED_PAYLOAD), attemptNumber, error, id, attemptNumber);
         } else {
             updated = jdbc.update("""
                     UPDATE notifications
@@ -102,6 +104,15 @@ public class JdbcNotificationOutbox implements NotificationOutbox {
                 ON CONFLICT (notification_id, attempt_number) DO NOTHING
                 """, id, attemptNumber, succeeded, providerResponse, error);
     }
+
+    /**
+     * Los avisos con un secreto de un solo uso (enlace o código de recuperación y de verificación) pierden esas claves
+     * cuando el aviso termina, enviado o fallido: el valor ya no sirve y no debe quedar guardado en claro.
+     */
+    private static final String SCRUBBED_PAYLOAD = """
+            CASE WHEN notification_type IN ('PASSWORD_RESET', 'EMAIL_VERIFICATION')
+                     THEN payload - 'token' - 'url'
+                 ELSE payload END""";
 
     private static final RowMapper<DueNotification> DUE = (ResultSet rs, int row) -> new DueNotification(
             rs.getObject("id", UUID.class), rs.getString("notification_type"), rs.getString("recipient_email"),

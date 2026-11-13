@@ -19,8 +19,14 @@ class GuardianRegistrationServiceTest {
     private final InMemoryUsers users = new InMemoryUsers();
     private final InMemoryGuardians guardians = new InMemoryGuardians();
     private final RecordingAudit audit = new RecordingAudit();
+    private final Fakes.InMemoryAccountTokens accountTokens = new Fakes.InMemoryAccountTokens();
+    private final Fakes.RecordingQueue queue = new Fakes.RecordingQueue();
+    private final EmailVerificationService verification = new EmailVerificationService(users, accountTokens, queue, audit,
+            new AccountSecuritySettings(java.time.Duration.ofMinutes(30), java.time.Duration.ofHours(48), "https://club.test",
+                    "/reset-password", "/verify-email", java.time.Duration.ofDays(7)),
+            new Fakes.MutableClock());
     private final GuardianRegistrationService service =
-            new GuardianRegistrationService(users, guardians, new FakeHasher(), audit);
+            new GuardianRegistrationService(users, guardians, new FakeHasher(), audit, verification);
 
     private static RegisterGuardianCommand command(String email, String password, String type, String number, String phone) {
         return new RegisterGuardianCommand(email, "Ana Gómez", password, type, number, phone);
@@ -58,7 +64,8 @@ class GuardianRegistrationServiceTest {
     void theAuditSummaryHasNoDocumentOrContactData() {
         service.register(command("ana@club.test", "Clave-Segura-123", "CC", "1020304050", "3001234567"), null);
 
-        String after = audit.records.get(0).afterJson();
+        String after = audit.records.stream().filter(r -> r.action().equals("GUARDIAN_REGISTERED")).findFirst().orElseThrow()
+                .afterJson();
         assertThat(after).doesNotContain("1020304050").doesNotContain("3001234567").doesNotContain("ana@club.test");
     }
 
@@ -99,5 +106,30 @@ class GuardianRegistrationServiceTest {
     void theCommandNeverPrintsThePassword() {
         assertThat(command("a@club.test", "Clave-Segura-123", "CC", "1020304050", null).toString())
                 .doesNotContain("Clave-Segura-123");
+    }
+
+    @Test
+    void theNewAccountStartsUnverifiedAndGetsAConfirmationLink() {
+        UserView view = service.register(command("ana@club.test", "Clave-Segura-123", "CC", "1020304050", null), null);
+
+        assertThat(view.emailVerified()).isFalse();
+        assertThat(users.byEmail("ana@club.test").isEmailVerified()).isFalse();
+        assertThat(queue.ofType("EMAIL_VERIFICATION")).hasSize(1);
+        Fakes.RecordingQueue.Notice notice = queue.ofType("EMAIL_VERIFICATION").get(0);
+        assertThat(notice.recipients()).containsExactly(view.id());
+        assertThat(notice.payload().get("url")).startsWith("https://club.test/verify-email?token=")
+                .endsWith(notice.payload().get("token"));
+        assertThat(notice.payload()).containsEntry("validityHours", "48");
+        assertThat(accountTokens.storesHashOnly(notice.payload().get("token"))).isTrue();
+        assertThat(accountTokens.open(view.id(), co.edu.unipamplona.canchatrack.identity.domain.AccountTokenPurpose.EMAIL_VERIFICATION))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void aRejectedRegistrationSendsNothing() {
+        rejected(command("no-es-correo", "Clave-Segura-123", "CC", "1020304050", null));
+
+        assertThat(queue.notices).isEmpty();
+        assertThat(accountTokens.size()).isZero();
     }
 }

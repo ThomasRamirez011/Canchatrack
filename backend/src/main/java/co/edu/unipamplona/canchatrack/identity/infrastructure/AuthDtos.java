@@ -61,10 +61,43 @@ public final class AuthDtos {
         }
     }
 
-    public record UserResponse(UUID id, String email, String fullName, List<String> roles) {
+    public record UserResponse(UUID id, String email, String fullName, List<String> roles, boolean emailVerified) {
 
         public static UserResponse from(UserView view) {
-            return new UserResponse(view.id(), view.email(), view.fullName(), view.roles());
+            return new UserResponse(view.id(), view.email(), view.fullName(), view.roles(), view.emailVerified());
+        }
+    }
+
+    public record EmailRequest(
+            @NotBlank(message = "El correo es obligatorio.") @Size(max = 254, message = "El correo es demasiado largo.") String email) {
+    }
+
+    public record TokenRequest(
+            @NotBlank(message = "El token es obligatorio.") @Size(max = 256, message = "El token es demasiado largo.") String token) {
+
+        @Override
+        public String toString() {
+            return "TokenRequest[token=***]";
+        }
+    }
+
+    public record ResetPasswordRequest(
+            @NotBlank(message = "El token es obligatorio.") @Size(max = 256, message = "El token es demasiado largo.") String token,
+            @NotBlank(message = "La contraseña nueva es obligatoria.") @Size(max = 128, message = "La contraseña es demasiado larga.") String newPassword) {
+
+        @Override
+        public String toString() {
+            return "ResetPasswordRequest[token=***, newPassword=***]";
+        }
+    }
+
+    public record ChangePasswordRequest(
+            @NotBlank(message = "La contraseña actual es obligatoria.") @Size(max = 128, message = "La contraseña es demasiado larga.") String currentPassword,
+            @NotBlank(message = "La contraseña nueva es obligatoria.") @Size(max = 128, message = "La contraseña es demasiado larga.") String newPassword) {
+
+        @Override
+        public String toString() {
+            return "ChangePasswordRequest[currentPassword=***, newPassword=***]";
         }
     }
 

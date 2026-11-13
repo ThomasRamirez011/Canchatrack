@@ -67,6 +67,18 @@ public class JdbcRefreshTokenStore implements RefreshTokenStore {
                 toOffset(at), reason, familyId);
     }
 
+    @Override
+    public void revokeAllOfUser(UUID userId, Instant at, String reason) {
+        jdbc.update("UPDATE refresh_tokens SET revoked_at = ?, revoked_reason = ? WHERE user_id = ? AND revoked_at IS NULL",
+                toOffset(at), reason, userId);
+    }
+
+    @Override
+    public int deleteInactiveBefore(Instant cutoff) {
+        return jdbc.update("DELETE FROM refresh_tokens WHERE family_expires_at < ? OR revoked_at < ?",
+                toOffset(cutoff), toOffset(cutoff));
+    }
+
     private static RefreshToken map(ResultSet rs) throws SQLException {
         return new RefreshToken(
                 rs.getObject("id", UUID.class),
