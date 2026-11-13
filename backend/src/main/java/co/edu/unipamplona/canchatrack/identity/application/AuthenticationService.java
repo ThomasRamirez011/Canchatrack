@@ -89,6 +89,12 @@ public class AuthenticationService {
             return new SessionResult.Rejected();
         }
 
+        if (settings.requireVerifiedEmail() && !account.isEmailVerified()) {
+            // Solo se llega aquí con la contraseña correcta, así que avisar no permite averiguar qué correos existen.
+            record(ACTION_LOGIN_FAILED, account.id(), Outcome.DENIED, "EMAIL_NOT_VERIFIED", origin);
+            return new SessionResult.EmailNotVerified();
+        }
+
         users.recordSuccessfulLogin(account.id(), now);
         TokenPair tokens = openSession(account, UUID.randomUUID(), now.plus(settings.refreshAbsoluteTtl()), now, origin);
         record(ACTION_LOGIN_SUCCESS, account.id(), Outcome.SUCCESS, null, origin);
@@ -135,6 +141,11 @@ public class AuthenticationService {
         }
 
         UserAccount account = owner.get();
+        if (settings.requireVerifiedEmail() && !account.isEmailVerified()) {
+            refreshTokens.revokeFamily(token.familyId(), now, "EMAIL_NOT_VERIFIED");
+            record(ACTION_REFRESH_DENIED, account.id(), Outcome.DENIED, "EMAIL_NOT_VERIFIED", origin);
+            return new SessionResult.Rejected();
+        }
         refreshTokens.markUsed(token.id(), now);
         TokenPair tokens = openSession(account, token.familyId(), token.familyExpiresAt(), now, origin);
         record(ACTION_REFRESH_SUCCESS, account.id(), Outcome.SUCCESS, null, origin);

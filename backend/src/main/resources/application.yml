@@ -78,6 +78,24 @@ canchatrack:
     refresh-absolute-ttl: 30d # tope de la sesión completa; no se extiende al rotar
     max-failed-attempts: 5
     lock-duration: 15m
+    require-verified-email: true # el autorregistro de acudientes debe confirmar el correo antes de iniciar sesión
+    recovery:
+      reset-ttl: 30m # vigencia del enlace de restablecimiento de contraseña
+      verification-ttl: 48h # vigencia del enlace de confirmación de correo
+      reset-path: /reset-password # rutas del front que reciben el token (se añaden a APP_URL)
+      verify-path: /verify-email
+      retention: 7d # cuánto se guardan los tokens inservibles antes de la limpieza diaria
+    rate-limit:
+      enabled: true
+      login-per-ip: 30 # inicios de sesión por IP dentro de login-window
+      login-window: 15m
+      register-per-ip: 10 # altas de acudientes por IP
+      register-window: 1h
+      recovery-per-ip: 10 # correos de recuperación o confirmación pedidos por IP
+      recovery-per-email: 3 # ... y por correo (evita inundar a una víctima)
+      recovery-window: 1h
+      confirm-per-ip: 30 # canjes de enlaces por IP
+      confirm-window: 15m
     # bootstrap.coordinator-email / -name / -password: primera cuenta; solo se usa si no hay ninguna (ver README).
   enrollment:
     consent-version: v1 # versión del texto de consentimiento que acepta el acudiente al radicar (RF-011)

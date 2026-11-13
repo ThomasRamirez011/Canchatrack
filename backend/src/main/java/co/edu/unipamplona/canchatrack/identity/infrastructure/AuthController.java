@@ -12,10 +12,13 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import co.edu.unipamplona.canchatrack.identity.application.AuthenticationService;
+import co.edu.unipamplona.canchatrack.identity.application.RateLimiter;
+import co.edu.unipamplona.canchatrack.identity.application.ClientOrigin;
 import co.edu.unipamplona.canchatrack.identity.application.SessionResult;
 import co.edu.unipamplona.canchatrack.identity.application.UserAccountRepository;
 import co.edu.unipamplona.canchatrack.identity.application.UserView;
 import co.edu.unipamplona.canchatrack.identity.domain.AccountStatus;
+import co.edu.unipamplona.canchatrack.identity.domain.RateLimitBucket;
 import co.edu.unipamplona.canchatrack.identity.infrastructure.AuthDtos.LoginRequest;
 import co.edu.unipamplona.canchatrack.identity.infrastructure.AuthDtos.RefreshRequest;
 import co.edu.unipamplona.canchatrack.identity.infrastructure.AuthDtos.SessionResponse;
@@ -38,17 +41,22 @@ public class AuthController {
 
     private final AuthenticationService authentication;
     private final UserAccountRepository users;
+    private final RateLimiter rateLimiter;
     private final Clock clock;
 
-    public AuthController(AuthenticationService authentication, UserAccountRepository users, Clock clock) {
+    public AuthController(AuthenticationService authentication, UserAccountRepository users, RateLimiter rateLimiter,
+                          Clock clock) {
         this.authentication = authentication;
         this.users = users;
+        this.rateLimiter = rateLimiter;
         this.clock = clock;
     }
 
     @PostMapping("/login")
     public ResponseEntity<SessionResponse> login(@Valid @RequestBody LoginRequest request, HttpServletRequest http) {
-        SessionResult result = authentication.login(request.email(), request.password(), ClientOrigins.from(http));
+        ClientOrigin origin = ClientOrigins.from(http);
+        rateLimiter.checkIp(RateLimitBucket.LOGIN_IP, origin);
+        SessionResult result = authentication.login(request.email(), request.password(), origin);
         return respond(result, INVALID_CREDENTIALS);
     }
 
@@ -82,6 +90,8 @@ public class AuthController {
                     .body(SessionResponse.from(opened.tokens(), opened.user(), clock.instant()));
             case SessionResult.Rejected rejected ->
                     throw new DomainException(ErrorCode.AUTH_UNAUTHENTICATED, rejectionDetail);
+            case SessionResult.EmailNotVerified unverified ->
+                    throw new DomainException(ErrorCode.EMAIL_NOT_VERIFIED, null);
         };
     }
 }

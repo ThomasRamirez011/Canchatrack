@@ -16,7 +16,7 @@ class IdentityDomainTest {
 
     private static UserAccount account(int failedAttempts, Instant lockedUntil, AccountStatus status, String hash) {
         return new UserAccount(UUID.randomUUID(), "a@club.test", "A", hash, status, failedAttempts, lockedUntil,
-                Set.of(RoleCode.COACH));
+                Set.of(RoleCode.COACH), NOW);
     }
 
     // --- LockoutPolicy

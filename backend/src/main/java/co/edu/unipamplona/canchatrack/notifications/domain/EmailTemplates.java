@@ -29,6 +29,9 @@ public final class EmailTemplates {
     public static final String COMMITTEE_ASSIGNED = "COMMITTEE_ASSIGNED";
     public static final String COMMITTEE_REJECTED = "COMMITTEE_REJECTED";
     public static final String ARREARS_NOTICE = "ARREARS_NOTICE";
+    public static final String PASSWORD_RESET = "PASSWORD_RESET";
+    public static final String EMAIL_VERIFICATION = "EMAIL_VERIFICATION";
+    public static final String PASSWORD_CHANGED = "PASSWORD_CHANGED";
 
     private static final DateTimeFormatter WHEN = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd/MM/yyyy");
@@ -228,6 +231,23 @@ public final class EmailTemplates {
                         ? "Faltan " + hours.trim() + (hours.trim().equals("1") ? " hora" : " horas") + " para el " + label
                         : "Se acerca el " + label;
                 body = "Hola,\n\n" + lead + " de la categoría " + category + ".\n" + eventDetails(data, zone);
+            }
+            case PASSWORD_RESET -> {
+                defaultSubject = "Restablecer su contraseña";
+                body = "Hola,\n\nRecibimos una solicitud para restablecer la contraseña de su cuenta en CanchaTrack.\n\n"
+                        + secretAction(data, "elegir una nueva contraseña", "restablecimiento", "validityMinutes", "minutos")
+                        + "\n\nSi usted no la solicitó, ignore este correo: su contraseña no cambiará.";
+            }
+            case EMAIL_VERIFICATION -> {
+                defaultSubject = "Confirme su correo";
+                body = "Hola,\n\nCreó una cuenta en CanchaTrack con este correo. Para poder iniciar sesión, confírmelo.\n\n"
+                        + secretAction(data, "confirmar su correo", "confirmación", "validityHours", "horas")
+                        + "\n\nSi usted no creó la cuenta, ignore este correo: sin confirmar, la cuenta no podrá usarse.";
+            }
+            case PASSWORD_CHANGED -> {
+                defaultSubject = "Su contraseña fue cambiada";
+                body = "Hola,\n\nLa contraseña de su cuenta en CanchaTrack acaba de cambiar y se cerraron sus sesiones abiertas."
+                        + "\n\nSi no fue usted, restablezca la contraseña desde la pantalla de inicio de sesión y avise al club.";
             }
             default -> {
                 return Optional.empty();
@@ -463,6 +483,28 @@ public final class EmailTemplates {
         } catch (RuntimeException e) {
             return null;
         }
+    }
+
+
+    /**
+     * Instrucción con un secreto de un solo uso: el enlace si el club configuró la dirección del front; si no, el código
+     * para pegarlo en la pantalla correspondiente. La vigencia se muestra solo si viene como entero corto.
+     */
+    private static String secretAction(Map<String, String> data, String action, String screen, String validityKey,
+                                       String unit) {
+        String url = data.get("url");
+        StringBuilder sb = new StringBuilder();
+        if (url != null && !url.isBlank()) {
+            sb.append("Abra este enlace para ").append(action).append(":\n").append(url.trim());
+        } else {
+            sb.append("Use este código en la pantalla de ").append(screen).append(":\n")
+                    .append(valueOr(data.get("token"), "(no disponible)"));
+        }
+        String validity = data.get(validityKey);
+        if (validity != null && validity.trim().matches("\\d{1,4}")) {
+            sb.append("\n\nVale ").append(validity.trim()).append(' ').append(unit).append(" y solo se puede usar una vez.");
+        }
+        return sb.toString();
     }
 
     /** Una sola línea, sin saltos ni tabulaciones: evita inyectar encabezados o líneas falsas en el correo. */

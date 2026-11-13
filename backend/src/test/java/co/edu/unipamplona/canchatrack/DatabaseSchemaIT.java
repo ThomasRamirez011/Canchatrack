@@ -37,7 +37,7 @@ class DatabaseSchemaIT {
             "evaluation_rubrics", "evaluation_rounds", "evaluator_decisions", "evaluator_decision_history",
             "fees", "charges", "charge_adjustments", "payments", "adjustments", "season_reports", "support_documents",
             "notifications", "delivery_attempts", "state_history", "audit_events", "outbox_events",
-            "idempotency_keys", "club_parameters", "stored_files", "refresh_tokens", "season_closures");
+            "idempotency_keys", "club_parameters", "stored_files", "refresh_tokens", "season_closures", "event_series", "account_tokens", "rate_limit_events");
 
     @Autowired
     private JdbcTemplate jdbc;

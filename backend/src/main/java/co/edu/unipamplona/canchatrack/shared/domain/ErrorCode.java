@@ -34,6 +34,9 @@ public enum ErrorCode {
     IDEMPOTENCY_KEY_REUSED(422, "Idempotency-Key reutilizada", "La clave ya se usó con una solicitud distinta."),
     DOCUMENT_UPLOAD_NOT_ALLOWED(409, "Carga de documento no habilitada",
             "No hay una ventana habilitada ni un vencimiento próximo que permitan cargar este documento."),
+    EMAIL_NOT_VERIFIED(403, "Correo sin confirmar",
+            "Debe confirmar su correo con el enlace que se le envió antes de iniciar sesión."),
+    RATE_LIMITED(429, "Demasiadas solicitudes", "Se superó el límite de solicitudes; intente de nuevo más tarde."),
     INTERNAL_ERROR(500, "Error interno", "Ocurrió un error interno.");
 
     private final int httpStatus;

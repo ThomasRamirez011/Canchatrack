@@ -39,7 +39,11 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     public ResponseEntity<ProblemDetail> handleDomain(DomainException ex) {
         ProblemDetail problem = problem(ex.getCode(), ex.getMessage());
         ex.getExtensions().forEach(problem::setProperty);
-        return ResponseEntity.status(ex.getCode().httpStatus()).body(problem);
+        ResponseEntity.BodyBuilder response = ResponseEntity.status(ex.getCode().httpStatus());
+        if (ex.getCode() == ErrorCode.RATE_LIMITED && ex.getExtensions().get("retryAfterSeconds") instanceof Number seconds) {
+            response.header(HttpHeaders.RETRY_AFTER, Long.toString(seconds.longValue()));
+        }
+        return response.body(problem);
     }
 
     @ExceptionHandler(AccessDeniedException.class)

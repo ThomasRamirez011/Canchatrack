@@ -666,4 +666,52 @@ class NotificationRulesTest {
             assertThat(body.toLowerCase().contains("salud")).isFalse();
         }
     }
+
+    @Test
+    void passwordResetEmailCarriesTheLinkAndNeverClaimsTheAccountExists() {
+        Map<String, String> payload = new LinkedHashMap<>();
+        payload.put("token", "abc123");
+        payload.put("url", "https://club.example.co/reset-password?token=abc123");
+        payload.put("validityMinutes", "30");
+
+        OutboundEmail email = EmailTemplates.render("PASSWORD_RESET", "madre@example.com", null, payload, BOGOTA).orElseThrow();
+
+        assertThat(email.subject()).isEqualTo("Restablecer su contraseña");
+        assertThat(email.body()).contains("Abra este enlace para elegir una nueva contraseña:",
+                "https://club.example.co/reset-password?token=abc123", "Vale 30 minutos y solo se puede usar una vez",
+                "ignore este correo: su contraseña no cambiará");
+        assertThat(email.body()).doesNotContain("Use este código");
+        assertThat(email.calendar()).isNull();
+    }
+
+    @Test
+    void secretEmailsFallBackToTheCodeWhenThereIsNoFrontAddress() {
+        Map<String, String> payload = new LinkedHashMap<>();
+        payload.put("token", "codigo-xyz");
+        payload.put("validityHours", "48");
+
+        String verify = EmailTemplates.render("EMAIL_VERIFICATION", "a@b.co", null, payload, BOGOTA).orElseThrow().body();
+        assertThat(verify).contains("Use este código en la pantalla de confirmación:", "codigo-xyz", "Vale 48 horas");
+
+        payload.put("validityMinutes", "no-es-numero");
+        String reset = EmailTemplates.render("PASSWORD_RESET", "a@b.co", null, payload, BOGOTA).orElseThrow().body();
+        assertThat(reset).contains("Use este código en la pantalla de restablecimiento:", "codigo-xyz")
+                .doesNotContain("Vale ");
+    }
+
+    @Test
+    void emailVerificationAndPasswordChangedNoticesHaveTheirOwnWording() {
+        Map<String, String> payload = new LinkedHashMap<>();
+        payload.put("token", "t");
+        payload.put("url", "https://club.example.co/verify-email?token=t");
+
+        OutboundEmail verify = EmailTemplates.render("EMAIL_VERIFICATION", "a@b.co", null, payload, BOGOTA).orElseThrow();
+        assertThat(verify.subject()).isEqualTo("Confirme su correo");
+        assertThat(verify.body()).contains("Abra este enlace para confirmar su correo:", "sin confirmar, la cuenta no podrá usarse");
+
+        OutboundEmail changed = EmailTemplates.render("PASSWORD_CHANGED", "a@b.co", null, Map.of(), BOGOTA).orElseThrow();
+        assertThat(changed.subject()).isEqualTo("Su contraseña fue cambiada");
+        assertThat(changed.body()).contains("se cerraron sus sesiones abiertas", "avise al club")
+                .doesNotContain("token").doesNotContain("http");
+    }
 }

@@ -26,6 +26,11 @@ canchatrack:
       enabled: false # las pruebas invocan los recordatorios a mano
   identity:
     bcrypt-strength: 4 # mínimo de BCrypt: acelera las pruebas, no es un valor de producción
+    require-verified-email: false # AccountSecurityIT lo activa; el resto de pruebas registra acudientes y entra de inmediato
+    rate-limit:
+      enabled: false # todas las pruebas comparten la IP de MockMvc; AccountSecurityIT lo activa
+    maintenance:
+      enabled: false # las pruebas invocan la limpieza a mano
 
 logging:
   level:

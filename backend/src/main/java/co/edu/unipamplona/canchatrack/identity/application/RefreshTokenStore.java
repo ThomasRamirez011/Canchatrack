@@ -19,6 +19,17 @@ public interface RefreshTokenStore {
     /** Revoca todos los tokens aún vigentes de la sesión (familia). Idempotente. */
     void revokeFamily(UUID familyId, Instant at, String reason);
 
+    /** Revoca todas las sesiones vigentes de la cuenta (cambio o restablecimiento de contraseña). Idempotente. */
+    void revokeAllOfUser(UUID userId, Instant at, String reason);
+
+    /**
+     * Borra los tokens que ya no sirven de nada: de sesiones vencidas o revocadas antes de {@code cutoff}. Un token
+     * borrado se rechaza igual que uno desconocido, así que no se pierde ninguna defensa.
+     *
+     * @return filas borradas
+     */
+    int deleteInactiveBefore(Instant cutoff);
+
     record NewRefreshToken(
             UUID id,
             UUID userId,
