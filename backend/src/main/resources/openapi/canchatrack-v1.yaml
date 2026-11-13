@@ -3796,7 +3796,7 @@ components:
         confirmedAt: { type: string, format: date-time }
         authorized: { type: boolean, description: El acudiente ya autorizó este partido. }
         minutesPlayed: { type: integer, minimum: 0, maximum: 150 }
-        goals: { type: integer, minimum: 0, maximum: 99 }
+        goals: { type: integer, minimum: 0, maximum: 199 }
         observations: { type: string }
     MatchDetailResponse:
       type: object
@@ -3811,13 +3811,13 @@ components:
       properties:
         playerId: { type: string, format: uuid }
         minutesPlayed: { type: integer, minimum: 0, maximum: 150 }
-        goals: { type: integer, minimum: 0, maximum: 99 }
+        goals: { type: integer, minimum: 0, maximum: 199 }
         observations: { type: string, maxLength: 1000 }
     MatchResultRequest:
       type: object
       properties:
-        scoreFor: { type: integer, minimum: 0, maximum: 99 }
-        scoreAgainst: { type: integer, minimum: 0, maximum: 99 }
+        scoreFor: { type: integer, minimum: 0, maximum: 199 }
+        scoreAgainst: { type: integer, minimum: 0, maximum: 199 }
         resultNotes: { type: string, maxLength: 2000 }
         reason: { type: string, maxLength: 2000, description: Obligatorio al corregir un resultado ya registrado. }
         players:
