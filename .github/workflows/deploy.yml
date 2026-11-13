@@ -1,0 +1,114 @@
+# CanchaTrack — Entrega continua del backend (Guía 11 / FPI-27).
+# VERSIÓN 2 (2026-11-13): plataforma elegida = Render. Correcciones sobre la propuesta: (1) el nombre de la imagen va en minúsculas
+# (GHCR rechaza mayúsculas y el propietario del repositorio es «ThomasRamirez011»); (2) `imgURL` va codificado como URL, como exige Render.
+# ESTADO: sin ejecutar nunca. Primera corrida: manual (workflow_dispatch) tras crear el entorno `production`.
+# (antes: PROPUESTA.) El repositorio NO tiene despliegue: el backend corre en la máquina del usuario (README, "Pendiente").
+# NO se ha ejecutado. Antes de usarlo: crear el entorno `production` con revisores obligatorios (Settings > Environments),
+# el secreto RENDER_DEPLOY_HOOK_URL y la variable PUBLIC_URL. Las variables de la aplicación (DB_URL, DB_USER, DB_PASSWORD,
+# DB_MIGRATION_USER, DB_MIGRATION_PASSWORD, JWT_SECRET, MFA_ENCRYPTION_KEY, MAIL_HOST, MAIL_FROM) se configuran EN LA
+# PLATAFORMA, nunca en este archivo. Confirmar en la documentación de Render/Railway cómo se despliega una imagen de un
+# registro y qué admite la capa gratuita vigente.
+name: deploy
+
+on:
+  # Primera etapa: solo manual. El disparo automático tras backend-ci queda comentado hasta que el entorno `production`
+  # (con revisores), el secreto RENDER_DEPLOY_HOOK_URL y la variable PUBLIC_URL existan y una corrida manual haya salido sana;
+  # sin ellos cada fusión a main dejaría un despliegue y un rollback en rojo. Para activarlo, descomentar y quitar la condición manual.
+  # workflow_run:
+  #   workflows: [backend-ci]      # solo despliega si el pipeline real terminó
+  #   types: [completed]
+  #   branches: [main]
+  workflow_dispatch:
+    inputs:
+      rollback_to:
+        description: "Etiqueta de imagen estable a la que volver (vacío = desplegar el último commit de main)"
+        required: false
+        default: ""
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false      # nunca cancelar un despliegue a medias
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    # Continuous DELIVERY: la imagen se publica sola, pero la puesta en producción espera aprobación humana (job deploy).
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - name: Nombre de imagen en minúsculas
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/canchatrack-backend" >> "$GITHUB_ENV"
+      - id: meta
+        run: echo "tag=sha-$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}     # secreto dinámico; ninguna contraseña en claro
+      - name: Construir y publicar (la etiqueta inmutable es el SHA del commit)
+        run: |
+          docker build -t "$IMAGE:${{ steps.meta.outputs.tag }}" backend
+          docker push "$IMAGE:${{ steps.meta.outputs.tag }}"
+
+  deploy:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production        # revisores obligatorios = aprobación humana antes de producción
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Nombre de imagen en minúsculas
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/canchatrack-backend" >> "$GITHUB_ENV"
+      - name: Desplegar (webhook de la plataforma)
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          TAG: ${{ inputs.rollback_to || needs.publish.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # Render exige imgURL codificado (/ -> %2F, : -> %3A) y que todo salvo la etiqueta coincida con la imagen del servicio.
+          ENC="$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "${IMAGE}:${TAG}")"
+          curl -fsS -X POST "${HOOK}&imgURL=${ENC}" >/dev/null
+          echo "desplegando ${IMAGE}:${TAG}"
+      - name: Healthcheck posterior al despliegue
+        env:
+          PUBLIC_URL: ${{ vars.PUBLIC_URL }}
+        run: bash cd/post_deploy_healthcheck.sh "$PUBLIC_URL"
+      - name: Marcar la imagen como estable (solo si el healthcheck pasó)
+        if: success()
+        run: |
+          docker login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+          docker pull "$IMAGE:${{ inputs.rollback_to || needs.publish.outputs.tag }}"
+          docker tag  "$IMAGE:${{ inputs.rollback_to || needs.publish.outputs.tag }}" "$IMAGE:stable"
+          docker push "$IMAGE:stable"
+
+  rollback:
+    # Política de rollback (ADR 11): si el despliegue o el healthcheck fallan, se vuelve a la última imagen `stable`.
+    needs: deploy
+    if: ${{ failure() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Nombre de imagen en minúsculas
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/canchatrack-backend" >> "$GITHUB_ENV"
+      - name: Volver a la versión estable
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          PUBLIC_URL: ${{ vars.PUBLIC_URL }}
+        run: |
+          set -euo pipefail
+          ENC="$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "${IMAGE}:stable")"
+          curl -fsS -X POST "${HOOK}&imgURL=${ENC}" >/dev/null
+          bash cd/post_deploy_healthcheck.sh "$PUBLIC_URL"
+          echo "::error::Se hizo rollback a :stable; revisar el despliegue fallido antes de reintentar"
+          exit 1                      # el pipeline queda en rojo aunque el rollback haya funcionado
