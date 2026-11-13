@@ -7,7 +7,7 @@ Proyecto académico: Universidad de Pamplona · Ingeniería de Software II. Fuen
 
 ```bash
 docker compose up -d                 # PostgreSQL 16 local (credenciales desechables de application-dev.yml)
-mvn spring-boot:run                  # perfil "dev" por defecto; Flyway aplica V1..V20 al iniciar
+mvn spring-boot:run                  # perfil "dev" por defecto; Flyway aplica V1..V21 al iniciar
 curl localhost:8080/actuator/health  # {"status":"UP"}
 
 mvn test                             # unitarias + arquitectura (sin Docker)
@@ -22,7 +22,7 @@ src/main/java/co/edu/unipamplona/canchatrack/
   <modulo>/{api,domain,application,infrastructure}   11 módulos del DDS secc. 3
   shared/{config,domain,web,security}                núcleo mínimo: ErrorCode, correlación, problem+json, seguridad base
 src/main/resources/
-  db/migration/V1..V20                               modelo de datos del DDS secc. 7 (migraciones versionadas, un solo esquema)
+  db/migration/V1..V21                               modelo de datos del DDS secc. 7 (migraciones versionadas, un solo esquema)
   openapi/canchatrack-v1.yaml                        contrato OpenAPI 3.1 (se documenta aquí ANTES de implementar)
   application{,-dev,-prod}.yml                       perfiles; secretos solo por variables de entorno
 src/test/                                            ArchUnit, unitarias, *IT (Testcontainers), schema-invariants.sql
