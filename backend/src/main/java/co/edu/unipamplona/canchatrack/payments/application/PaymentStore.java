@@ -54,4 +54,10 @@ public interface PaymentStore {
     List<PaymentLine> paymentsOf(UUID playerId);
 
     boolean enrollmentSettled(UUID playerId);
+
+    /**
+     * Cargos con saldo pendiente cuyo vencimiento está entre las dos fechas (inclusive), de jugadores con un proceso en
+     * curso, del más antiguo al más reciente. Es el insumo de los avisos de mora.
+     */
+    List<OverdueCharge> findOverdueCharges(LocalDate oldestDue, LocalDate newestDue);
 }

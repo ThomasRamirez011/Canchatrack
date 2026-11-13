@@ -15,6 +15,8 @@ import org.junit.jupiter.api.Test;
 import co.edu.unipamplona.canchatrack.audit.api.AuditRecord;
 import co.edu.unipamplona.canchatrack.players.application.CommitteeFakes.CommitteeAwareCategories;
 import co.edu.unipamplona.canchatrack.players.application.CommitteeFakes.FakeFiles;
+import co.edu.unipamplona.canchatrack.players.application.CommitteeFakes.FakeGuardians;
+import co.edu.unipamplona.canchatrack.players.application.CommitteeFakes.RecordingQueue;
 import co.edu.unipamplona.canchatrack.players.application.CommitteeFakes.FakeStaff;
 import co.edu.unipamplona.canchatrack.players.application.CommitteeFakes.InMemoryCommittee;
 import co.edu.unipamplona.canchatrack.players.application.Fakes.RecordingAudit;
@@ -31,6 +33,8 @@ class CommitteeDecisionServiceTest {
     private final FakeStaff staff = new FakeStaff();
     private final FakeFiles files = new FakeFiles();
     private final RecordingAudit audit = new RecordingAudit();
+    private final FakeGuardians guardians = new FakeGuardians();
+    private final RecordingQueue queue = new RecordingQueue();
     private final CommitteeActor actor = new CommitteeActor(UUID.randomUUID(), null, "JUnit");
 
     private CommitteeDecisionService service;
@@ -54,7 +58,8 @@ class CommitteeDecisionServiceTest {
 
     private CommitteeDecisionService serviceWith(boolean allowCapacityException) {
         return new CommitteeDecisionService(committee, categories, staff, files,
-                CommitteeSettings.of(List.of("EVALUATOR", "COACH", "COMMITTEE"), allowCapacityException, ZONE), audit);
+                CommitteeSettings.of(List.of("EVALUATOR", "COACH", "COMMITTEE"), allowCapacityException, ZONE), audit,
+                guardians, queue);
     }
 
     private MinuteData minute(String number) {
@@ -226,7 +231,7 @@ class CommitteeDecisionServiceTest {
     void panelRolesAreConfigurable() {
         UUID player = committee.addPlayer(PlayerStatus.SUBMITTED);
         CommitteeDecisionService strict = new CommitteeDecisionService(committee, categories, staff, files,
-                CommitteeSettings.of(List.of("EVALUATOR"), true, ZONE), audit);
+                CommitteeSettings.of(List.of("EVALUATOR"), true, ZONE), audit, guardians, queue);
         // evaluatorC solo tiene COMMITTEE, que esta configuración no admite.
         assertThat(errorFields(thrown(() -> strict.assign(actor, player, assignment())))).containsExactly("evaluatorIds");
     }
@@ -349,6 +354,59 @@ class CommitteeDecisionServiceTest {
         service.reject(actor, player, new RejectEnrollmentCommand(minute("ACTA-7"), "No hay cupo este año"));
         assertThat(committee.currentAssignments(player)).isEqualTo(0L);
         assertThat(committee.panels.containsKey(player)).isFalse();
+    }
+
+    // ---------- aviso del resultado a los acudientes (RF-047) ----------
+
+    @Test
+    void assigningTellsTheGuardiansTheCategoryButNotThePanelNorTheMinute() {
+        UUID player = committee.addPlayer(PlayerStatus.SUBMITTED);
+        committee.playerNames.put(player, "Ana Ríos");
+        UUID mother = UUID.randomUUID();
+        UUID father = UUID.randomUUID();
+        guardians.byPlayer.put(player, Set.of(mother, father));
+
+        service.assign(actor, player, assignment());
+
+        assertThat(queue.sent).hasSize(1);
+        CommitteeFakes.Enqueued notice = queue.sent.get(0);
+        assertThat(notice.type()).isEqualTo("COMMITTEE_ASSIGNED");
+        assertThat(notice.recipients()).containsExactlyInAnyOrder(mother, father);
+        assertThat(notice.payload()).containsEntry("playerName", "Ana Ríos").containsEntry("categoryName", "Sub-12");
+        assertThat(notice.payload().values().toString()).doesNotContain("ACTA-1", coach.toString(), evaluatorA.toString());
+        assertThat(notice.relatedEntityType()).isEqualTo("player");
+        assertThat(notice.relatedEntityId()).isEqualTo(player);
+        assertThat(notice.dedupScope()).isEqualTo("decision:" + committee.minutes.get(0).id);
+    }
+
+    @Test
+    void rejectingTellsTheGuardiansWithoutTheReason() {
+        UUID player = committee.addPlayer(PlayerStatus.SUBMITTED);
+        UUID mother = UUID.randomUUID();
+        guardians.byPlayer.put(player, Set.of(mother));
+
+        service.reject(actor, player, new RejectEnrollmentCommand(minute("ACTA-5"), "Diagnóstico médico confidencial"));
+
+        assertThat(queue.sent).hasSize(1);
+        CommitteeFakes.Enqueued notice = queue.sent.get(0);
+        assertThat(notice.type()).isEqualTo("COMMITTEE_REJECTED");
+        assertThat(notice.recipients()).containsExactly(mother);
+        assertThat(notice.payload().keySet()).containsExactly("playerName");
+        assertThat(notice.subject()).doesNotContain("Diagnóstico");
+        assertThat(notice.dedupScope()).isEqualTo("decision:" + committee.minutes.get(0).id);
+    }
+
+    @Test
+    void nothingIsQueuedWhenThePlayerHasNoGuardianOrTheDecisionFails() {
+        UUID noGuardian = committee.addPlayer(PlayerStatus.SUBMITTED);
+        service.assign(actor, noGuardian, assignment());
+        assertThat(queue.sent).isEmpty();
+
+        UUID invalid = committee.addPlayer(PlayerStatus.SUBMITTED);
+        guardians.byPlayer.put(invalid, Set.of(UUID.randomUUID()));
+        thrown(() -> service.reject(actor, invalid, new RejectEnrollmentCommand(minute("ACTA-8"), " ")));
+        thrown(() -> service.assign(actor, committee.addPlayer(PlayerStatus.ACTIVE), assignment()));
+        assertThat(queue.sent).isEmpty();
     }
 
     // ---------- consulta ----------

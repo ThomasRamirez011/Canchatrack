@@ -267,6 +267,69 @@ class NotificationRulesTest {
     }
 
     @Test
+    void committeeEmailsTellTheOutcomeWithoutAnyDetailOfTheMinute() {
+        Map<String, String> assigned = new LinkedHashMap<>();
+        assigned.put("playerName", "Ana Ríos");
+        assigned.put("categoryName", "Sub-12\nBcc: x@y.z");
+
+        OutboundEmail ok = EmailTemplates.render("COMMITTEE_ASSIGNED", "madre@example.com", null, assigned, BOGOTA).orElseThrow();
+        assertThat(ok.subject()).isEqualTo("Categoría asignada");
+        assertThat(ok.body()).contains("inscripción de Ana Ríos", "la categoría Sub-12 Bcc: x@y.z", "matrícula");
+        assertThat(ok.body().contains("\nBcc")).isFalse();
+        assertThat(ok.calendar()).isNull();
+
+        OutboundEmail no = EmailTemplates.render("COMMITTEE_REJECTED", "madre@example.com", null,
+                Map.of("playerName", "Ana Ríos", "reason", "motivo secreto"), BOGOTA).orElseThrow();
+        assertThat(no.subject()).isEqualTo("Resultado de la inscripción");
+        assertThat(no.body()).contains("inscripción de Ana Ríos", "comuníquese directamente con el club");
+        assertThat(no.body()).doesNotContain("motivo secreto");
+    }
+
+    @Test
+    void arrearsEmailNamesTheChargeTheBalanceAndTheDaysLate() {
+        Map<String, String> payload = new LinkedHashMap<>();
+        payload.put("playerName", "Ana Ríos");
+        payload.put("concept", "Mensualidad");
+        payload.put("period", "2026-11-01");
+        payload.put("dueDate", "2026-11-05");
+        payload.put("outstanding", "80000.00");
+        payload.put("currency", "COP");
+        payload.put("daysOverdue", "1");
+        payload.put("appUrl", "https://club.example.co");
+
+        OutboundEmail email = EmailTemplates.render("ARREARS_NOTICE", "madre@example.com", null, payload, BOGOTA).orElseThrow();
+
+        assertThat(email.subject()).isEqualTo("Saldo pendiente vencido");
+        assertThat(email.body()).contains("«Mensualidad» de Ana Ríos (periodo 11/2026) venció el 05/11/2026",
+                "saldo pendiente de $80.000 COP", "Llevan 1 día de retraso", "no puede ser convocado a partidos",
+                "https://club.example.co");
+        assertThat(email.calendar()).isNull();
+    }
+
+    @Test
+    void arrearsAmountsAreGroupedAndTolerateBadData() {
+        Map<String, String> payload = new LinkedHashMap<>();
+        payload.put("playerName", "Ana Ríos");
+        payload.put("concept", "Matrícula");
+        payload.put("dueDate", "2026-11-05");
+        payload.put("outstanding", "1234567.5");
+        payload.put("daysOverdue", "x\nBcc: a@b.c");
+
+        String body = EmailTemplates.render("ARREARS_NOTICE", "a@b.co", null, payload, BOGOTA).orElseThrow().body();
+        assertThat(body).contains("$1.234.567,50 COP").doesNotContain("Llevan").doesNotContain("periodo");
+
+        payload.put("outstanding", "abc");
+        assertThat(EmailTemplates.render("ARREARS_NOTICE", "a@b.co", null, payload, BOGOTA).orElseThrow().body())
+                .contains("abc COP");
+        payload.remove("outstanding");
+        assertThat(EmailTemplates.render("ARREARS_NOTICE", "a@b.co", null, payload, BOGOTA).orElseThrow().body())
+                .contains("un valor por confirmar");
+        payload.put("outstanding", "999");
+        assertThat(EmailTemplates.render("ARREARS_NOTICE", "a@b.co", null, payload, BOGOTA).orElseThrow().body())
+                .contains("$999 COP");
+    }
+
+    @Test
     void reminderEmailSaysHowMuchTimeIsLeftAndHasNoInvitation() {
         Map<String, String> payload = eventPayload();
         payload.put("hoursBefore", "2");

@@ -97,6 +97,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 | Avisos de agenda (`scheduling`, `notifications`, `IcsCalendarTest`, `ReminderPolicyTest`, `AgendaNoticesTest`, `EventReminderServiceTest`, `SmtpEmailSenderTest`, `AgendaNotificationsIT`) | Sin migración nueva. Las dos consultas nuevas (contexto del evento con y sin entrenador, dirección o referencia del escenario; eventos confirmados de entrenamiento y evaluación dentro de la ventana del recordatorio, con su fecha de creación) ejecutadas sobre PostgreSQL 16 real con V1..V17; dominio y aplicación compilados con `javac -Xlint:all` y 52 pruebas unitarias (`IcsCalendarTest` 7, `ReminderPolicyTest` 9, `NotificationRulesTest` con las plantillas de evento, `AgendaNoticesTest` 8, `EventReminderServiceTest` 3) ejecutadas con un sustituto mínimo de JUnit y AssertJ; sintaxis de todos los fuentes analizada con el parser de `javac`. El adaptador JDBC, `SmtpEmailSender` (adjunto MIME), el programador y `AgendaNotificationsIT` **no** se compilaron contra Spring en el sandbox y **no** se probó contra un servidor SMTP real | **Verificado** el 12/11/2026 en el pipeline de GitHub Actions (PR #18): `mvn verify` en BUILD SUCCESS con 371 pruebas unitarias y 153 de integración, 0 fallos, incluidas `IcsCalendarTest` (7), `ReminderPolicyTest` (9), `AgendaNoticesTest` (8), `EventReminderServiceTest` (3), `SmtpEmailSenderTest` (2), `NotificationRulesTest` (25) y `AgendaNotificationsIT` (6); imagen Docker y smoke test en verde. Tres corridas: las dos primeras fallaron por errores de las pruebas nuevas (encabezados MIME sin `saveChanges()`, segundo acudiente marcado como principal, evento sembrado sin entrenador titular), no del código de producción |
 | Reprogramación (`scheduling`, `competitions`, `notifications`, `AgendaNoticesTest`, `NotificationRulesTest`, `AgendaNotificationsIT`, `CompetitionsIT`) | Sin migración nueva. Las sentencias SQL nuevas (cruces con exclusión del propio evento, `UPDATE` de fecha, escenario y datos con la revisión + 1 y la guarda `status = 'CONFIRMED'`, cambio del entrenador titular, lectura de la revisión, `updated_at` actualizado por el trigger y usado como base de los recordatorios) ejecutadas sobre PostgreSQL 16 real con V1..V17; dominio y aplicación compilados con `javac -Xlint:all` y 44 pruebas unitarias (`AgendaNoticesTest`, `EventReminderServiceTest`, `NotificationRulesTest` con las plantillas de reprogramación y la secuencia de la cancelación) ejecutadas con un sustituto mínimo de JUnit y AssertJ; sintaxis de los 25 fuentes modificados analizada con el parser de `javac`; OpenAPI validado (73 rutas, 120 esquemas). Controladores, adaptador JDBC y las pruebas de integración nuevas **no** se compilaron contra Spring en el sandbox | **Verificado** el 12/11/2026 en el pipeline de GitHub Actions (PR #19): `mvn verify` en BUILD SUCCESS con 379 pruebas unitarias y 157 de integración, 0 fallos, incluidas `AgendaNoticesTest` (12), `NotificationRulesTest` (29), `AgendaNotificationsIT` (9) y `CompetitionsIT` (8); imagen Docker y smoke test en verde. Dos corridas: la primera falló en 3 pruebas de `AgendaNotificationsIT` por errores de las pruebas (asunto esperado distinto del que guarda la cola y un `UPDATE` que el trigger `set_updated_at` marcaba como modificación reciente), no del código de producción |
 | Recordatorios de partidos y aviso al entrenador (`scheduling`, `competitions`, `notifications`, `AgendaNoticesTest`, `EventReminderServiceTest`, `NotificationRulesTest`, `ReminderPolicyTest`, `AgendaNotificationsIT`, `CompetitionsIT`) | Sin migración nueva. Las consultas nuevas (contexto del evento con el rival, jugadores confirmados de un evento-partido, eventos próximos con los cuatro tipos) ejecutadas sobre PostgreSQL 16 real con V1..V17; dominio y aplicación compilados con `javac -Xlint:all` y 62 pruebas unitarias ejecutadas con un sustituto mínimo de JUnit y AssertJ; sintaxis de los 23 fuentes modificados analizada con el parser de `javac`. Adaptador JDBC, `MatchAudienceService` y las pruebas de integración nuevas se verificaron en el pipeline | **Verificado** en GitHub Actions (PR #20): 388 pruebas unitarias y 160 de integración, 0 fallos; imagen Docker y smoke test en verde |
+| Avisos de mora y del resultado del comité (`payments`, `players`, `notifications`, `ArrearsPolicyTest`, `ArrearsNoticeServiceTest`, `CommitteeDecisionServiceTest`, `NotificationRulesTest`, `ArrearsNoticeIT`, `CommitteeIT`) | Sin migración nueva. La consulta de cargos vencidos con saldo ejecutada sobre PostgreSQL 16 real con V1..V17 (excluye pagados, futuros, demasiado antiguos y jugadores rechazados; el pago parcial deja su saldo); dominio y aplicación compilados con `javac -Xlint:all` y 107 pruebas unitarias ejecutadas con un sustituto mínimo de JUnit y AssertJ (incluye las de agenda ya existentes); sintaxis de las clases Spring y de las pruebas de integración analizada con el parser de `javac`. Adaptador JDBC, programador, configuración y las pruebas de integración nuevas **no** se compilaron contra Spring en el sandbox | **Pendiente:** falta la corrida del pipeline de GitHub Actions |
 | Contenedor e integración continua (`Dockerfile`, `.github/workflows/backend-ci.yml`) | El pipeline es su propia verificación: se ejecutó en GitHub Actions sobre el PR | **Verificado:** `mvn verify` (unitarias + integración con Testcontainers), construcción de la imagen y smoke test (health `UP`, login del coordinador de desarrollo, 401 sin token) en verde (2026-11-12). La primera ejecución falló por Docker Engine 29 (ver «Contenedor e integración continua») |
 | Código Spring (filtro, handler, seguridad, `JdbcAuditWriter`), `ArchitectureTest`, unitarias | `mvn test` en Windows 11, JDK 24 (compila con `--release 21`), Maven 3.10.0 | Ejecutado: OK (19 pruebas, 0 fallos) |
 | `*IT` con Testcontainers (`DatabaseSchemaIT`, `AuditWriterIT`) | `mvn verify`, Docker Desktop 4.98 / Engine 29.9.2 | Ejecutado: OK (7 pruebas, 0 fallos) |
@@ -382,6 +383,12 @@ su categoría y panel anteriores antes de contar el cupo, así no cuenta contra 
 
 Auditoría: `PLAYER_CATEGORY_ASSIGNED`, `PLAYER_ENROLLMENT_REJECTED` (estado anterior y posterior, motivo, rol `COMMITTEE`).
 
+**Aviso del resultado a los acudientes (RF-047).** Al asignar o rechazar se encola, en la misma transacción, un correo para los acudientes con
+vínculo vigente (`identity.api.GuardianContacts`). `COMMITTEE_ASSIGNED` nombra al jugador y la categoría y anuncia que sigue la matrícula;
+`COMMITTEE_REJECTED` es genérico y remite al club. **Ninguno incluye el motivo, el acta, el panel ni el entrenador** (RN-17: el motivo
+puede traer datos sensibles). Un solo aviso por decisión: el ámbito de deduplicación es el acta (`decision:<minuteId>`). Sin acudiente vinculado no se
+encola nada, y si la decisión falla (422, 409) tampoco.
+
 **Límites conocidos y pendientes (confirmar).**
 1. **Valores provisionales (DP-01):** roles del panel y excepción de cupo son configurables porque el club no ha definido la
    composición real del panel (el sistema solo distingue COACH, EVALUATOR y COMMITTEE, no «preparador físico»).
@@ -416,7 +423,19 @@ cargo mientras se valida el saldo, así dos pagos simultáneos no lo sobrepasan.
 `PAYMENT_RECORDED`, `PAYMENT_VOIDED`, `PLAYER_REGISTRATION_STARTED`, `PLAYER_ACTIVATED`, `MONTHLY_CHARGES_GENERATED`.
 
 **Pendiente.** Antivirus de archivos (el contrato de error `FILE_REJECTED` ya lo contempla), ajustes parciales de pagos y de cargos
-por API (el esquema los soporta), recordatorios de mora (`notifications`) y reportes de cartera.
+por API (el esquema los soporta).
+
+**Avisos de mora (RF-041).** `ArrearsNoticeService` (diario, 08:00 en la zona del club; `ArrearsNoticeScheduler`) busca los cargos con saldo
+(`PENDING` o `PARTIAL`) vencidos de jugadores con un proceso en curso (pendiente de matrícula, activo, en evaluación, ascenso aprobado o suspendido) y avisa
+a sus acudientes con vínculo vigente. `ArrearsPolicy` (dominio, función pura) fija la cadencia: el primer aviso el primer día de mora (tras los días de
+gracia `canchatrack.payments.arrears-grace-days`, la misma definición que usa la elegibilidad de convocatoria) y luego uno cada
+`canchatrack.payments.arrears-notices.interval-days` (7) hasta `max-notices` (8; 0 apaga los avisos). El tramo es el ámbito de deduplicación (`stage:<n>`) y
+la entidad relacionada es el cargo, así que correr el proceso varias veces el mismo día no repite el correo, un cargo saldado o anulado deja de
+avisar, y dos cargos del mismo jugador son dos avisos. Cada correo nombra solo al jugador de ese acudiente, el cargo, el saldo y los días de retraso; sin datos de
+salud. Un cargo que ya agotó sus avisos al activarse el proceso por primera vez (más de 8 semanas de mora) no se avisa. Apagado en el perfil de pruebas
+(`canchatrack.payments.arrears-notices.enabled=false`); `ArrearsNoticeIT` lo invoca a mano. Plantilla: `ARREARS_NOTICE`.
+
+**Pendiente.** Resumen de morosos para la coordinación (hoy consulta `GET /api/v1/reports/receivables`) y la política definitiva de mora (DP-05).
 
 ## Documentos y vigencias (documents)
 
@@ -710,7 +729,7 @@ procesador es el otro extremo de esa cola: sin nueva migración, usa `notificati
 | `NotificationProcessor` (`application`) | Cada pasada reclama avisos vencidos, los renderiza, los entrega con el puerto `EmailSender` y registra el resultado. No es transaccional: el envío no mantiene abierta una transacción. |
 | `NotificationOutbox` / `JdbcNotificationOutbox` | `claimDue` toma avisos con `FOR UPDATE SKIP LOCKED` y los **arrienda** moviendo `next_attempt_at` (5 min por defecto): dos instancias nunca toman el mismo aviso y el envío ocurre fuera de la transacción. `markSent` y `markFailed` registran el intento en `delivery_attempts` solo si el aviso sigue pendiente y no tiene ya ese intento, así un proceso rezagado no pisa el resultado de otro. |
 | `RetryPolicy` (`domain`) | Espera exponencial (x4): 1 min, 4, 16, 64 y un máximo de 5 intentos; tope de 6 h. Al agotarse, el aviso queda `FAILED`. Un fallo definitivo del proveedor (dirección inválida) no se reintenta. |
-| `EmailTemplates` (`domain`) | Texto plano en español para `MATCH_CALLUP`, `MATCH_CALLUP_REMOVED`, `MATCH_CANCELLED`, `DOCUMENT_EXPIRY`, `EVENT_SCHEDULED`, `EVENT_CANCELLED` y `EVENT_REMINDER`; fechas en la zona del club; los datos se reducen a una línea para impedir inyección de encabezados. Un tipo sin plantilla es un fallo definitivo (`NO_TEMPLATE`), no se envía nada improvisado. |
+| `EmailTemplates` (`domain`) | Texto plano en español para `MATCH_CALLUP`, `MATCH_CALLUP_REMOVED`, `MATCH_CANCELLED`, `MATCH_RESCHEDULED`, `DOCUMENT_EXPIRY`, `EVENT_SCHEDULED`, `EVENT_CANCELLED`, `EVENT_RESCHEDULED`, `EVENT_REMINDER`, `COMMITTEE_ASSIGNED`, `COMMITTEE_REJECTED` y `ARREARS_NOTICE`; fechas en la zona del club; los datos se reducen a una línea para impedir inyección de encabezados. Un tipo sin plantilla es un fallo definitivo (`NO_TEMPLATE`), no se envía nada improvisado. |
 | `LoggingEmailSender` | Valor por defecto: **no envía**; deja en el log el asunto y el destinatario enmascarado (el cuerpo solo en `DEBUG`). Solo para desarrollo y pruebas. |
 | `SmtpEmailSender` | `canchatrack.notifications.sender=smtp` con `spring.mail.*`. Es el valor por defecto del perfil `prod`. Variables: `MAIL_HOST`, `MAIL_FROM` (obligatorias) y `MAIL_PORT`, `MAIL_USER`, `MAIL_PASSWORD`, `MAIL_AUTH`, `MAIL_STARTTLS` (opcionales). |
 | `NotificationScheduler` | `@Scheduled` con espera fija (`canchatrack.notifications.processor.interval`, 10 s). Apagado en el perfil de pruebas (`processor.enabled=false`); las pruebas invocan al procesador a mano. |
@@ -720,8 +739,7 @@ repetido es preferible a uno perdido. (2) Las cuentas `GUARDIAN` reciben el avis
 (RN-17: nunca datos de salud ni adjuntos). (3) Lo que se guarda en `last_error` y `provider_response` son clases de error y referencias, no direcciones ni
 cuerpos. (4) Parámetros: `canchatrack.notifications.{sender, from, processor.{enabled, interval, batch-size, lease}, retry.{max-attempts, base-delay, max-delay}}`.
 
-**Pendiente.** Verificar contra un servidor SMTP real (solo se comprobó el tipado), avisos de otros módulos (decisión del comité, convocatoria publicada, mora,
-cierre de temporada), consulta y reintento manual de avisos `FAILED`, limpieza de avisos antiguos y una plantilla HTML con la identidad del club. Los recordatorios y
+**Pendiente.** Verificar contra un servidor SMTP real (solo se comprobó el tipado), avisos de otros módulos (convocatoria publicada, cierre de temporada), consulta y reintento manual de avisos `FAILED`, limpieza de avisos antiguos y una plantilla HTML con la identidad del club. Los recordatorios y
 el `.ics` de la agenda ya están (ver «Avisos de agenda»).
 
 ## Contenedor e integración continua
@@ -743,5 +761,5 @@ registro, despliegue, y que `main` exija el pipeline en verde (protección de ra
 
 ## Siguiente paso
 
-Siguiente incremento: avisos de mora y de resultado del comité, sesiones recurrentes,
+Siguiente incremento: sesiones recurrentes y filtros de calendario, adjuntos en la radicación,
 exportaciones, seguridad (recuperación de contraseña, verificación de correo, límite de tasa) y puertas de calidad. CORS ya está resuelto. CU-10 y CU-11 quedan con plantilla provisional hasta que el club defina P-09.

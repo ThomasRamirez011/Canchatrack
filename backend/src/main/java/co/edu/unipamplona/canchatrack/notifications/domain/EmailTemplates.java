@@ -24,6 +24,9 @@ public final class EmailTemplates {
     public static final String EVENT_REMINDER = "EVENT_REMINDER";
     public static final String EVENT_RESCHEDULED = "EVENT_RESCHEDULED";
     public static final String MATCH_RESCHEDULED = "MATCH_RESCHEDULED";
+    public static final String COMMITTEE_ASSIGNED = "COMMITTEE_ASSIGNED";
+    public static final String COMMITTEE_REJECTED = "COMMITTEE_REJECTED";
+    public static final String ARREARS_NOTICE = "ARREARS_NOTICE";
 
     private static final DateTimeFormatter WHEN = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd/MM/yyyy");
@@ -151,6 +154,41 @@ public final class EmailTemplates {
                     sb.append("\nMotivo: ").append(singleLine(data.get("reason")));
                 }
                 sb.append("\n\nSi la nueva fecha no le sirve, comuníquese con el club.");
+                body = sb.toString();
+            }
+            case COMMITTEE_ASSIGNED -> {
+                defaultSubject = "Categoría asignada";
+                String category = valueOr(data.get("categoryName"), "una categoría del club");
+                body = "Hola,\n\nEl Comité Técnico revisó la inscripción de " + player + " y le asignó la categoría "
+                        + category + ".\n\nEl siguiente paso es la matrícula: el club le indicará el valor y la fecha "
+                        + "de pago. Cuando esté saldada y los documentos obligatorios estén al día, el jugador queda activo.";
+            }
+            case COMMITTEE_REJECTED -> {
+                defaultSubject = "Resultado de la inscripción";
+                body = "Hola,\n\nEl Comité Técnico revisó la inscripción de " + player + " y no pudo asignarle una "
+                        + "categoría en esta oportunidad.\n\nPara conocer el detalle de la decisión y las opciones que "
+                        + "tiene, comuníquese directamente con el club.";
+            }
+            case ARREARS_NOTICE -> {
+                defaultSubject = "Saldo pendiente vencido";
+                String concept = valueOr(data.get("concept"), "Un cargo");
+                StringBuilder sb = new StringBuilder("Hola,\n\nEl cargo «").append(concept).append("» de ").append(player);
+                if (data.get("period") != null) {
+                    sb.append(" (periodo ").append(monthOf(data.get("period"))).append(')');
+                }
+                sb.append(" venció el ").append(date(data.get("dueDate"))).append(" y tiene un saldo pendiente de ")
+                        .append(money(data.get("outstanding"), data.get("currency"))).append('.');
+                String days = data.get("daysOverdue");
+                if (days != null && days.trim().matches("\\d{1,4}")) {
+                    sb.append("\nLlevan ").append(days.trim()).append(days.trim().equals("1") ? " día" : " días")
+                            .append(" de retraso.");
+                }
+                sb.append("\n\nSi ya realizó el pago, comuníquese con el club para que lo registre. Mientras haya un saldo "
+                        + "vencido, el jugador no puede ser convocado a partidos.");
+                String link = link(data);
+                if (!link.isEmpty()) {
+                    sb.append("\n\n").append(link);
+                }
                 body = sb.toString();
             }
             case EVENT_REMINDER -> {
@@ -294,6 +332,32 @@ public final class EmailTemplates {
     static String singleLine(String value) {
         String cleaned = value.replaceAll("[\\p{Cntrl}\\s]+", " ").trim();
         return cleaned.length() > MAX_VALUE ? cleaned.substring(0, MAX_VALUE) : cleaned;
+    }
+
+    /** Valor en pesos con separador de miles «.» y decimales «,» solo si los hay; un monto ilegible se muestra tal cual. */
+    private static String money(String amount, String currency) {
+        String unit = currency == null || currency.isBlank() ? "COP" : singleLine(currency);
+        if (amount == null || amount.isBlank()) {
+            return "un valor por confirmar";
+        }
+        try {
+            java.math.BigDecimal value = new java.math.BigDecimal(amount.trim()).setScale(2, java.math.RoundingMode.HALF_UP);
+            String[] parts = value.abs().toPlainString().split("\\.");
+            String grouped = parts[0].replaceAll("\\B(?=(\\d{3})+(?!\\d))", ".");
+            String decimals = parts[1].equals("00") ? "" : "," + parts[1];
+            return (value.signum() < 0 ? "-" : "") + "$" + grouped + decimals + " " + unit;
+        } catch (NumberFormatException e) {
+            return singleLine(amount) + " " + unit;
+        }
+    }
+
+    private static String monthOf(String isoDate) {
+        try {
+            java.time.LocalDate day = java.time.LocalDate.parse(isoDate.trim());
+            return DateTimeFormatter.ofPattern("MM/yyyy").format(day);
+        } catch (DateTimeParseException e) {
+            return singleLine(isoDate);
+        }
     }
 
     private static String valueOr(String value, String fallback) {

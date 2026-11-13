@@ -40,6 +40,12 @@ public class JdbcCommitteeStore implements CommitteeStore {
     }
 
     @Override
+    public String playerName(UUID playerId) {
+        return jdbc.query("SELECT first_name || ' ' || last_name FROM players WHERE id = ?",
+                (rs, rowNum) -> rs.getString(1), playerId).stream().findFirst().orElse("");
+    }
+
+    @Override
     public LocalDate today(ZoneId zone) {
         return jdbc.queryForObject("SELECT (now() AT TIME ZONE ?)::date",
                 (rs, rowNum) -> rs.getObject(1, LocalDate.class), zone.getId());

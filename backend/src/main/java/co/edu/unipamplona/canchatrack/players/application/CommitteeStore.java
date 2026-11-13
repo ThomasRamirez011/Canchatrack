@@ -39,4 +39,7 @@ public interface CommitteeStore {
     boolean decide(UUID playerId, PlayerStatus target);
 
     Optional<AssignmentView> findCurrentAssignment(UUID playerId);
+
+    /** Nombre completo del jugador, para el aviso a sus acudientes; vacío si no se encuentra. */
+    String playerName(UUID playerId);
 }

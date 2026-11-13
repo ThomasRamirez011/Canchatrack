@@ -14,7 +14,9 @@ import java.util.Set;
 import java.util.UUID;
 
 import co.edu.unipamplona.canchatrack.documents.api.StoredFileDirectory;
+import co.edu.unipamplona.canchatrack.identity.api.GuardianContacts;
 import co.edu.unipamplona.canchatrack.identity.api.StaffDirectory;
+import co.edu.unipamplona.canchatrack.notifications.api.NotificationQueue;
 import co.edu.unipamplona.canchatrack.players.domain.PlayerStatus;
 
 /** Dobles en memoria del puerto del comité y de las fachadas de identity y documents que usa. */
@@ -63,6 +65,7 @@ final class CommitteeFakes {
         /** playerId -> evaluadores vigentes. */
         final Map<UUID, List<UUID>> panels = new HashMap<>();
         final Map<UUID, String> categoryNames = new HashMap<>();
+        final Map<UUID, String> playerNames = new HashMap<>();
         LocalDate today = LocalDate.of(2026, 11, 8);
 
         UUID addPlayer(PlayerStatus status) {
@@ -142,6 +145,11 @@ final class CommitteeFakes {
         }
 
         @Override
+        public String playerName(UUID playerId) {
+            return playerNames.getOrDefault(playerId, "Jugador de prueba");
+        }
+
+        @Override
         public Optional<AssignmentView> findCurrentAssignment(UUID playerId) {
             return assignments.stream().filter(a -> a.current && a.playerId.equals(playerId)).findFirst().map(a -> {
                 Minute minute = minutes.stream().filter(m -> m.id.equals(a.minuteId)).findFirst().orElseThrow();
@@ -166,6 +174,34 @@ final class CommitteeFakes {
         public Optional<CategoryInfo> findByIdForUpdate(UUID categoryId) {
             return findById(categoryId).map(c -> new CategoryInfo(c.id(), c.name(), c.birthYearMin(), c.birthYearMax(),
                     c.capacity(), c.occupied() + (int) committee.currentIn(categoryId), c.nextCategoryId(), c.active()));
+        }
+    }
+
+    record Enqueued(String type, Set<UUID> recipients, String subject, Map<String, String> payload,
+                    String relatedEntityType, UUID relatedEntityId, String dedupScope) {
+    }
+
+    static final class RecordingQueue implements NotificationQueue {
+        final List<Enqueued> sent = new ArrayList<>();
+
+        @Override
+        public void enqueue(String type, Collection<UUID> recipientUserIds, String subject, Map<String, String> payload,
+                            String relatedEntityType, UUID relatedEntityId, String dedupScope) {
+            sent.add(new Enqueued(type, new java.util.LinkedHashSet<>(recipientUserIds), subject, Map.copyOf(payload),
+                    relatedEntityType, relatedEntityId, dedupScope));
+        }
+    }
+
+    static final class FakeGuardians implements GuardianContacts {
+        final Map<UUID, Set<UUID>> byPlayer = new HashMap<>();
+
+        @Override
+        public Set<UUID> guardianUserIdsOf(Collection<UUID> playerIds) {
+            Set<UUID> users = new java.util.LinkedHashSet<>();
+            for (UUID player : playerIds) {
+                users.addAll(byPlayer.getOrDefault(player, Set.of()));
+            }
+            return users;
         }
     }
 
