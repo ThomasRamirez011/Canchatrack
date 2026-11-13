@@ -51,6 +51,48 @@ jobs:
       - name: Compilar y probar
         run: mvn -B -ntp verify
 
+      # Cobertura (JaCoCo, solo informe): resumen en la pestaña del job y el informe HTML/CSV como artefacto.
+      # No hay umbral: primero se mide y después se fija (deuda D1).
+      - name: Resumen de cobertura
+        if: always()
+        run: |
+          CSV=target/site/jacoco/jacoco.csv
+          if [ ! -f "$CSV" ]; then echo "Sin informe de cobertura (jacoco.csv no existe)" >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
+          # Columnas del CSV de JaCoCo: 2 = paquete, 6/7 = ramas perdidas/cubiertas, 8/9 = líneas perdidas/cubiertas.
+          # El módulo es el 5.º segmento del paquete (co.edu.unipamplona.canchatrack.<módulo>...).
+          awk -F, 'NR>1 {
+              n = split($2, p, "."); m = (n >= 5 ? p[5] : "(raíz)");
+              li[m]+=$9; lm[m]+=$8; bi[m]+=$7; bm[m]+=$6;
+              Li+=$9; Lm+=$8; Bi+=$7; Bm+=$6
+            }
+            END {
+              for (m in li) {
+                lt = li[m]+lm[m]; bt = bi[m]+bm[m];
+                bs = (bt ? sprintf("%.1f %% (%d/%d)", 100*bi[m]/bt, bi[m], bt) : "-");
+                printf "R| %s | %.1f %% (%d/%d) | %s |\n", m, (lt ? 100*li[m]/lt : 0), li[m], lt, bs;
+              }
+              lt = Li+Lm; bt = Bi+Bm;
+              printf "T| **Total** | **%.1f %% (%d/%d)** | **%.1f %% (%d/%d)** |\n", (lt ? 100*Li/lt : 0), Li, lt, (bt ? 100*Bi/bt : 0), Bi, bt;
+            }' "$CSV" > cobertura.tmp
+          {
+            echo "### Cobertura JaCoCo (unitarias + integración, sin umbral)"
+            echo
+            echo "| Módulo | Líneas cubiertas | Ramas cubiertas |"
+            echo "|---|---|---|"
+            grep '^R' cobertura.tmp | sort | cut -c2-
+            grep '^T' cobertura.tmp | cut -c2-
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          rm -f cobertura.tmp
+
+      - name: Subir informe de cobertura
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cobertura-jacoco
+          path: backend/target/site/jacoco
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Subir informes de pruebas
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
