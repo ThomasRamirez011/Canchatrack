@@ -1,19 +1,18 @@
 # CanchaTrack — Entrega continua del backend (Guía 11 / FPI-27).
-# VERSIÓN 2 (2026-11-13): plataforma elegida = Render. Correcciones sobre la propuesta: (1) el nombre de la imagen va en minúsculas
-# (GHCR rechaza mayúsculas y el propietario del repositorio es «ThomasRamirez011»); (2) `imgURL` va codificado como URL, como exige Render.
-# ESTADO: sin ejecutar nunca. Primera corrida: manual (workflow_dispatch) tras crear el entorno `production`.
-# (antes: PROPUESTA.) El repositorio NO tiene despliegue: el backend corre en la máquina del usuario (README, "Pendiente").
-# NO se ha ejecutado. Antes de usarlo: crear el entorno `production` con revisores obligatorios (Settings > Environments),
-# el secreto RENDER_DEPLOY_HOOK_URL y la variable PUBLIC_URL. Las variables de la aplicación (DB_URL, DB_USER, DB_PASSWORD,
-# DB_MIGRATION_USER, DB_MIGRATION_PASSWORD, JWT_SECRET, MFA_ENCRYPTION_KEY, MAIL_HOST, MAIL_FROM) se configuran EN LA
-# PLATAFORMA, nunca en este archivo. Confirmar en la documentación de Render/Railway cómo se despliega una imagen de un
-# registro y qué admite la capa gratuita vigente.
+# Plataforma: Render (plan gratuito). Notas: (1) el nombre de la imagen va en minúsculas (GHCR rechaza mayúsculas y el propietario
+# es «ThomasRamirez011»); (2) `imgURL` va codificado como URL, como exige Render.
+# ESTADO (2026-11-13): EJECUTADO de punta a punta dos veces (publicar → aprobación en `production` → hook → salud → marcar estable),
+# siempre por disparo manual (workflow_dispatch). El camino de rollback NO se ha ejercitado: se omite cuando el despliegue sale bien.
+# Requisitos ya creados: entorno `production` con revisores obligatorios, secreto RENDER_DEPLOY_HOOK_URL y variable PUBLIC_URL.
+# Las variables de la aplicación (DB_URL, DB_USER, DB_PASSWORD, DB_MIGRATION_USER, DB_MIGRATION_PASSWORD, JWT_SECRET,
+# MFA_ENCRYPTION_KEY, MAIL_HOST, MAIL_FROM, CORS_ALLOWED_ORIGINS) se configuran EN LA PLATAFORMA, nunca en este archivo.
+# Límites del plan gratuito de Render: el servicio se duerme tras 15 min (arranque en frío), disco efímero, SMTP bloqueado.
 name: deploy
 
 on:
-  # Primera etapa: solo manual. El disparo automático tras backend-ci queda comentado hasta que el entorno `production`
-  # (con revisores), el secreto RENDER_DEPLOY_HOOK_URL y la variable PUBLIC_URL existan y una corrida manual haya salido sana;
-  # sin ellos cada fusión a main dejaría un despliegue y un rollback en rojo. Para activarlo, descomentar y quitar la condición manual.
+  # Solo manual por decisión vigente. Las condiciones para el disparo automático ya se cumplen (entorno `production` con revisores,
+  # secreto, variable y dos corridas sanas), pero activarlo desplegaría en cada fusión a main (y tras la aprobación, cada vez): es una
+  # decisión del autor pendiente (deuda D22). Para activarlo, descomentar `workflow_run` y quitar la condición manual.
   # workflow_run:
   #   workflows: [backend-ci]      # solo despliega si el pipeline real terminó
   #   types: [completed]
