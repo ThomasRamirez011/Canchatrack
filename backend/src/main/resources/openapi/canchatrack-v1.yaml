@@ -2241,6 +2241,25 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
+  /dashboard/club:
+    get:
+      tags: [reports]
+      operationId: getClubDashboard
+      summary: Tablero del club para la pantalla principal (solo coordinador y comité).
+      description: |
+        Una sola lectura con lo que el front muestra: por categoría, plantilla, jugadores habilitados (activos y sin cargos
+        vencidos), asistencia promedio y de las últimas 5 sesiones cerradas, recaudo del mes, cartera pendiente, porcentaje
+        de cobro de los cargos que vencen este mes y próximo partido; los jugadores con su asistencia y su cargo pendiente
+        más antiguo; y la agenda de un mes atrás a cuatro meses adelante. Los porcentajes son enteros (mitad hacia arriba,
+        máximo 100).
+      responses:
+        '200':
+          description: Tablero del club.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClubOverviewResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /reports/receivables:
     get:
       tags: [reports]
@@ -3957,6 +3976,94 @@ components:
         reopenedAt: { type: [string, 'null'], format: date-time }
         reopenReason: { type: [string, 'null'] }
         reopenDetail: { type: [string, 'null'] }
+    SessionAttendanceResponse:
+      type: object
+      required: [eventId, startAt, percentage]
+      properties:
+        eventId: { type: string, format: uuid }
+        startAt: { type: string, format: date-time }
+        percentage: { type: integer, minimum: 0, maximum: 100 }
+    NextMatchResponse:
+      type: object
+      required: [eventId, startAt, opponent, venue]
+      properties:
+        eventId: { type: string, format: uuid }
+        startAt: { type: string, format: date-time }
+        opponent: { type: string }
+        venue: { type: string }
+    TeamResponse:
+      type: object
+      required: [categoryId, name, headCoachId, headCoach, rosterSize, enabledCount, attendanceAverage, recentAttendance, monthRevenue, debt, collectionRate, nextMatch]
+      properties:
+        categoryId: { type: string, format: uuid }
+        name: { type: string }
+        headCoachId: { type: [string, 'null'], format: uuid, description: Entrenador que más jugadores tiene asignados en la categoría (sirve para programar eventos). }
+        headCoach: { type: [string, 'null'], description: Nombre del entrenador responsable. }
+        rosterSize: { type: integer }
+        enabledCount: { type: integer, description: Jugadores activos sin cargos vencidos. }
+        attendanceAverage: { type: integer, minimum: 0, maximum: 100 }
+        recentAttendance:
+          type: array
+          description: Últimas 5 sesiones cerradas, de la más antigua a la más reciente.
+          items: { $ref: '#/components/schemas/SessionAttendanceResponse' }
+        monthRevenue: { type: number, description: Pagos vigentes recibidos en el mes actual. }
+        debt: { type: number, description: Saldo pendiente total de la categoría. }
+        collectionRate: { type: integer, minimum: 0, maximum: 100, description: Cobrado sobre lo que vence en el mes actual. }
+        nextMatch:
+          oneOf:
+            - { $ref: '#/components/schemas/NextMatchResponse' }
+            - { type: 'null' }
+    PendingChargeResponse:
+      type: object
+      required: [chargeId, concept, feeName, period, dueDate, outstanding]
+      properties:
+        chargeId: { type: string, format: uuid }
+        concept: { type: string }
+        feeName: { type: string }
+        period: { type: string, format: date }
+        dueDate: { type: string, format: date }
+        outstanding: { type: number, description: Lo que aún se debe del cargo. }
+    DashboardPlayerResponse:
+      type: object
+      required: [playerId, categoryId, code, fullName, status, attendance, enabled, pendingCharge]
+      properties:
+        playerId: { type: string, format: uuid }
+        categoryId: { type: string, format: uuid }
+        code: { type: string }
+        fullName: { type: string }
+        status: { type: string }
+        attendance: { type: integer, minimum: 0, maximum: 100 }
+        enabled: { type: boolean }
+        pendingCharge:
+          oneOf:
+            - { $ref: '#/components/schemas/PendingChargeResponse' }
+            - { type: 'null' }
+    DashboardEventResponse:
+      type: object
+      required: [id, categoryId, eventType, status, startAt, endAt, venue, opponent]
+      properties:
+        id: { type: string, format: uuid }
+        categoryId: { type: string, format: uuid }
+        eventType: { type: string, enum: [TRAINING, EVALUATION, FRIENDLY_MATCH, TOURNAMENT_MATCH] }
+        status: { type: string, enum: [CONFIRMED, CANCELLED, COMPLETED] }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        venue: { type: string }
+        opponent: { type: [string, 'null'] }
+    ClubOverviewResponse:
+      type: object
+      required: [generatedAt, teams, players, events]
+      properties:
+        generatedAt: { type: string, format: date-time }
+        teams:
+          type: array
+          items: { $ref: '#/components/schemas/TeamResponse' }
+        players:
+          type: array
+          items: { $ref: '#/components/schemas/DashboardPlayerResponse' }
+        events:
+          type: array
+          items: { $ref: '#/components/schemas/DashboardEventResponse' }
   responses:
     BadRequest:
       description: Solicitud mal formada.
