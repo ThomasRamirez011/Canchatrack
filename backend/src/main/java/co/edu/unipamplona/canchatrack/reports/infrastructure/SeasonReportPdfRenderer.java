@@ -105,10 +105,10 @@ public class SeasonReportPdfRenderer implements SeasonReportRenderer {
         } else {
             pdf.field("Partidos", String.valueOf(part.matches()), 10f);
             pdf.field("Minutos jugados", String.valueOf(part.minutes()), 10f);
-            pdf.field("Goles", String.valueOf(part.goals()), 10f);
+            pdf.field("Puntos", String.valueOf(part.goals()), 10f);
             pdf.space(4f);
             float[] columns = {0f, 62f, 190f, 330f, 400f, 450f};
-            pdf.row(columns, new String[]{"Fecha", "Rival", "Torneo", "Marcador", "Min.", "Goles"}, 9f, true);
+            pdf.row(columns, new String[]{"Fecha", "Rival", "Torneo", "Marcador", "Min.", "Puntos"}, 9f, true);
             for (SeasonReportFacts.MatchLine m : f.matches()) {
                 pdf.row(columns, new String[]{day(m.playedAt(), zone), m.opponent(), m.tournament() == null ? "Amistoso" : m.tournament(),
                         m.scoreFor() == null ? "—" : m.scoreFor() + " - " + m.scoreAgainst(),

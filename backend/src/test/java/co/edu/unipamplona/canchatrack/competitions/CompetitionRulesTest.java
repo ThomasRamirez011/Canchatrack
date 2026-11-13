@@ -134,10 +134,17 @@ class CompetitionRulesTest {
     }
 
     @Test
+    void basketballScoresAboveOneHundredAreAccepted() {
+        UUID player = UUID.randomUUID();
+        assertThat(CompetitionRules.resultViolations(112, 98, null,
+                List.of(new PlayerResultLine(player, 32, 41, null)), false, null)).isEmpty();
+    }
+
+    @Test
     void scoreIsRequiredAndBounded() {
         assertThat(fields(CompetitionRules.resultViolations(null, null, null, List.of(), false, null)))
                 .containsExactlyInAnyOrder("scoreFor", "scoreAgainst");
-        assertThat(fields(CompetitionRules.resultViolations(-1, 100, null, List.of(), false, null)))
+        assertThat(fields(CompetitionRules.resultViolations(-1, 200, null, List.of(), false, null)))
                 .containsExactlyInAnyOrder("scoreFor", "scoreAgainst");
     }
 
@@ -145,7 +152,7 @@ class CompetitionRulesTest {
     void minutesGoalsAndObservationsAreBoundedPerPlayer() {
         UUID player = UUID.randomUUID();
         assertThat(fields(CompetitionRules.resultViolations(5, 0, null, List.of(
-                new PlayerResultLine(player, 151, 100, "o".repeat(1001))), false, null)))
+                new PlayerResultLine(player, 151, 200, "o".repeat(1001))), false, null)))
                 .containsExactlyInAnyOrder("players[0].minutesPlayed", "players[0].goals", "players[0].observations");
         assertThat(fields(CompetitionRules.resultViolations(5, 0, null, List.of(
                 new PlayerResultLine(player, -1, -1, null)), false, null)))

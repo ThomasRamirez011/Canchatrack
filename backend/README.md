@@ -356,7 +356,7 @@ y deja que el front lo llame desde la vista previa.
 | Pieza | Qué hace |
 |---|---|
 | `GET /api/v1/dashboard/club` (coordinador y comité) | Una sola lectura para la pantalla principal: equipos (plantilla, habilitados, asistencia, recaudo del mes, cartera, % de cobro, próximo partido), jugadores con su cargo pendiente más antiguo y agenda de -31 a +120 días. Reglas en `DashboardRules`; SQL de solo lectura en `JdbcDashboardStore`. |
-| `canchatrack.demo.enabled` / `DEMO_DATA` (`dev`: `true`) | `DemoDataSeeder` crea al arrancar 3 categorías (Sub-15, Sub-13, Escuela de Fútbol), 21 jugadores, cobros y pagos del mes anterior y del actual (algunos pendientes o parciales), 5 entrenamientos cerrados con asistencia, 5 próximos y dos partidos. **Solo actúa si no hay categorías**, así que no pisa datos reales. Apagado en pruebas y en `prod`. |
+| `canchatrack.demo.enabled` / `DEMO_DATA` (`dev`: `true`) | `DemoDataSeeder` crea al arrancar 3 categorías (Sub-15, Sub-13, Mini Baloncesto), 21 jugadores, cobros y pagos del mes anterior y del actual (algunos pendientes o parciales), 5 entrenamientos cerrados con asistencia, 5 próximos y dos partidos. **Solo actúa si no hay categorías**, así que no pisa datos reales. Apagado en pruebas y en `prod`. |
 | `canchatrack.security.cors.allow-any-origin` / `CORS_ALLOW_ANY_ORIGIN` (`dev`: `true`) | Acepta cualquier origen para que la URL de vista previa del front (que cambia) pueda llamar a `localhost`. Tolerable porque la autenticación es un token Bearer, sin cookies. **Nunca en `prod`** (por defecto `false`). |
 | `PrivateNetworkAccessFilter` | Responde `Access-Control-Allow-Private-Network: true` a la verificación previa que lo pide, requisito de Chrome y Edge para que una página pública llame a `localhost`. |
 
@@ -710,7 +710,7 @@ Alcance ligero: torneo → partido → convocatoria → autorización del acudie
 | `DELETE /api/v1/matches/{id}/callup/{playerId}` | entrenador responsable o coordinador | Idempotente; avisa si estaba confirmado. |
 | `POST /api/v1/matches/{id}/callup/confirm` | `COORDINATOR` | Vuelve a evaluar. Si alguno ya no cumple: 409 `CALLUP_NOT_ELIGIBLE` con `players:[{playerId, causes}]` y no se confirma nada. |
 | `POST /api/v1/matches/{id}/players/{playerId}/authorization` | `GUARDIAN` vinculado | Solo con convocatoria confirmada (si no, 404). Idempotente (`recordedNow`). |
-| `PUT /api/v1/matches/{id}/result` | entrenador responsable o coordinador | Desde el inicio del partido. Minutos y goles por convocado confirmado; goles individuales ≤ marcador. Corregir exige `reason`. |
+| `PUT /api/v1/matches/{id}/result` | entrenador responsable o coordinador | Desde el inicio del partido. Minutos y puntos por convocado confirmado; puntos individuales ≤ marcador. Corregir exige `reason`. |
 | `GET /api/v1/players/{id}/matches` | acudiente (sus hijos), coordinador, comité | Historial de partidos con convocatoria confirmada (RF-037, parte de partidos). |
 
 **Decisiones.** (1) La elegibilidad (RN-06, RN-07) se compone con fachadas de los módulos dueños de cada dato: `players.api.CategoryRoster`
@@ -774,7 +774,7 @@ el contenido), y responden con `Cache-Control: no-store`.
 |---|---|---|
 | Plantilla (`/reports/roster/export`) | jugador con categoría vigente | Categoría, Código, Jugador, Fecha de nacimiento, Estado, Entrenador titular, Acudiente principal, En la categoría desde |
 | Asistencia (`/reports/attendance/export`) | jugador y sesión cerrada (eventos no cancelados) | Fecha, Hora, Tipo, Categoría, Escenario, Código, Jugador, Asistencia, Excusa aceptada |
-| Convocatorias y resultados (`/reports/matches/export`) | partido y convocado (sin los retirados); un partido sin convocados sale con las celdas del jugador vacías | Fecha, Hora, Categoría, Tipo, Torneo, Rival, Escenario, Estado del partido, Goles a favor, Goles en contra, Código, Jugador, Convocatoria, Minutos, Goles |
+| Convocatorias y resultados (`/reports/matches/export`) | partido y convocado (sin los retirados); un partido sin convocados sale con las celdas del jugador vacías | Fecha, Hora, Categoría, Tipo, Torneo, Rival, Escenario, Estado del partido, Puntos a favor, Puntos en contra, Código, Jugador, Convocatoria, Minutos, Puntos |
 | Seguimiento de evaluación (`/reports/evaluations/export`) | ronda de evaluación cuyo periodo toca la ventana | Categoría, Código, Jugador, Periodo desde, Periodo hasta, Vence, Estado de la ronda, Resultado, Fecha de cierre, Conceptos emitidos, Favorables, Seguimiento, Desfavorables |
 
 **Decisiones.** (1) **Ventana:** con `seasonId` parte del periodo de la temporada y `from` y `to` (inclusivos, días del club) solo la acotan; sin temporada `from` y `to`
@@ -806,7 +806,7 @@ Informe PDF por jugador y temporada (CU-10, RF-049) y cierre o reapertura del ex
 
 **Decisiones.** (1) *Contenido* (RF-049): asistencia (sesiones cerradas de eventos no cancelados, misma fórmula del módulo de asistencia), evaluaciones **publicadas**
 (rondas cerradas, con el concepto de cada evaluador y el plan de seguimiento; sin las justificaciones, que pueden ser sensibles) y participación en partidos
-(convocatoria confirmada, minutos y goles). No incluye documento de identidad ni datos de salud (RN-17). El periodo es el de la temporada; si aún no termina, el
+(convocatoria confirmada, minutos y puntos). No incluye documento de identidad ni datos de salud (RN-17). El periodo es el de la temporada; si aún no termina, el
 informe cubre hasta hoy y lo declara «parcial». (2) *Identificación*: consecutivo `IT-000012` (secuencia que no se reutiliza, puede dejar huecos si una transacción se
 revierte), código de verificación `XXXX-XXXX-XXXX` de 60 bits sin caracteres confundibles, y SHA-256 del archivo. Los datos usados se congelan en `season_reports.snapshot`.
 (3) *Versionado*: regenerar no sobrescribe; la versión nueva apunta a la anterior y exige motivo (lo exige también la base). La generación por jugador y temporada se

@@ -70,7 +70,7 @@ public class ExportService {
         return file;
     }
 
-    /** Convocatorias y resultados de los partidos que empiezan en la ventana, con goles y minutos por convocado. */
+    /** Convocatorias y resultados de los partidos que empiezan en la ventana, con puntos y minutos por convocado. */
     @Transactional
     public ExportFile matches(ReportsActor actor, UUID seasonId, UUID categoryId, UUID tournamentId, LocalDate from,
                               LocalDate to) {
