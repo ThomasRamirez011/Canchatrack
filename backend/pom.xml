@@ -22,7 +22,7 @@
     <properties>
         <java.version>21</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <archunit.version>1.4.1</archunit.version>
+        <archunit.version>1.5.1</archunit.version>
         <jacoco.plugin.version>0.8.13</jacoco.plugin.version>
         <!-- Versiones forzadas por encima de la BOM de Spring Boot 3.5.16 para cerrar CVE con corrección publicada
              (informe de Trivy, PR #30). Retirar cada una cuando la BOM la iguale o supere. -->
