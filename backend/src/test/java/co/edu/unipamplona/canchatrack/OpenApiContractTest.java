@@ -461,6 +461,20 @@ class OpenApiContractTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void matchScoreLimitsInTheContractMatchTheBasketballDomain() throws Exception {
+        Map<String, Object> spec = load();
+        Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) spec.get("components")).get("schemas");
+
+        Map<String, Object> result = (Map<String, Object>) ((Map<String, Object>) schemas.get("MatchResultRequest")).get("properties");
+        Map<String, Object> player = (Map<String, Object>) ((Map<String, Object>) schemas.get("PlayerResultRequest")).get("properties");
+        int max = co.edu.unipamplona.canchatrack.competitions.domain.CompetitionRules.MAX_POINTS;
+        assertThat(((Map<String, Object>) result.get("scoreFor")).get("maximum")).isEqualTo(max);
+        assertThat(((Map<String, Object>) result.get("scoreAgainst")).get("maximum")).isEqualTo(max);
+        assertThat(((Map<String, Object>) player.get("goals")).get("maximum")).isEqualTo(max);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void enrollmentDocumentsAreDocumentedAndMatchTheDomain() throws Exception {
         Map<String, Object> spec = load();
         Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) spec.get("components")).get("schemas");
