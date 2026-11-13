@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
@@ -224,7 +225,9 @@ class DocumentsIT {
 
         // La primera versión siempre se puede cargar; un vencimiento ausente o ya pasado se rechaza.
         uploadDocument(family.player(), medical, null, guardian).andExpect(status().isUnprocessableEntity());
-        uploadDocument(family.player(), medical, LocalDate.now().minusDays(1), guardian).andExpect(status().isUnprocessableEntity());
+        // «Ayer» se calcula en la zona del club, que es la que usa el servicio: en UTC fallaba entre las 19:00 y la medianoche de Bogotá.
+        uploadDocument(family.player(), medical, LocalDate.now(ZoneId.of("America/Bogota")).minusDays(1), guardian)
+                .andExpect(status().isUnprocessableEntity());
         JsonNode first = body(uploadDocument(family.player(), medical, LocalDate.now().plusDays(300), guardian)
                 .andExpect(status().isCreated()));
         assertThat(first.get("versionNumber").asInt()).isEqualTo(1);
