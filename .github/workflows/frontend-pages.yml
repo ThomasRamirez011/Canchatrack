@@ -1,7 +1,7 @@
 name: frontend-pages
 
 # Publica el front estático (carpeta frontend/) en GitHub Pages.
-# Sitio: https://thomasramirez011.github.io/canchatrack/
+# Sitio: https://thomasramirez011.github.io/Canchatrack/
 # El origen https://thomasramirez011.github.io debe estar en CORS_ALLOWED_ORIGINS del backend.
 
 on:
@@ -22,7 +22,7 @@ concurrency:
 env:
   # URL pública del backend. Se puede cambiar sin tocar código con la variable de repositorio API_URL.
   NEXT_PUBLIC_API_URL: ${{ vars.API_URL || 'https://canchatrack-backend-sha-4f472ac411c7.onrender.com/api/v1' }}
-  BASE_PATH: /canchatrack
+  BASE_PATH: /Canchatrack
 
 jobs:
   build:
