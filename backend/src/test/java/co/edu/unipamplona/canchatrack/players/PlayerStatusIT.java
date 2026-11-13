@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.StreamSupport;
 
 import org.junit.jupiter.api.Test;
@@ -38,7 +39,8 @@ class PlayerStatusIT {
 
     private static final String PASSWORD = "Clave-Segura-123";
     private static final String API = "/api/v1";
-    private static final int BIRTH_YEAR = 7600;
+    /** Cada escenario necesita un rango de años propio: dos categorías activas no pueden solaparse. */
+    private static final AtomicInteger NEXT_BIRTH_YEAR = new AtomicInteger(7600);
 
     @Autowired
     private MockMvc mvc;
@@ -70,9 +72,10 @@ class PlayerStatusIT {
 
     private Scenario activePlayerInACategory() {
         UUID coach = user("coach-" + UUID.randomUUID() + "@club.test", "Entrenador Estado", "COACH");
+        int birthYear = NEXT_BIRTH_YEAR.getAndAdd(10);
         UUID category = jdbc.queryForObject("""
                 INSERT INTO categories (name, birth_year_min, birth_year_max, capacity) VALUES (?, ?, ?, 20) RETURNING id
-                """, UUID.class, "Estado " + UUID.randomUUID().toString().substring(0, 6), BIRTH_YEAR, BIRTH_YEAR + 1);
+                """, UUID.class, "Estado " + UUID.randomUUID().toString().substring(0, 6), birthYear, birthYear + 1);
         UUID player = jdbc.queryForObject("""
                 INSERT INTO players (first_name, last_name, document_type, document_number, birth_date, status)
                 VALUES ('Samuel', 'Estado', 'TI', ?, DATE '2012-03-01', 'ACTIVE') RETURNING id
