@@ -7,9 +7,9 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <!-- Línea 3.5.x: ver README (sección "Decisiones que debe confirmar"). Actualizar al último parche con
-             mvn versions:update-parent -DallowMajorUpdates=false -->
-        <version>3.5.7</version>
+        <!-- Línea 3.5.x, SIN soporte OSS desde el 30-06-2026: 3.5.16 es el último parche público. Ver README
+             (sección "Decisiones que debe confirmar") y .trivyignore. -->
+        <version>3.5.16</version>
         <relativePath/>
     </parent>
 
@@ -23,9 +23,20 @@
         <java.version>21</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <archunit.version>1.4.1</archunit.version>
+        <!-- Versiones forzadas por encima de la BOM de Spring Boot 3.5.16 para cerrar CVE con corrección publicada
+             (informe de Trivy, PR #30). Retirar cada una cuando la BOM la iguale o supere. -->
+        <tomcat.version>10.1.60</tomcat.version>
+        <jackson-bom.version>2.21.7</jackson-bom.version>
+        <postgresql.version>42.7.12</postgresql.version>
     </properties>
 
     <dependencies>
+        <!-- Observabilidad (Guía 13): solo la API de OpenTelemetry; el agente Java aporta la implementación en ejecución -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-api</artifactId>
+        </dependency>
+
         <!-- API REST -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

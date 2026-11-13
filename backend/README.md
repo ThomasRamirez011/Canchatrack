@@ -116,7 +116,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 
 ### Nota: Docker Desktop reciente + Testcontainers
 
-Con Docker Engine 29.x, el Testcontainers que gestiona Spring Boot 3.5.7 puede fallar con
+Con Docker Engine 29.x, el Testcontainers que gestiona Spring Boot 3.5.x puede fallar con
 `Could not find a valid Docker environment`, porque habla una API de Docker más antigua que la mínima aceptada.
 Solución local (no va en el repositorio): crear `%USERPROFILE%\.docker-java.properties` (en Linux/macOS `~/.docker-java.properties`) con
 
@@ -126,8 +126,10 @@ api.version=1.44
 
 ## Decisiones que debe confirmar / discrepancias con los documentos
 
-1. **Spring Boot 3.5.7** (no 4.x): no pude verificar coordenadas de 4.x. La línea 3.5 pierde soporte OSS a mediados de 2026;
-   conviene migrar a 4.x cuando se pueda compilar. Subir al último parche: `mvn versions:update-parent`.
+1. **Spring Boot 3.5.16** (no 4.x): es el último parche público de la línea 3.5, que salió de soporte OSS el 30-06-2026
+   (Spring Framework 6.2 y Spring Security 6.5 también). Los CVE nuevos de esa línea ya no tendrán corrección gratuita: se
+   fuerzan en `pom.xml` las versiones corregidas de Tomcat, Jackson y PostgreSQL y el resto se documenta en `.trivyignore`.
+   Conviene migrar a 4.x cuando se pueda compilar y probar.
 2. **Angular vs React**: DAD/DDS (DT-02, 6.1, 14, 15) dicen Angular; CLAUDE.md fija React. Documentos pendientes de actualizar.
 3. **Estado E03** (pendiente de comité): está en el DAD 3.2 pero el DDS secc. 5 pasa de "radicada" a "categoría asignada"
    (T-01). El `CHECK` de `players.status` incluye `COMMITTEE_PENDING` (superconjunto); aclarar en el DDS.

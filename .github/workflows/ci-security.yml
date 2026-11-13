@@ -1,0 +1,149 @@
+# Seguridad del pipeline: SCA, secretos, SAST y escaneo de la imagen (Guía 12).
+# Los informes se suben como SARIF al panel Security (visible solo con permiso de escritura). El repositorio es PÚBLICO:
+# nunca se publican como artefacto de Actions, que cualquier usuario de GitHub puede descargar.
+#
+# Las acciones de terceros van fijadas por SHA completo. aquasecurity/trivy-action v0.35.0 es la versión segura tras el
+# ataque a la cadena de suministro de Trivy (19-03-2026, GHSA-69fq-xp46-6x23): las etiquetas anteriores (0.0.1–0.34.2) se
+# reescribieron con código malicioso. El binario de Trivy también se fija (v0.69.3, versión segura).
+name: ci-security
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/ci-security.yml"
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/ci-security.yml"
+  schedule:
+    - cron: "17 6 * * 1"   # lunes: una dependencia puede volverse vulnerable sin que cambie el código
+  workflow_dispatch:
+
+concurrency:
+  group: ci-security-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  sca:
+    name: SCA + secretos (Trivy, sistema de archivos)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write   # solo para subir el SARIF al panel Security
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Trivy fs — dependencias de Maven y secretos
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          version: v0.69.3
+          scan-type: fs
+          scan-ref: backend
+          scanners: vuln,secret
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"           # falla ante una crítica o alta con corrección disponible y sin excepción justificada
+          limit-severities-for-sarif: true   # sin esto, en formato SARIF se evalúan todas las severidades y falla por MEDIUM/LOW
+          trivyignores: backend/.trivyignore
+          format: sarif
+          output: trivy-fs.sarif
+
+      - name: Trivy fs — resumen legible en el registro (no falla)
+        if: always()
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          version: v0.69.3
+          scan-type: fs
+          scan-ref: backend
+          scanners: vuln,secret
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"
+          trivyignores: backend/.trivyignore
+          format: table
+
+      - name: Subir SARIF al panel Security
+        if: always() && hashFiles('trivy-fs.sarif') != ''
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-fs
+
+  sast:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Instalar Semgrep (versión fija)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/semgrep"
+          "$RUNNER_TEMP/semgrep/bin/pip" install --quiet semgrep==1.185.0
+
+      - name: Semgrep — reglas de Java y OWASP Top 10
+        run: >
+          "$RUNNER_TEMP/semgrep/bin/semgrep" scan --metrics=off
+          --config p/java --config p/owasp-top-ten --severity ERROR --error
+          --sarif --output semgrep.sarif backend/src
+
+      - name: Subir SARIF al panel Security
+        if: always() && hashFiles('semgrep.sarif') != ''
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+  image:
+    name: Escaneo de la imagen Docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Construir la imagen
+        run: docker build -t canchatrack-backend:scan backend
+
+      - name: Trivy image
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          version: v0.69.3
+          image-ref: canchatrack-backend:scan
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+          limit-severities-for-sarif: true
+          trivyignores: backend/.trivyignore
+          format: sarif
+          output: trivy-image.sarif
+
+      - name: Trivy image — resumen legible en el registro (no falla)
+        if: always()
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          version: v0.69.3
+          image-ref: canchatrack-backend:scan
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"
+          trivyignores: backend/.trivyignore
+          format: table
+
+      - name: Subir SARIF al panel Security
+        if: always() && hashFiles('trivy-image.sarif') != ''
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image

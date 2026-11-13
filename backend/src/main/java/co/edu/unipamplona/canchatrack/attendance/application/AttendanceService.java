@@ -44,14 +44,16 @@ public class AttendanceService {
     private final CategoryRoster roster;
     private final PlayerAccessPolicy access;
     private final AuditWriter audit;
+    private final AttendanceTelemetry telemetry;
 
     public AttendanceService(AttendanceStore store, EventDirectory events, CategoryRoster roster, PlayerAccessPolicy access,
-                             AuditWriter audit) {
+                             AuditWriter audit, AttendanceTelemetry telemetry) {
         this.store = store;
         this.events = events;
         this.roster = roster;
         this.access = access;
         this.audit = audit;
+        this.telemetry = telemetry;
     }
 
     /** Plantilla de la categoría con la marca de cada jugador (coordinador, comité y entrenador del evento). */
@@ -80,6 +82,11 @@ public class AttendanceService {
 
     @Transactional
     public SyncResult sync(AttendanceActor actor, UUID eventId, String idempotencyKey, List<MarkInput> marks) {
+        int batchSize = marks == null ? 0 : marks.size();
+        return telemetry.traceSync(eventId, batchSize, () -> doSync(actor, eventId, idempotencyKey, marks));
+    }
+
+    private SyncResult doSync(AttendanceActor actor, UUID eventId, String idempotencyKey, List<MarkInput> marks) {
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
             throw new DomainException(ErrorCode.IDEMPOTENCY_KEY_REQUIRED, null);
         }

@@ -1,0 +1,14 @@
+# Exclusiones justificadas de Trivy (Guía 12, Ejercicio 4).
+# Regla: cada exclusión lleva (1) el identificador, (2) por qué es seguro ignorarla, (3) responsable y (4) fecha de
+# revisión, que Trivy hace cumplir con `exp:AAAA-MM-DD` (al vencer, el escaneo vuelve a fallar). Nunca se excluye por
+# severidad ni por comodidad. Una exclusión sin fecha de revisión no se acepta en la revisión del PR.
+
+# CVE-2026-47884 (CRÍTICA) y CVE-2026-47890 (spring-webmvc 6.2.19).
+# Motivo: la corrección solo existe en Spring Framework 7.0.9; la línea 6.2.x salió de soporte OSS el 30-06-2026 y no
+#   recibirá parche gratuito. El código afectado (XsltView y flujos SSE con vistas) no se usa: la API es REST con
+#   JSON (27 @RestController, 0 @Controller, sin motor de plantillas, sin SseEmitter ni text/event-stream, sin XSLT).
+#   Verificado con grep sobre backend/src y backend/pom.xml el 2026-11-13.
+# Responsable: Thomas Ramirez (coordinador del proyecto).
+# Revisar: 2027-02-13, o antes si se añade cualquier vista, XSLT o SSE. La salida real es migrar a Spring Boot 4.x.
+CVE-2026-47884 exp:2027-02-13
+CVE-2026-47890 exp:2027-02-13
