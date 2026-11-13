@@ -18,6 +18,9 @@ canchatrack:
   documents:
     alerts:
       enabled: false # las pruebas invocan las alertas de vencimiento a mano
+  payments:
+    arrears-notices:
+      enabled: false # las pruebas invocan los avisos de mora a mano
   scheduling:
     reminders:
       enabled: false # las pruebas invocan los recordatorios a mano

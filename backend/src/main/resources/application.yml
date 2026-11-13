@@ -60,6 +60,10 @@ canchatrack:
       hours: 24,2 # horas antes de un entrenamiento o evaluación en que sale un recordatorio (RF-019); 1..168, hasta 5 valores
       match-hours: 48,2 # lo mismo para los partidos
       interval: PT5M # cada cuánto se revisan los eventos próximos
+  payments:
+    arrears-notices:
+      interval-days: 7 # tras el primer aviso de mora, uno cada tantos días mientras el cargo siga con saldo (RF-041)
+      max-notices: 8 # tope de avisos por cargo; 0 apaga los avisos
   security:
     jwt:
       # secret: SIEMPRE por variable de entorno JWT_SECRET (Base64, >= 32 bytes); el perfil dev trae uno desechable.

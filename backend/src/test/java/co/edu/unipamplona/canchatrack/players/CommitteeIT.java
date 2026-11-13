@@ -176,6 +176,69 @@ class CommitteeIT {
         return fields;
     }
 
+    /** Acudiente con vínculo vigente con el jugador; devuelve el correo de su cuenta. */
+    private String guardianOf(UUID player) {
+        Staff account = staffAccount("GUARDIAN");
+        UUID guardian = jdbc.queryForObject(
+                "INSERT INTO guardians (user_id, document_type, document_number) VALUES (?, 'CC', ?) RETURNING id",
+                UUID.class, account.id(), "cc-" + UUID.randomUUID().toString().substring(0, 20));
+        jdbc.update("INSERT INTO player_guardians (player_id, guardian_id, is_primary) VALUES (?, ?, true)", player, guardian);
+        return account.email();
+    }
+
+    private List<Map<String, Object>> noticesOf(UUID player, String type) {
+        return jdbc.queryForList("""
+                SELECT recipient_email, subject, payload::text AS payload, dedup_key
+                FROM notifications WHERE related_entity_id = ? AND notification_type = ?
+                """, player, type);
+    }
+
+    // ---------- aviso del resultado a los acudientes (RF-047) ----------
+
+    @Test
+    void theGuardianIsToldTheCategoryWhenTheCommitteeAssignsAndNothingAboutThePanel() throws Exception {
+        UUID player = newPlayer();
+        String email = guardianOf(player);
+        Panel panel = panel();
+        String committee = staffToken("COMMITTEE");
+
+        postJson("/players/" + player + "/assignments", assignRequest("ACTA-N1", storedFile(), createCategory(5), panel), committee)
+                .andExpect(status().isCreated());
+
+        List<Map<String, Object>> notices = noticesOf(player, "COMMITTEE_ASSIGNED");
+        assertThat(notices).hasSize(1);
+        assertThat(notices.get(0).get("recipient_email")).isEqualTo(email);
+        String payload = notices.get(0).get("payload").toString();
+        assertThat(payload).contains("Juan Pérez", "categoryName");
+        assertThat(payload).doesNotContain("ACTA-N1", panel.coach().toString(), "Luis");
+        assertThat(noticesOf(player, "COMMITTEE_REJECTED")).isEmpty();
+    }
+
+    @Test
+    void aRejectionIsToldWithoutTheReasonAndAFailedDecisionSendsNothing() throws Exception {
+        UUID player = newPlayer();
+        String email = guardianOf(player);
+        String committee = staffToken("COMMITTEE");
+
+        postJson("/players/" + player + "/rejections", Map.of("minuteNumber", "ACTA-N2", "reason", " "), committee)
+                .andExpect(status().isUnprocessableEntity());
+        assertThat(noticesOf(player, "COMMITTEE_REJECTED")).isEmpty();
+
+        Map<String, Object> rejection = new LinkedHashMap<>();
+        rejection.put("minuteNumber", "ACTA-N2");
+        rejection.put("meetingDate", LocalDate.now().minusDays(1).toString());
+        rejection.put("attendees", List.of("Ana Gómez"));
+        rejection.put("minuteFileId", storedFile());
+        rejection.put("reason", "Información médica reservada");
+        postJson("/players/" + player + "/rejections", rejection, committee).andExpect(status().isCreated());
+
+        List<Map<String, Object>> notices = noticesOf(player, "COMMITTEE_REJECTED");
+        assertThat(notices).hasSize(1);
+        assertThat(notices.get(0).get("recipient_email")).isEqualTo(email);
+        assertThat(notices.get(0).get("payload").toString()).contains("Juan Pérez").doesNotContain("médica", "reservada");
+        assertThat(notices.get(0).get("subject").toString()).doesNotContain("médica");
+    }
+
     // ---------- autorización ----------
 
     @Test

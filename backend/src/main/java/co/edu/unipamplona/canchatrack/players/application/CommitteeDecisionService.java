@@ -15,7 +15,9 @@ import org.springframework.transaction.annotation.Transactional;
 import co.edu.unipamplona.canchatrack.audit.api.AuditRecord;
 import co.edu.unipamplona.canchatrack.audit.api.AuditWriter;
 import co.edu.unipamplona.canchatrack.documents.api.StoredFileDirectory;
+import co.edu.unipamplona.canchatrack.identity.api.GuardianContacts;
 import co.edu.unipamplona.canchatrack.identity.api.StaffDirectory;
+import co.edu.unipamplona.canchatrack.notifications.api.NotificationQueue;
 import co.edu.unipamplona.canchatrack.players.domain.CommitteeRules;
 import co.edu.unipamplona.canchatrack.players.domain.FieldError;
 import co.edu.unipamplona.canchatrack.players.domain.PlayerStatus;
@@ -32,12 +34,19 @@ import co.edu.unipamplona.canchatrack.shared.domain.ErrorCode;
  * el panel del proceso anterior (el historial se conserva, RN-20).
  *
  * <p>Los valores (roles admitidos en el panel, excepción de cupo) son parametrizables hasta que el club responda DP-01.
+ *
+ * <p>Aviso del resultado (RF-047): al decidir se encola un correo para los acudientes con vínculo vigente, en la misma
+ * transacción. El de la asignación nombra la categoría y el siguiente paso; el del rechazo es genérico y <b>no</b>
+ * incluye el motivo ni nada del acta (puede tener datos sensibles, RN-17): el detalle se trata directamente con el club.
+ * Quién integra el panel tampoco viaja por correo.
  */
 @Service
 public class CommitteeDecisionService {
 
     static final String ACTION_ASSIGNED = "PLAYER_CATEGORY_ASSIGNED";
     static final String ACTION_REJECTED = "PLAYER_ENROLLMENT_REJECTED";
+    public static final String NOTICE_ASSIGNED = "COMMITTEE_ASSIGNED";
+    public static final String NOTICE_REJECTED = "COMMITTEE_REJECTED";
     private static final String ENTITY = "player";
     private static final String COACH_ROLE = "COACH";
 
@@ -47,15 +56,20 @@ public class CommitteeDecisionService {
     private final StoredFileDirectory files;
     private final CommitteeSettings settings;
     private final AuditWriter audit;
+    private final GuardianContacts guardians;
+    private final NotificationQueue queue;
 
     public CommitteeDecisionService(CommitteeStore committee, CategoryStore categories, StaffDirectory staff,
-                                    StoredFileDirectory files, CommitteeSettings settings, AuditWriter audit) {
+                                    StoredFileDirectory files, CommitteeSettings settings, AuditWriter audit,
+                                    GuardianContacts guardians, NotificationQueue queue) {
         this.committee = committee;
         this.categories = categories;
         this.staff = staff;
         this.files = files;
         this.settings = settings;
         this.audit = audit;
+        this.guardians = guardians;
+        this.queue = queue;
     }
 
     @Transactional
@@ -106,6 +120,8 @@ public class CommitteeDecisionService {
                         "minuteNumber", command.minute().minuteNumber().trim(), "capacityExceeded", full))
                 .reason(storedReason)
                 .build());
+        notifyGuardians(NOTICE_ASSIGNED, "Categoría asignada", player.id(), minuteId,
+                Map.of("categoryName", category.name()));
         return committee.findCurrentAssignment(player.id()).orElseThrow();
     }
 
@@ -127,6 +143,7 @@ public class CommitteeDecisionService {
                 .after(AuditJson.of("status", PlayerStatus.REJECTED, "minuteNumber", command.minute().minuteNumber().trim()))
                 .reason(reason)
                 .build());
+        notifyGuardians(NOTICE_REJECTED, "Resultado de la inscripción", player.id(), minuteId, Map.of());
         return new DecisionResult(player.id(), PlayerStatus.REJECTED, minuteId, command.minute().minuteNumber().trim());
     }
 
@@ -215,6 +232,17 @@ public class CommitteeDecisionService {
             throw ValidationFailure.of("minuteNumber", "Ya existe una decisión de este jugador en el acta "
                     + normalized.minuteNumber() + ".");
         }
+    }
+
+    /** Un aviso por decisión (el ámbito es el acta de la decisión): repetir la petición no duplica el correo. */
+    private void notifyGuardians(String type, String subject, UUID playerId, UUID minuteId, Map<String, String> extra) {
+        Set<UUID> recipients = guardians.guardianUserIdsOf(List.of(playerId));
+        if (recipients.isEmpty()) {
+            return;
+        }
+        Map<String, String> payload = new java.util.LinkedHashMap<>(extra);
+        payload.put("playerName", committee.playerName(playerId));
+        queue.enqueue(type, recipients, subject, payload, ENTITY, playerId, "decision:" + minuteId);
     }
 
     private void transition(PlayerRecord player, PlayerStatus target) {

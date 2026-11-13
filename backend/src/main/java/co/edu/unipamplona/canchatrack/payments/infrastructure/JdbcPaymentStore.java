@@ -17,6 +17,7 @@ import org.springframework.stereotype.Repository;
 
 import co.edu.unipamplona.canchatrack.payments.application.ChargeLine;
 import co.edu.unipamplona.canchatrack.payments.application.FeeInfo;
+import co.edu.unipamplona.canchatrack.payments.application.OverdueCharge;
 import co.edu.unipamplona.canchatrack.payments.application.PaymentLine;
 import co.edu.unipamplona.canchatrack.payments.application.PaymentStore;
 import co.edu.unipamplona.canchatrack.payments.application.ReferenceNotFoundException;
@@ -190,6 +191,26 @@ public class JdbcPaymentStore implements PaymentStore {
                                WHERE cb.player_id = ? AND f.concept = 'ENROLLMENT' AND cb.status NOT IN ('SETTLED', 'VOIDED'))
                 """, Boolean.class, playerId, playerId);
         return Boolean.TRUE.equals(settled);
+    }
+
+    @Override
+    public List<OverdueCharge> findOverdueCharges(LocalDate oldestDue, LocalDate newestDue) {
+        return jdbc.query("""
+                SELECT cb.charge_id, cb.player_id, p.first_name || ' ' || p.last_name AS player_name, f.name AS fee_name,
+                       cb.period, cb.due_date, cb.outstanding, f.currency
+                FROM charge_balances cb
+                         JOIN fees f ON f.id = cb.fee_id
+                         JOIN players p ON p.id = cb.player_id
+                              AND p.status IN ('PENDING_REGISTRATION', 'ACTIVE', 'IN_EVALUATION', 'PROMOTION_APPROVED', 'SUSPENDED')
+                WHERE cb.status IN ('PENDING', 'PARTIAL')
+                  AND cb.outstanding > 0
+                  AND cb.due_date BETWEEN ? AND ?
+                ORDER BY cb.due_date, p.code, cb.charge_id
+                """, (rs, rowNum) -> new OverdueCharge(rs.getObject("charge_id", UUID.class),
+                        rs.getObject("player_id", UUID.class), rs.getString("player_name"), rs.getString("fee_name"),
+                        rs.getObject("period", LocalDate.class), rs.getObject("due_date", LocalDate.class),
+                        rs.getBigDecimal("outstanding"), rs.getString("currency")),
+                oldestDue, newestDue);
     }
 
     private static ReferenceNotFoundException translateForeignKey(DataIntegrityViolationException e) {
