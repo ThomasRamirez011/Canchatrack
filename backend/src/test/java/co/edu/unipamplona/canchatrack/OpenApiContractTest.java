@@ -576,6 +576,29 @@ class OpenApiContractTest {
         }
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void dashboardEndpointIsDocumentedAndSchemasMatchTheDtos() throws Exception {
+        Map<String, Object> spec = load();
+        Map<String, Object> paths = (Map<String, Object>) spec.get("paths");
+        Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) spec.get("components")).get("schemas");
+
+        Map<String, Object> get = (Map<String, Object>) ((Map<String, Object>) paths.get("/dashboard/club")).get("get");
+        assertThat(get).doesNotContainKey("security");
+        assertThat(((Map<String, Object>) get.get("responses")).keySet()).contains("200", "401", "403");
+
+        String dtos = "co.edu.unipamplona.canchatrack.reports.infrastructure.DashboardDtos$";
+        for (String name : List.of("ClubOverviewResponse", "TeamResponse", "SessionAttendanceResponse", "NextMatchResponse",
+                "DashboardPlayerResponse", "PendingChargeResponse", "DashboardEventResponse")) {
+            Class<?> type = Class.forName(dtos + name);
+            Map<String, Object> documented = (Map<String, Object>) schemas.get(name);
+            assertThat(documented).as("esquema %s", name).isNotNull();
+            List<String> actual = Arrays.stream(type.getRecordComponents()).map(java.lang.reflect.RecordComponent::getName).toList();
+            assertThat(((Map<String, Object>) documented.get("properties")).keySet())
+                    .as("campos de %s", name).containsExactlyInAnyOrderElementsOf(actual);
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> load() throws Exception {
         try (InputStream in = getClass().getResourceAsStream(SPEC)) {

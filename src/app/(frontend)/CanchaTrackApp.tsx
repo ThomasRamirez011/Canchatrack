@@ -1,8 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState, useTransition, type FormEvent, type ReactNode } from "react";
-import { createEvent, createPlayer, verifyPayment } from "./actions";
+import { useState, type FormEvent, type ReactNode } from "react";
+import type { ApiUser, Venue } from "@/lib/api";
 
 export type TeamData = {
   id: string;
@@ -17,8 +16,11 @@ export type TeamData = {
   collection: number;
   opponent: string;
   matchTime: string;
+  matchVenue: string;
+  matchDate: { weekday: string; day: string; month: string } | null;
   coach: string;
-  attendance: number[];
+  coachId: string | null;
+  attendance: { day: string; date: string; value: number }[];
 };
 
 export type PlayerData = {
@@ -30,7 +32,20 @@ export type PlayerData = {
   status: "Al día" | "Pendiente";
   tone: "blue" | "green" | "orange" | "purple";
   attendance: number;
+  enabled: boolean;
+  pending: { chargeId: string; amount: number; amountLabel: string; concept: string; dueLabel: string; overdue: boolean } | null;
 };
+
+export type NewEventInput = {
+  categoryId: string;
+  eventType: "TRAINING" | "EVALUATION";
+  venueId: string;
+  date: string;
+  time: string;
+  endTime: string;
+};
+
+type ActionOutcome = { ok: true; message: string } | { ok: false; error: string };
 
 export type EventData = {
   id: string;
@@ -81,20 +96,23 @@ function Icon({ name, className = "size-5" }: { name: IconName; className?: stri
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
 }
 
+function todayLocal() {
+  return new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Bogota" }).format(new Date());
+}
+
+function roleLabel(roles: string[]) {
+  if (roles.includes("COORDINATOR")) return "Coordinador";
+  if (roles.includes("COMMITTEE")) return "Comité técnico";
+  if (roles.includes("COACH")) return "Entrenador";
+  return "Personal del club";
+}
+
 const navItems: { label: string; icon: IconName }[] = [
   { label: "Resumen", icon: "grid" },
   { label: "Jugadores", icon: "users" },
   { label: "Pagos", icon: "wallet" },
   { label: "Calendario", icon: "calendar" },
   { label: "Reportes", icon: "chart" },
-];
-
-const attendanceLabels = [
-  { day: "Lun", date: "12" },
-  { day: "Mié", date: "14" },
-  { day: "Vie", date: "16" },
-  { day: "Lun", date: "19" },
-  { day: "Hoy", date: "21" },
 ];
 
 function Button({ children, disabled = false, onClick, variant = "primary", className = "" }: { children: ReactNode; disabled?: boolean; onClick?: () => void; variant?: "primary" | "ghost" | "soft"; className?: string }) {
@@ -114,7 +132,7 @@ function MetricCard({ icon, label, value, detail, tone }: { icon: IconName; labe
   );
 }
 
-function Sidebar({ active, setActive, open, onClose, paymentCount }: { active: string; setActive: (value: string) => void; open: boolean; onClose: () => void; paymentCount: number }) {
+function Sidebar({ active, setActive, open, onClose, paymentCount, user, onLogout }: { active: string; setActive: (value: string) => void; open: boolean; onClose: () => void; paymentCount: number; user: ApiUser; onLogout: () => void }) {
   return (
     <>
       {open && <button type="button" className="sidebar-backdrop" onClick={onClose} aria-label="Cerrar menú" />}
@@ -142,24 +160,30 @@ function Sidebar({ active, setActive, open, onClose, paymentCount }: { active: s
         <div className="sidebar-bottom">
           <button type="button" className={`nav-item ${active === "Configuración" ? "nav-active" : ""}`} onClick={() => { setActive("Configuración"); onClose(); }}><Icon name="settings" /><span>Configuración</span></button>
           <div className="profile-card">
-            <div className="avatar avatar-dark">CR</div>
-            <div><div className="profile-name">Carlos Ramírez</div><div className="profile-role">Entrenador principal</div></div>
-            <Icon name="chevron" className="size-4" />
+            <div className="avatar avatar-dark">{user.fullName.split(/\s+/).slice(0, 2).map((word) => word[0]).join("").toUpperCase()}</div>
+            <div><div className="profile-name">{user.fullName}</div><div className="profile-role">{roleLabel(user.roles)}</div></div>
           </div>
+          <button type="button" className="nav-item" onClick={onLogout}><Icon name="arrow" /><span>Cerrar sesión</span></button>
         </div>
       </aside>
     </>
   );
 }
 
-export default function CanchaTrackApp({ teams, players, events }: { teams: TeamData[]; players: PlayerData[]; events: EventData[] }) {
-  const router = useRouter();
-  const [isCreatingPlayer, startCreatingPlayer] = useTransition();
-  const [isCreatingEvent, startCreatingEvent] = useTransition();
-  const [isVerifyingPayment, startVerifyingPayment] = useTransition();
+export default function CanchaTrackApp({ teams, players, events, venues, user, onLogout, onCreateEvent, onRecordPayment }: {
+  teams: TeamData[];
+  players: PlayerData[];
+  events: EventData[];
+  venues: Venue[];
+  user: ApiUser;
+  onLogout: () => void;
+  onCreateEvent: (input: NewEventInput) => Promise<ActionOutcome>;
+  onRecordPayment: (playerId: string, chargeId: string, amount: number, playerName: string) => Promise<ActionOutcome>;
+}) {
+  const [isCreatingEvent, setIsCreatingEvent] = useState(false);
+  const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
   const [active, setActive] = useState("Resumen");
   const [menuOpen, setMenuOpen] = useState(false);
-  const [attendanceSaved, setAttendanceSaved] = useState(false);
   const [playerFilter, setPlayerFilter] = useState("Todos");
   const [toast, setToast] = useState("");
   const [settingsTab, setSettingsTab] = useState("Información del club");
@@ -175,23 +199,23 @@ export default function CanchaTrackApp({ teams, players, events }: { teams: Team
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState(teams[0]?.label ?? "");
   const [unreadNotifications, setUnreadNotifications] = useState(3);
-  const [playerModalOpen, setPlayerModalOpen] = useState(false);
-  const [playerForm, setPlayerForm] = useState({ fullName: "", jerseyNumber: "" });
-  const [playerErrors, setPlayerErrors] = useState<Record<string, string>>({});
   const [eventModalOpen, setEventModalOpen] = useState(false);
-  const [eventForm, setEventForm] = useState({ title: "", eventType: "training", date: "2025-08-29", time: "16:30", location: "" });
-  const [eventErrors, setEventErrors] = useState<Record<string, string>>({});
+  const [eventForm, setEventForm] = useState({ eventType: "TRAINING", venueId: venues[0]?.id ?? "", date: todayLocal(), time: "16:30", endTime: "18:00" });
+  const [eventError, setEventError] = useState("");
   const [verifyingPlayerId, setVerifyingPlayerId] = useState("");
-  const [calendarMonth, setCalendarMonth] = useState(events.find((event) => event.categoryId === teams[0]?.id)?.date.slice(0, 7) ?? "2025-08");
+  const [calendarMonth, setCalendarMonth] = useState(todayLocal().slice(0, 7));
   const team = teams.find((item) => item.label === selectedTeam) ?? teams[0];
   const teamPlayers = players.filter((player) => player.categoryId === team?.id);
   const teamEvents = events.filter((event) => event.categoryId === team?.id);
-  const pendingPlayers = teamPlayers.filter((player) => player.status === "Pendiente");
-  const pendingCount = Math.max(0, (team?.total ?? 0) - (team?.enabled ?? 0));
-  const attendance = attendanceLabels.map((item, index) => ({ ...item, value: team?.attendance[index] ?? 0 }));
+  const pendingPlayers = teamPlayers.filter((player) => player.pending);
+  const pendingCount = pendingPlayers.length;
+  const blockedCount = Math.max(0, (team?.total ?? 0) - (team?.enabled ?? 0));
+  const attendance = team?.attendance ?? [];
+  const visiblePlayers = teamPlayers.filter((player) => playerFilter === "Todos" || (playerFilter === "Habilitados" ? player.enabled : !player.enabled));
+  const firstName = user.fullName.split(/\s+/)[0] ?? "";
 
   const pageCopy: Record<string, [string, string]> = {
-    Resumen: ["Buenos días, Carlos", "Aquí tienes el pulso de tu equipo para hoy."],
+    Resumen: [`Hola, ${firstName}`, "Aquí tienes el pulso de tu equipo para hoy."],
     Jugadores: ["Jugadores", "Consulta la plantilla y el estado de habilitación de cada deportista."],
     Pagos: ["Pagos y cartera", "Confirma comprobantes y mantén la cartera del club bajo control."],
     Calendario: ["Calendario", "Entrenamientos, partidos y actividades del equipo en un solo lugar."],
@@ -207,65 +231,48 @@ export default function CanchaTrackApp({ teams, players, events }: { teams: Team
     setSelectedTeam(teamLabel);
     setClubMenuOpen(false);
     setPlayerFilter("Todos");
-    const nextEvent = events.find((event) => event.categoryId === nextTeam?.id);
+    const nextEvent = events.find((event) => event.categoryId === nextTeam?.id && event.date >= todayLocal());
     if (nextEvent) setCalendarMonth(nextEvent.date.slice(0, 7));
-    setAttendanceSaved(false);
     showToast(`Ahora estás viendo ${teamLabel}`);
   };
-  const submitPlayer = (event: FormEvent<HTMLFormElement>) => {
+  const submitEvent = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!team) return;
-
-    setPlayerErrors({});
-    startCreatingPlayer(async () => {
-      const result = await createPlayer({
-        categoryId: team.id,
-        fullName: playerForm.fullName,
-        jerseyNumber: playerForm.jerseyNumber,
-      });
-
-      if (!result.ok) {
-        setPlayerErrors(result.errors);
-        return;
-      }
-
-      setPlayerForm({ fullName: "", jerseyNumber: "" });
-      setPlayerModalOpen(false);
-      showToast(`${result.playerName} fue agregado a ${team.shortLabel}`);
-      router.refresh();
+    if (!eventForm.venueId) {
+      setEventError("Selecciona un escenario.");
+      return;
+    }
+    if (eventForm.endTime <= eventForm.time) {
+      setEventError("La hora de fin debe ser posterior a la de inicio.");
+      return;
+    }
+    setEventError("");
+    setIsCreatingEvent(true);
+    const result = await onCreateEvent({
+      categoryId: team.id,
+      eventType: eventForm.eventType as "TRAINING" | "EVALUATION",
+      venueId: eventForm.venueId,
+      date: eventForm.date,
+      time: eventForm.time,
+      endTime: eventForm.endTime,
     });
+    setIsCreatingEvent(false);
+    if (!result.ok) {
+      setEventError(result.error);
+      return;
+    }
+    setCalendarMonth(eventForm.date.slice(0, 7));
+    setEventModalOpen(false);
+    showToast(result.message);
   };
-  const submitEvent = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!team) return;
-
-    setEventErrors({});
-    startCreatingEvent(async () => {
-      const result = await createEvent({ ...eventForm, categoryId: team.id });
-      if (!result.ok) {
-        setEventErrors(result.errors);
-        return;
-      }
-
-      setCalendarMonth(eventForm.date.slice(0, 7));
-      setEventForm({ title: "", eventType: "training", date: eventForm.date, time: "16:30", location: "" });
-      setEventModalOpen(false);
-      showToast(result.message);
-      router.refresh();
-    });
-  };
-  const handleVerifyPayment = (player: PlayerData) => {
+  const handleVerifyPayment = async (player: PlayerData) => {
+    if (!player.pending) return;
     setVerifyingPlayerId(player.id);
-    startVerifyingPayment(async () => {
-      const result = await verifyPayment(player.id);
-      setVerifyingPlayerId("");
-      if (!result.ok) {
-        showToast(result.errors.form);
-        return;
-      }
-      showToast(result.message);
-      router.refresh();
-    });
+    setIsVerifyingPayment(true);
+    const result = await onRecordPayment(player.id, player.pending.chargeId, player.pending.amount, player.name);
+    setIsVerifyingPayment(false);
+    setVerifyingPlayerId("");
+    showToast(result.ok ? result.message : result.error);
   };
   const shiftCalendarMonth = (offset: number) => {
     const [year, month] = calendarMonth.split("-").map(Number);
@@ -274,7 +281,7 @@ export default function CanchaTrackApp({ teams, players, events }: { teams: Team
   };
 
   if (!team) {
-    return <main className="empty-state"><strong>No hay categorías activas.</strong><span>Crea una categoría desde el panel de administración.</span></main>;
+    return <main className="empty-state"><strong>No hay categorías activas.</strong><span>Crea categorías en el backend o activa los datos de ejemplo (DEMO_DATA=true).</span></main>;
   }
 
   const [calendarYear, calendarMonthNumber] = calendarMonth.split("-").map(Number);
@@ -286,7 +293,7 @@ export default function CanchaTrackApp({ teams, players, events }: { teams: Team
 
   return (
     <div className="app-shell">
-      <Sidebar active={active} setActive={setActive} open={menuOpen} onClose={() => setMenuOpen(false)} paymentCount={pendingCount} />
+      <Sidebar active={active} setActive={setActive} open={menuOpen} onClose={() => setMenuOpen(false)} paymentCount={pendingCount} user={user} onLogout={onLogout} />
       <main className="main-content">
         <header className="topbar">
           <div className="mobile-brand">
@@ -328,41 +335,39 @@ export default function CanchaTrackApp({ teams, players, events }: { teams: Team
               <div className="page-title">{pageCopy[active][0]}</div>
               <div className="page-subtitle">{pageCopy[active][1]}</div>
             </div>
-            {active === "Resumen" && <Button onClick={() => setAttendanceSaved(true)}><Icon name={attendanceSaved ? "check" : "plus"} />{attendanceSaved ? "Asistencia registrada" : "Registrar asistencia"}</Button>}
-            {active === "Jugadores" && <Button onClick={() => { setPlayerErrors({}); setPlayerModalOpen(true); }}><Icon name="plus" />Agregar jugador</Button>}
-            {active === "Calendario" && <Button onClick={() => { setEventErrors({}); setEventModalOpen(true); }}><Icon name="plus" />Nuevo evento</Button>}
+            {active === "Calendario" && <Button onClick={() => { setEventError(""); setEventModalOpen(true); }}><Icon name="plus" />Nuevo evento</Button>}
           </section>
 
           {active === "Resumen" ? <>
           <section className="metrics-grid">
             <MetricCard icon="users" label="JUGADORES ACTIVOS" value={`${team.total}`} tone="blue" detail={<span className="positive">{team.shortLabel} <span>· {team.coach}</span></span>} />
             <MetricCard icon="check" label="ASISTENCIA PROMEDIO" value={`${team.attendanceAverage}%`} tone="green" detail={<span className="positive">Equipo <span>seleccionado</span></span>} />
-            <MetricCard icon="wallet" label="RECAUDO DEL MES" value={team.revenue} tone="purple" detail={<span><strong>{team.collection}%</strong> de la meta</span>} />
-            <MetricCard icon="alert" label="CARTERA PENDIENTE" value={team.debt} tone="orange" detail={<span className="warning-text">{pendingCount} pagos por verificar</span>} />
+            <MetricCard icon="wallet" label="RECAUDO DEL MES" value={team.revenue} tone="purple" detail={<span><strong>{team.collection}%</strong> de lo que vence este mes</span>} />
+            <MetricCard icon="alert" label="CARTERA PENDIENTE" value={team.debt} tone="orange" detail={<span className="warning-text">{pendingCount} cargos por cobrar</span>} />
           </section>
 
           <section className="content-grid">
             <div className="panel next-match">
               <div className="panel-heading">
-                <div><div className="section-title">Próximo partido</div><div className="section-subtitle">Liga Formativa · Fecha 8</div></div>
-                <div className="date-pill"><span>SÁB</span><strong>24</strong><small>AGO</small></div>
+                <div><div className="section-title">Próximo partido</div><div className="section-subtitle">{team.shortLabel}</div></div>
+                {team.matchDate && <div className="date-pill"><span>{team.matchDate.weekday}</span><strong>{team.matchDate.day}</strong><small>{team.matchDate.month}</small></div>}
               </div>
               <div className="match-body">
                 <div className="teams">
                   <div className="team"><div className="team-crest home-crest">CDN</div><span>Deportivo Norte</span></div>
-                  <div className="match-info"><strong>{team.matchTime}</strong><span>Cancha La Arboleda</span><div className="versus">VS</div></div>
+                  <div className="match-info"><strong>{team.matchTime}</strong><span>{team.matchVenue}</span><div className="versus">VS</div></div>
                   <div className="team"><div className="team-crest away-crest">{team.opponent.split(" ").map(word => word[0]).join("").slice(0, 2)}</div><span>{team.opponent}</span></div>
                 </div>
                 <div className="eligibility">
                   <div className="eligibility-main">
                     <div className="status-icon"><Icon name="check" /></div>
-                    <div><strong>{team.enabled} jugadores habilitados</strong><span>Asistencia y pagos al día</span></div>
+                    <div><strong>{team.enabled} jugadores habilitados</strong><span>Activos y sin cargos vencidos</span></div>
                   </div>
                   <button type="button" className="text-link">Ver convocatoria <Icon name="arrow" className="size-4" /></button>
                 </div>
                 <div className="blocked-alert">
                   <Icon name="alert" />
-                  <div><strong>{pendingCount} jugadores aún no están habilitados</strong><span>Tienen pagos pendientes por verificar.</span></div>
+                  <div><strong>{blockedCount} jugadores aún no están habilitados</strong><span>Tienen cargos vencidos o siguen en evaluación.</span></div>
                   <button type="button" onClick={() => setActive("Pagos")}>Revisar pagos</button>
                 </div>
               </div>
@@ -376,8 +381,9 @@ export default function CanchaTrackApp({ teams, players, events }: { teams: Team
               <div className="chart-area">
                 <div className="chart-average"><strong>{team.attendanceAverage}%</strong><span>Promedio del equipo</span></div>
                 <div className="bars">
+                  {attendance.length === 0 && <div className="agenda-empty">Aún no hay entrenamientos con asistencia cerrada.</div>}
                   {attendance.map((item, index) => (
-                    <div className="bar-item" key={item.date}>
+                    <div className="bar-item" key={`${item.date}-${index}`}>
                       <div className="bar-track"><div className={`bar-fill ${index === attendance.length - 1 ? "current" : ""}`} style={{ height: `${item.value}%` }}><span>{item.value}%</span></div></div>
                       <div className="bar-label"><strong>{item.day}</strong><span>{item.date}</span></div>
                     </div>
@@ -388,16 +394,17 @@ export default function CanchaTrackApp({ teams, players, events }: { teams: Team
 
             <div className="panel payments-panel">
               <div className="panel-heading">
-                <div><div className="section-title">Pagos por verificar</div><div className="section-subtitle">Comprobantes recibidos recientemente</div></div>
+                <div><div className="section-title">Pagos por cobrar</div><div className="section-subtitle">Cargo más antiguo pendiente de cada jugador</div></div>
                 <button type="button" className="text-link" onClick={() => setActive("Pagos")}>Ver todos <Icon name="arrow" className="size-4" /></button>
               </div>
               <div className="payment-list">
-                {pendingPlayers.slice(0, 2).map((player, index) => (
-                  <div className="payment-row" key={player.name}>
+                {pendingPlayers.length === 0 && <div className="agenda-empty">No hay cargos pendientes en esta categoría.</div>}
+                {pendingPlayers.slice(0, 3).map((player) => (
+                  <div className="payment-row" key={player.id}>
                     <div className={`avatar avatar-${player.tone}`}>{player.initials}</div>
-                    <div className="player-copy"><strong>{player.name}</strong><span>Mensualidad de agosto</span></div>
-                    <div className="payment-meta"><strong>$140.000</strong><span><Icon name="clock" className="size-3" /> Hace {index ? "3 h" : "45 min"}</span></div>
-                    <Button variant="soft" disabled={isVerifyingPayment && verifyingPlayerId === player.id} onClick={() => handleVerifyPayment(player)}>{isVerifyingPayment && verifyingPlayerId === player.id ? "Verificando…" : "Verificar"}</Button>
+                    <div className="player-copy"><strong>{player.name}</strong><span>{player.pending?.concept}</span></div>
+                    <div className="payment-meta"><strong>{player.pending?.amountLabel}</strong><span><Icon name="clock" className="size-3" /> {player.pending?.overdue ? "Vencido" : "Vence"} {player.pending?.dueLabel}</span></div>
+                    <Button variant="soft" disabled={isVerifyingPayment && verifyingPlayerId === player.id} onClick={() => handleVerifyPayment(player)}>{isVerifyingPayment && verifyingPlayerId === player.id ? "Registrando…" : "Registrar pago"}</Button>
                   </div>
                 ))}
               </div>
@@ -409,11 +416,12 @@ export default function CanchaTrackApp({ teams, players, events }: { teams: Team
                 <button type="button" className="text-link">Ver plantilla <Icon name="arrow" className="size-4" /></button>
               </div>
               <div className="players-list">
+                {teamPlayers.length === 0 && <div className="agenda-empty">Esta categoría aún no tiene jugadores.</div>}
                 {teamPlayers.map((player) => (
-                  <div className="player-row" key={player.name}>
+                  <div className="player-row" key={player.id}>
                     <div className={`avatar avatar-${player.tone}`}>{player.initials}</div>
-                    <div className="player-copy"><strong>{player.name}</strong><span>Dorsal #{player.number}</span></div>
-                    <span className={`status-chip ${player.status === "Al día" ? "status-ok" : "status-warn"}`}>{player.status}</span>
+                    <div className="player-copy"><strong>{player.name}</strong><span>Código {player.number}</span></div>
+                    <span className={`status-chip ${player.enabled ? "status-ok" : "status-warn"}`}>{player.status}</span>
                   </div>
                 ))}
               </div>
@@ -430,19 +438,20 @@ export default function CanchaTrackApp({ teams, players, events }: { teams: Team
               <div className="panel">
                 <div className="view-toolbar">
                   <div className="filter-group">
-                    {["Todos", "Habilitados", "Pendientes"].map((filter) => <button key={filter} type="button" className={`filter-chip ${playerFilter === filter ? "filter-active" : ""}`} onClick={() => setPlayerFilter(filter)}>{filter}</button>)}
+                    {["Todos", "Habilitados", "No habilitados"].map((filter) => <button key={filter} type="button" className={`filter-chip ${playerFilter === filter ? "filter-active" : ""}`} onClick={() => setPlayerFilter(filter)}>{filter}</button>)}
                   </div>
-                  <span className="result-count">{playerFilter === "Todos" ? team.total : playerFilter === "Habilitados" ? team.enabled : pendingCount} jugadores</span>
+                  <span className="result-count">{visiblePlayers.length} jugadores</span>
                 </div>
                 <div className="data-table">
                   <div className="table-head"><span>JUGADOR</span><span>ASISTENCIA</span><span>MENSUALIDAD</span><span>ESTADO</span><span /></div>
-                  {teamPlayers.filter((player) => playerFilter === "Todos" || (playerFilter === "Habilitados" ? player.status === "Al día" : player.status === "Pendiente")).map((player, index) => (
-                    <div className="table-row" key={player.name}>
-                      <div className="table-player"><div className={`avatar avatar-${player.tone}`}>{player.initials}</div><div className="player-copy"><strong>{player.name}</strong><span>Dorsal #{player.number} · {team.shortLabel}</span></div></div>
+                  {visiblePlayers.length === 0 && <div className="agenda-empty">No hay jugadores para este filtro.</div>}
+                  {visiblePlayers.map((player) => (
+                    <div className="table-row" key={player.id}>
+                      <div className="table-player"><div className={`avatar avatar-${player.tone}`}>{player.initials}</div><div className="player-copy"><strong>{player.name}</strong><span>Código {player.number} · {team.shortLabel}</span></div></div>
                       <strong>{player.attendance}%</strong>
-                      <span className={player.status === "Al día" ? "green-copy" : "orange-copy"}>{player.status === "Al día" ? "Pagada" : "Pendiente"}</span>
-                      <span className={`status-chip ${player.status === "Al día" ? "status-ok" : "status-warn"}`}>{player.status === "Al día" ? "Habilitado" : "No habilitado"}</span>
-                      <Button variant="ghost" onClick={() => showToast(`Ficha de ${player.name} abierta`)}><Icon name="chevron" className="size-4" /></Button>
+                      <span className={player.pending ? "orange-copy" : "green-copy"}>{player.pending ? (player.pending.overdue ? "Vencida" : "Pendiente") : "Al día"}</span>
+                      <span className={`status-chip ${player.enabled ? "status-ok" : "status-warn"}`}>{player.enabled ? "Habilitado" : "No habilitado"}</span>
+                      <Button variant="ghost" onClick={() => showToast(player.pending ? `${player.name} debe ${player.pending.amountLabel} (${player.pending.concept})` : `${player.name} está al día`)}><Icon name="chevron" className="size-4" /></Button>
                     </div>
                   ))}
                 </div>
@@ -451,22 +460,23 @@ export default function CanchaTrackApp({ teams, players, events }: { teams: Team
           ) : active === "Pagos" ? (
             <section className="workspace-view">
               <div className="view-metrics">
-                <div><span>Recaudado en agosto</span><strong>{team.revenue}</strong></div>
-                <div><span>Por verificar</span><strong className="orange-copy">{pendingCount} pagos</strong></div>
+                <div><span>Recaudado este mes</span><strong>{team.revenue}</strong></div>
+                <div><span>Por cobrar</span><strong className="orange-copy">{pendingCount} pagos</strong></div>
                 <div><span>Cartera pendiente</span><strong>{team.debt}</strong></div>
                 <div><span>Cumplimiento</span><strong className="green-copy">{team.collection}%</strong></div>
               </div>
               <div className="panel">
-                <div className="panel-heading"><div><div className="section-title">Comprobantes pendientes</div><div className="section-subtitle">Revisa cada transferencia antes de marcar la mensualidad como pagada</div></div></div>
+                <div className="panel-heading"><div><div className="section-title">Cargos pendientes</div><div className="section-subtitle">Registra la transferencia recibida para saldar el cargo más antiguo de cada jugador</div></div></div>
                 <div className="payment-detail-list">
-                  {pendingPlayers.map((player, index) => {
+                  {pendingPlayers.length === 0 && <div className="agenda-empty">No hay cargos pendientes en esta categoría.</div>}
+                  {pendingPlayers.map((player) => {
                     const isProcessing = isVerifyingPayment && verifyingPlayerId === player.id;
-                    return <div className="payment-detail-row" key={player.name}>
+                    return <div className="payment-detail-row" key={player.id}>
                       <div className={`avatar avatar-${player.tone}`}>{player.initials}</div>
-                      <div className="player-copy"><strong>{player.name}</strong><span>Mensualidad de agosto · Ref. TRX-{8421 + index}</span></div>
-                      <div className="receipt"><Icon name="wallet" /><span>Comprobante<br /><strong>Transferencia</strong></span></div>
-                      <strong>$140.000</strong>
-                      <Button variant="soft" disabled={isProcessing} onClick={() => handleVerifyPayment(player)}>{isProcessing ? "Verificando…" : "Verificar pago"}</Button>
+                      <div className="player-copy"><strong>{player.name}</strong><span>{player.pending?.concept}</span></div>
+                      <div className="receipt"><Icon name="wallet" /><span>{player.pending?.overdue ? "Vencido" : "Vence"}<br /><strong>{player.pending?.dueLabel}</strong></span></div>
+                      <strong>{player.pending?.amountLabel}</strong>
+                      <Button variant="soft" disabled={isProcessing} onClick={() => handleVerifyPayment(player)}>{isProcessing ? "Registrando…" : "Registrar pago"}</Button>
                     </div>;
                   })}
                 </div>
@@ -577,36 +587,33 @@ export default function CanchaTrackApp({ teams, players, events }: { teams: Team
               <button type="button" onClick={() => setEventModalOpen(false)} disabled={isCreatingEvent} aria-label="Cerrar"><Icon name="close" /></button>
             </div>
             <form className="player-form event-form" onSubmit={submitEvent}>
-              <label className="form-wide">
-                Nombre del evento
-                <input autoFocus value={eventForm.title} onChange={(event) => setEventForm({ ...eventForm, title: event.target.value })} placeholder="Ej. Entrenamiento técnico" aria-invalid={Boolean(eventErrors.title)} />
-                {eventErrors.title && <span className="field-error">{eventErrors.title}</span>}
-              </label>
               <label>
                 Tipo
-                <select value={eventForm.eventType} onChange={(event) => setEventForm({ ...eventForm, eventType: event.target.value })} aria-invalid={Boolean(eventErrors.eventType)}>
-                  <option value="training">Entrenamiento</option>
-                  <option value="match">Partido</option>
-                  <option value="other">Otra actividad</option>
+                <select value={eventForm.eventType} onChange={(event) => setEventForm({ ...eventForm, eventType: event.target.value })}>
+                  <option value="TRAINING">Entrenamiento</option>
+                  <option value="EVALUATION">Evaluación</option>
                 </select>
-                {eventErrors.eventType && <span className="field-error">{eventErrors.eventType}</span>}
+              </label>
+              <label>
+                Escenario
+                <select value={eventForm.venueId} onChange={(event) => setEventForm({ ...eventForm, venueId: event.target.value })}>
+                  {venues.length === 0 && <option value="">Sin escenarios</option>}
+                  {venues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name}</option>)}
+                </select>
               </label>
               <label>
                 Fecha
-                <input type="date" value={eventForm.date} onChange={(event) => setEventForm({ ...eventForm, date: event.target.value })} aria-invalid={Boolean(eventErrors.date)} />
-                {eventErrors.date && <span className="field-error">{eventErrors.date}</span>}
+                <input type="date" value={eventForm.date} onChange={(event) => setEventForm({ ...eventForm, date: event.target.value })} required />
               </label>
               <label>
-                Hora
-                <input type="time" value={eventForm.time} onChange={(event) => setEventForm({ ...eventForm, time: event.target.value })} aria-invalid={Boolean(eventErrors.time)} />
-                {eventErrors.time && <span className="field-error">{eventErrors.time}</span>}
+                Inicio
+                <input type="time" value={eventForm.time} onChange={(event) => setEventForm({ ...eventForm, time: event.target.value })} required />
               </label>
               <label>
-                Lugar
-                <input value={eventForm.location} onChange={(event) => setEventForm({ ...eventForm, location: event.target.value })} placeholder="Ej. Cancha principal" aria-invalid={Boolean(eventErrors.location)} />
-                {eventErrors.location && <span className="field-error">{eventErrors.location}</span>}
+                Fin
+                <input type="time" value={eventForm.endTime} onChange={(event) => setEventForm({ ...eventForm, endTime: event.target.value })} required />
               </label>
-              {eventErrors.form && <div className="form-error form-wide"><Icon name="alert" />{eventErrors.form}</div>}
+              {eventError && <div className="form-error form-wide"><Icon name="alert" />{eventError}</div>}
               <div className="modal-actions form-wide">
                 <button type="button" className="button button-soft" onClick={() => setEventModalOpen(false)} disabled={isCreatingEvent}>Cancelar</button>
                 <button type="submit" className="button button-primary" disabled={isCreatingEvent}>{isCreatingEvent ? "Guardando…" : "Crear evento"}</button>
@@ -615,50 +622,6 @@ export default function CanchaTrackApp({ teams, players, events }: { teams: Team
           </section>
         </div>
       )}
-      {playerModalOpen && (
-        <div className="modal-layer" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !isCreatingPlayer) setPlayerModalOpen(false); }}>
-          <section className="player-modal" role="dialog" aria-modal="true" aria-labelledby="new-player-title">
-            <div className="modal-heading">
-              <div><div className="section-title" id="new-player-title">Agregar jugador</div><div className="section-subtitle">Se agregará a {team.label}</div></div>
-              <button type="button" onClick={() => setPlayerModalOpen(false)} disabled={isCreatingPlayer} aria-label="Cerrar"><Icon name="close" /></button>
-            </div>
-            <form className="player-form" onSubmit={submitPlayer}>
-              <label>
-                Nombre completo
-                <input
-                  autoFocus
-                  name="fullName"
-                  value={playerForm.fullName}
-                  onChange={(event) => setPlayerForm({ ...playerForm, fullName: event.target.value })}
-                  placeholder="Ej. Andrés Mejía"
-                  aria-invalid={Boolean(playerErrors.fullName)}
-                />
-                {playerErrors.fullName && <span className="field-error">{playerErrors.fullName}</span>}
-              </label>
-              <label>
-                Número de dorsal
-                <input
-                  name="jerseyNumber"
-                  type="number"
-                  min="1"
-                  max="99"
-                  value={playerForm.jerseyNumber}
-                  onChange={(event) => setPlayerForm({ ...playerForm, jerseyNumber: event.target.value })}
-                  placeholder="1–99"
-                  aria-invalid={Boolean(playerErrors.jerseyNumber)}
-                />
-                {playerErrors.jerseyNumber && <span className="field-error">{playerErrors.jerseyNumber}</span>}
-              </label>
-              {playerErrors.form && <div className="form-error"><Icon name="alert" />{playerErrors.form}</div>}
-              <div className="modal-actions">
-                <button type="button" className="button button-soft" onClick={() => setPlayerModalOpen(false)} disabled={isCreatingPlayer}>Cancelar</button>
-                <button type="submit" className="button button-primary" disabled={isCreatingPlayer}>{isCreatingPlayer ? "Guardando…" : "Agregar jugador"}</button>
-              </div>
-            </form>
-          </section>
-        </div>
-      )}
-      {attendanceSaved && <div className="toast"><div><Icon name="check" /></div><span><strong>Asistencia registrada</strong>El entrenamiento de hoy quedó guardado.</span><button type="button" onClick={() => setAttendanceSaved(false)} aria-label="Cerrar"><Icon name="close" /></button></div>}
       {toast && <div className="toast"><div><Icon name="check" /></div><span><strong>Acción completada</strong>{toast}</span><button type="button" onClick={() => setToast("")} aria-label="Cerrar"><Icon name="close" /></button></div>}
     </div>
   );

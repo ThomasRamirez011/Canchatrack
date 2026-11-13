@@ -2,6 +2,7 @@ package co.edu.unipamplona.canchatrack.shared.security;
 
 import java.util.List;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -29,11 +30,18 @@ class CorsConfig {
     static final long MAX_AGE_SECONDS = 3600;
 
     @Bean
-    CorsConfigurationSource corsConfigurationSource(CorsProperties properties) {
+    CorsConfigurationSource corsConfigurationSource(CorsProperties properties,
+            @Value("${canchatrack.security.cors.allow-any-origin:false}") boolean allowAnyOrigin) {
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        if (!properties.allowedOrigins().isEmpty()) {
+        if (allowAnyOrigin || !properties.allowedOrigins().isEmpty()) {
             CorsConfiguration cors = new CorsConfiguration();
-            cors.setAllowedOrigins(properties.allowedOrigins());
+            if (allowAnyOrigin) {
+                // Solo para desarrollo y demostraciones (ver application-dev.yml). Es tolerable porque la API autentica con un
+                // token en Authorization y nunca con cookies: otro sitio no puede usar la sesión del navegador del usuario.
+                cors.setAllowedOriginPatterns(List.of("*"));
+            } else {
+                cors.setAllowedOrigins(properties.allowedOrigins());
+            }
             cors.setAllowedMethods(METHODS);
             cors.setAllowedHeaders(REQUEST_HEADERS);
             cors.setExposedHeaders(EXPOSED_HEADERS);
