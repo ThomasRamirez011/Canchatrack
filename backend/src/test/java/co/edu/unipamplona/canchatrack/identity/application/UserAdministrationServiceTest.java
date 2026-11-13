@@ -52,7 +52,7 @@ class UserAdministrationServiceTest {
 
     @Test
     void roleAndAccountErrorsAreReportedTogether() {
-        CreateUserCommand command = new CreateUserCommand("x@club.test", "X", "debil1", List.of("GUARDIAN"));
+        CreateUserCommand command = new CreateUserCommand("x@club.test", "X", "deb1", List.of("GUARDIAN"));
         assertThatThrownBy(() -> service.createStaffUser(command, UUID.randomUUID(), "COORDINATOR", null))
                 .isInstanceOfSatisfying(DomainException.class, e ->
                         assertThat(errorsOf(e)).extracting(m -> m.get("field")).contains("roles", "password"));
@@ -73,7 +73,7 @@ class UserAdministrationServiceTest {
 
     @Test
     void weakPasswordsAndInvalidEmailsAreRejected() {
-        assertRejectedWithErrorOn(new CreateUserCommand("x@club.test", "X", "corta1", List.of("COACH")), "password");
+        assertRejectedWithErrorOn(new CreateUserCommand("x@club.test", "X", "cor1", List.of("COACH")), "password");
         assertRejectedWithErrorOn(new CreateUserCommand("x@club.test", "X", "soloLetrasLargas", List.of("COACH")), "password");
         assertRejectedWithErrorOn(new CreateUserCommand("no-es-correo", "X", "Entrenador-2026", List.of("COACH")), "email");
         assertRejectedWithErrorOn(new CreateUserCommand("x@club.test", "  ", "Entrenador-2026", List.of("COACH")), "fullName");

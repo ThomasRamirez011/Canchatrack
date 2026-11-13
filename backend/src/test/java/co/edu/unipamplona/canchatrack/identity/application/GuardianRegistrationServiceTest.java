@@ -71,7 +71,7 @@ class GuardianRegistrationServiceTest {
 
     @Test
     void everyInvalidFieldIsReportedTogether() {
-        DomainException e = rejected(new RegisterGuardianCommand("no-es-correo", "", "debil1", "TI", "ab", "letras"));
+        DomainException e = rejected(new RegisterGuardianCommand("no-es-correo", "", "deb1", "TI", "ab", "letras"));
 
         assertThat(errorFields(e)).contains("email", "fullName", "password", "documentType", "documentNumber", "phone");
         assertThat(users.count()).isZero();

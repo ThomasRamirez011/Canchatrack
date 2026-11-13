@@ -599,6 +599,30 @@ class OpenApiContractTest {
         }
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void playerStatusEndpointsAreDocumentedAndSchemasMatchTheDtos() throws Exception {
+        Map<String, Object> spec = load();
+        Map<String, Object> paths = (Map<String, Object>) spec.get("paths");
+        Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) spec.get("components")).get("schemas");
+
+        for (String path : List.of("/players/{playerId}/suspension", "/players/{playerId}/reinstatement")) {
+            Map<String, Object> post = (Map<String, Object>) ((Map<String, Object>) paths.get(path)).get("post");
+            assertThat(post).as(path).isNotNull();
+            assertThat(((Map<String, Object>) post.get("responses")).keySet()).contains("200", "401", "403", "404", "409", "422");
+        }
+
+        String dtos = "co.edu.unipamplona.canchatrack.players.infrastructure.PlayersDtos$";
+        for (String name : List.of("PlayerStatusRequest", "PlayerStatusResponse")) {
+            Class<?> type = Class.forName(dtos + name);
+            Map<String, Object> documented = (Map<String, Object>) schemas.get(name);
+            assertThat(documented).as("esquema %s", name).isNotNull();
+            List<String> actual = Arrays.stream(type.getRecordComponents()).map(java.lang.reflect.RecordComponent::getName).toList();
+            assertThat(((Map<String, Object>) documented.get("properties")).keySet())
+                    .as("campos de %s", name).containsExactlyInAnyOrderElementsOf(actual);
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> load() throws Exception {
         try (InputStream in = getClass().getResourceAsStream(SPEC)) {

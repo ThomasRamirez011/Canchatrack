@@ -183,7 +183,7 @@ async function parseError(response: Response): Promise<ApiError> {
 async function send(path: string, init: RequestInit, token?: string): Promise<Response> {
   const headers = new Headers(init.headers);
   if (init.body) headers.set("Content-Type", "application/json");
-  headers.set("Accept", "application/json");
+  if (!headers.has("Accept")) headers.set("Accept", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
   try {
     return await fetch(`${getApiUrl()}${path}`, { ...init, headers });
@@ -227,7 +227,7 @@ async function refresh(): Promise<Session | null> {
   return refreshing;
 }
 
-async function authed<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function authedResponse(path: string, init: RequestInit = {}): Promise<Response> {
   let session = loadSession();
   if (!session) throw new ApiError("Inicia sesión para continuar.", 401);
   if (session.expiresAt - Date.now() < 15_000) {
@@ -241,6 +241,11 @@ async function authed<T>(path: string, init: RequestInit = {}): Promise<T> {
     response = await send(path, init, renewed.accessToken);
   }
   if (!response.ok) throw await parseError(response);
+  return response;
+}
+
+async function authed<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await authedResponse(path, init);
   return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
 }
 
@@ -270,4 +275,65 @@ export function recordPayment(playerId: string, chargeId: string, amount: number
     method: "POST",
     body: JSON.stringify({ chargeId, amount, method: "TRANSFER" }),
   });
+}
+
+// ---------- jugadores: deshabilitar y rehabilitar ----------
+
+export type PlayerStatusChange = { playerId: string; previousStatus: string; status: string };
+
+export function suspendPlayer(playerId: string, reason: string): Promise<PlayerStatusChange> {
+  return authed(`/players/${playerId}/suspension`, { method: "POST", body: JSON.stringify({ reason }) });
+}
+
+export function reinstatePlayer(playerId: string, reason?: string): Promise<PlayerStatusChange> {
+  return authed(`/players/${playerId}/reinstatement`, { method: "POST", body: JSON.stringify({ reason: reason || null }) });
+}
+
+// ---------- convocatoria del próximo partido ----------
+
+export type CallupStatus = "PROPOSED" | "CONFIRMED" | "NOT_ELIGIBLE" | "REMOVED";
+export type IneligibilityCause = "PLAYER_NOT_ACTIVE" | "MEDICAL_CERTIFICATE_INVALID" | "PARTICIPATION_AUTHORIZATION_INVALID" | "ARREARS_POLICY";
+
+export type Callup = {
+  playerId: string;
+  playerCode: string;
+  firstName: string;
+  lastName: string;
+  status: CallupStatus;
+  ineligibilityCode: IneligibilityCause | null;
+};
+
+export type MatchDetail = {
+  match: { id: string; eventId: string; opponent: string; startAt: string; venueName: string; status: string };
+  callups: Callup[];
+};
+
+/** El tablero conoce el evento del partido; la convocatoria cuelga del partido, así que se busca por su evento. */
+export async function fetchMatchByEvent(categoryId: string, eventId: string): Promise<MatchDetail | null> {
+  const matches = await authed<{ id: string; eventId: string }[]>(`/matches?categoryId=${encodeURIComponent(categoryId)}`);
+  const found = matches.find((match) => match.eventId === eventId);
+  return found ? authed<MatchDetail>(`/matches/${found.id}`) : null;
+}
+
+export function proposeCallup(matchId: string, playerIds: string[]): Promise<unknown> {
+  return authed(`/matches/${matchId}/callup`, { method: "POST", body: JSON.stringify({ playerIds }) });
+}
+
+export function confirmCallup(matchId: string): Promise<unknown> {
+  return authed(`/matches/${matchId}/callup/confirm`, { method: "POST" });
+}
+
+// ---------- reportes descargables (CSV, abre en Excel) ----------
+
+export async function downloadCsv(path: string, fileName: string): Promise<void> {
+  const response = await authedResponse(path, { headers: { Accept: "text/csv" } });
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }

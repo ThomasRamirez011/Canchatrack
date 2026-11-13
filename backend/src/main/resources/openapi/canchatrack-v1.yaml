@@ -396,7 +396,7 @@ paths:
       summary: Crea una cuenta de personal (coordinador, entrenador, evaluador o comité técnico).
       description: |
         Solo el coordinador. No admite el rol GUARDIAN: las cuentas de acudiente nacen con la inscripción.
-        La contraseña inicial exige 12 a 72 bytes con al menos una letra y un dígito.
+        La contraseña inicial exige 6 a 72 bytes con al menos una letra y un dígito.
       requestBody:
         required: true
         content:
@@ -1900,6 +1900,59 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
+  /players/{playerId}/suspension:
+    post:
+      tags: [players]
+      operationId: suspendPlayer
+      summary: Deshabilita a un jugador activo (solo coordinador, T-13).
+      description: |
+        ACTIVE → SUSPENDED con motivo obligatorio (hasta 500 caracteres). El jugador conserva su categoría y su historial,
+        sale de la plantilla de asistencia, no recibe cobro mensual y no puede ser convocado. Queda en `state_history`
+        y en la auditoría (`PLAYER_SUSPENDED`). Un jugador en otro estado responde 409.
+      parameters:
+        - { name: playerId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlayerStatusRequest' }
+      responses:
+        '200':
+          description: Jugador deshabilitado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlayerStatusResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /players/{playerId}/reinstatement:
+    post:
+      tags: [players]
+      operationId: reinstatePlayer
+      summary: Rehabilita a un jugador deshabilitado (solo coordinador, T-14).
+      description: |
+        SUSPENDED → ACTIVE. El cuerpo es opcional; si se envía `reason` queda en `state_history` y en la auditoría
+        (`PLAYER_REINSTATED`). Un jugador que no está deshabilitado responde 409.
+      parameters:
+        - { name: playerId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlayerStatusRequest' }
+      responses:
+        '200':
+          description: Jugador rehabilitado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlayerStatusResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
   /tournaments:
     post:
       tags: [competitions]
@@ -2667,13 +2720,13 @@ components:
       required: [token, newPassword]
       properties:
         token: { type: string, maxLength: 256, description: Token opaco recibido por correo; de un solo uso. }
-        newPassword: { type: string, maxLength: 128, format: password, description: 12 a 72 bytes con al menos una letra y un dígito. }
+        newPassword: { type: string, maxLength: 128, format: password, description: 6 a 72 bytes con al menos una letra y un dígito. }
     ChangePasswordRequest:
       type: object
       required: [currentPassword, newPassword]
       properties:
         currentPassword: { type: string, maxLength: 128, format: password }
-        newPassword: { type: string, maxLength: 128, format: password, description: 12 a 72 bytes con al menos una letra y un dígito. }
+        newPassword: { type: string, maxLength: 128, format: password, description: 6 a 72 bytes con al menos una letra y un dígito. }
     MfaChallengeResponse:
       type: object
       required: [mfaRequired, step, challengeToken, expiresIn]
@@ -3606,6 +3659,17 @@ components:
         categoryId: { type: string, format: uuid }
         categoryName: { type: string }
         headCoachId: { type: string, format: uuid }
+    PlayerStatusRequest:
+      type: object
+      properties:
+        reason: { type: [string, 'null'], maxLength: 500, description: Obligatorio al deshabilitar; opcional al rehabilitar. }
+    PlayerStatusResponse:
+      type: object
+      required: [playerId, previousStatus, status]
+      properties:
+        playerId: { type: string, format: uuid }
+        previousStatus: { type: string, enum: [ACTIVE, SUSPENDED] }
+        status: { type: string, enum: [ACTIVE, SUSPENDED] }
     CreateTournamentRequest:
       type: object
       properties:
@@ -4031,7 +4095,7 @@ components:
         categoryId: { type: string, format: uuid }
         code: { type: string }
         fullName: { type: string }
-        status: { type: string }
+        status: { type: string, enum: [ACTIVE, IN_EVALUATION, SUSPENDED] }
         attendance: { type: integer, minimum: 0, maximum: 100 }
         enabled: { type: boolean }
         pendingCharge:
