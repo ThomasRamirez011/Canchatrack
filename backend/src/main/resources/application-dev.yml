@@ -26,6 +26,10 @@ canchatrack:
   identity:
     # En desarrollo el correo no sale (solo se registra), así que no se exige confirmarlo para iniciar sesión.
     require-verified-email: false
+    mfa:
+      enabled: ${MFA_ENABLED:false} # desarrollo local sin segundo factor; MFA_ENABLED=true lo activa
+      # Llave DESECHABLE, solo para desarrollo local: cualquier otro ambiente usa MFA_ENCRYPTION_KEY.
+      encryption-key: ${MFA_ENCRYPTION_KEY:ZGV2LW9ubHktbWZhLWtleS0zMi1ieXRlcy1kaXNwb3M=}
     bootstrap:
       # Cuenta inicial desechable de desarrollo (solo se crea si la base no tiene usuarios).
       coordinator-email: ${BOOTSTRAP_COORDINATOR_EMAIL:coordinador@canchatrack.local}

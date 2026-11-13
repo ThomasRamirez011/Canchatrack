@@ -28,6 +28,7 @@ public class AuthenticationService {
 
     static final String ACTION_LOGIN_SUCCESS = "AUTH_LOGIN_SUCCESS";
     static final String ACTION_LOGIN_FAILED = "AUTH_LOGIN_FAILED";
+    static final String ACTION_LOGIN_MFA_CHALLENGED = "AUTH_LOGIN_MFA_CHALLENGED";
     static final String ACTION_REFRESH_SUCCESS = "AUTH_REFRESH_SUCCESS";
     static final String ACTION_REFRESH_DENIED = "AUTH_REFRESH_DENIED";
     static final String ACTION_REFRESH_REUSE = "AUTH_REFRESH_REUSE_DETECTED";
@@ -39,6 +40,7 @@ public class AuthenticationService {
     private final AccessTokenIssuer accessTokens;
     private final AuditWriter audit;
     private final AuthSettings settings;
+    private final MfaGate mfa;
     private final Clock clock;
 
     public AuthenticationService(
@@ -48,6 +50,7 @@ public class AuthenticationService {
             AccessTokenIssuer accessTokens,
             AuditWriter audit,
             AuthSettings settings,
+            MfaGate mfa,
             Clock clock) {
         this.users = users;
         this.refreshTokens = refreshTokens;
@@ -55,6 +58,7 @@ public class AuthenticationService {
         this.accessTokens = accessTokens;
         this.audit = audit;
         this.settings = settings;
+        this.mfa = mfa;
         this.clock = clock;
     }
 
@@ -95,6 +99,23 @@ public class AuthenticationService {
             return new SessionResult.EmailNotVerified();
         }
 
+        if (mfa.isRequiredFor(account)) {
+            // La contraseña basta para llegar aquí, no para entrar: falta el segundo factor. No hay sesión todavía.
+            SessionResult.MfaRequired challenge = mfa.challenge(account, now, origin);
+            record(ACTION_LOGIN_MFA_CHALLENGED, account.id(), Outcome.SUCCESS, challenge.step().name(), origin);
+            return challenge;
+        }
+
+        return establishSession(account, origin);
+    }
+
+    /**
+     * Abre la sesión de una cuenta cuyas credenciales ya se comprobaron por completo (contraseña y, si se exige,
+     * segundo factor). Pone a cero el contador de intentos fallidos.
+     */
+    @Transactional
+    public SessionResult.Opened establishSession(UserAccount account, ClientOrigin origin) {
+        Instant now = clock.instant();
         users.recordSuccessfulLogin(account.id(), now);
         TokenPair tokens = openSession(account, UUID.randomUUID(), now.plus(settings.refreshAbsoluteTtl()), now, origin);
         record(ACTION_LOGIN_SUCCESS, account.id(), Outcome.SUCCESS, null, origin);
@@ -144,6 +165,12 @@ public class AuthenticationService {
         if (settings.requireVerifiedEmail() && !account.isEmailVerified()) {
             refreshTokens.revokeFamily(token.familyId(), now, "EMAIL_NOT_VERIFIED");
             record(ACTION_REFRESH_DENIED, account.id(), Outcome.DENIED, "EMAIL_NOT_VERIFIED", origin);
+            return new SessionResult.Rejected();
+        }
+        if (mfa.isRequiredFor(account) && !mfa.hasActiveFactor(account.id())) {
+            // Sesión abierta antes de exigir el segundo factor (o factor reiniciado): se cierra y se vuelve a entrar.
+            refreshTokens.revokeFamily(token.familyId(), now, "MFA_REQUIRED");
+            record(ACTION_REFRESH_DENIED, account.id(), Outcome.DENIED, "MFA_REQUIRED", origin);
             return new SessionResult.Rejected();
         }
         refreshTokens.markUsed(token.id(), now);

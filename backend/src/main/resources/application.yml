@@ -96,6 +96,14 @@ canchatrack:
       recovery-window: 1h
       confirm-per-ip: 30 # canjes de enlaces por IP
       confirm-window: 15m
+    mfa:
+      enabled: true # segundo factor (TOTP) para los roles de required-roles; dev y pruebas lo apagan
+      required-roles: COORDINATOR,COMMITTEE
+      issuer: CanchaTrack # nombre que muestra la aplicación autenticadora
+      challenge-ttl: 5m # tiempo para teclear el código tras acertar la contraseña
+      window: 1 # intervalos de 30 s tolerados a cada lado (reloj del teléfono)
+      backup-codes: 10
+      encryption-key: ${MFA_ENCRYPTION_KEY:} # 32 bytes en Base64 (openssl rand -base64 32); obligatoria con MFA activo
     # bootstrap.coordinator-email / -name / -password: primera cuenta; solo se usa si no hay ninguna (ver README).
   enrollment:
     consent-version: v1 # versión del texto de consentimiento que acepta el acudiente al radicar (RF-011)

@@ -529,6 +529,53 @@ class OpenApiContractTest {
         }
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void mfaEndpointsAreDocumentedAndSchemasMatchTheDtos() throws Exception {
+        Map<String, Object> spec = load();
+        Map<String, Object> paths = (Map<String, Object>) spec.get("paths");
+        Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) spec.get("components")).get("schemas");
+
+        // Antes de tener sesión se usan con el desafío del inicio de sesión: no exigen token.
+        for (String path : List.of("/auth/mfa/enrollment", "/auth/mfa/enrollment/confirm", "/auth/mfa/verify")) {
+            Map<String, Object> post = (Map<String, Object>) ((Map<String, Object>) paths.get(path)).get("post");
+            assertThat(post.get("security")).as("%s no exige token", path).isEqualTo(List.of());
+            assertThat(((Map<String, Object>) post.get("responses")).keySet()).as("respuestas de %s", path)
+                    .contains("200", "401", "422", "429");
+        }
+        // El resto hereda el esquema global (bearerAuth).
+        Map<String, Object> status = (Map<String, Object>) ((Map<String, Object>) paths.get("/auth/mfa")).get("get");
+        Map<String, Object> backup = (Map<String, Object>) ((Map<String, Object>) paths.get("/auth/mfa/backup-codes")).get("post");
+        Map<String, Object> reset = (Map<String, Object>) ((Map<String, Object>) paths.get("/users/{userId}/mfa/reset")).get("post");
+        assertThat(status).doesNotContainKey("security");
+        assertThat(backup).doesNotContainKey("security");
+        assertThat(reset).doesNotContainKey("security");
+        assertThat(((Map<String, Object>) backup.get("responses")).keySet()).contains("200", "401", "409", "422", "429");
+        assertThat(((Map<String, Object>) reset.get("responses")).keySet()).contains("204", "401", "403", "404", "409");
+
+        // El inicio de sesión documenta el 202 con el desafío.
+        Map<String, Object> login = (Map<String, Object>) ((Map<String, Object>) paths.get("/auth/login")).get("post");
+        assertThat(((Map<String, Object>) login.get("responses")).keySet()).contains("200", "202");
+
+        // Los pasos del desafío son exactamente los del dominio.
+        Map<String, Object> challenge = (Map<String, Object>) schemas.get("MfaChallengeResponse");
+        Map<String, Object> step = (Map<String, Object>) ((Map<String, Object>) challenge.get("properties")).get("step");
+        assertThat((List<String>) step.get("enum")).containsExactlyInAnyOrderElementsOf(
+                Arrays.stream(co.edu.unipamplona.canchatrack.identity.domain.MfaStep.values()).map(Enum::name).toList());
+
+        // Cada esquema documentado coincide campo a campo con su DTO.
+        String dtos = "co.edu.unipamplona.canchatrack.identity.infrastructure.AuthDtos$";
+        for (String name : List.of("MfaChallengeResponse", "MfaChallengeRequest", "MfaVerifyRequest", "MfaCodeRequest",
+                "MfaEnrollmentResponse", "MfaEnrolledResponse", "MfaStatusResponse", "BackupCodesResponse")) {
+            Class<?> type = Class.forName(dtos + name);
+            Map<String, Object> documented = (Map<String, Object>) schemas.get(name);
+            assertThat(documented).as("esquema %s", name).isNotNull();
+            List<String> actual = Arrays.stream(type.getRecordComponents()).map(java.lang.reflect.RecordComponent::getName).toList();
+            assertThat(((Map<String, Object>) documented.get("properties")).keySet())
+                    .as("campos de %s", name).containsExactlyInAnyOrderElementsOf(actual);
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> load() throws Exception {
         try (InputStream in = getClass().getResourceAsStream(SPEC)) {

@@ -66,6 +66,12 @@ paths:
         Única excepción: si la contraseña es correcta pero el correo de una cuenta autoregistrada aún no se ha
         confirmado, responde 403 `EMAIL_NOT_VERIFIED` (quien llega aquí ya demostró conocer la contraseña). Además,
         el número de intentos por IP está limitado: al excederlo responde 429 `RATE_LIMITED` con `Retry-After`.
+
+        Las cuentas con rol de coordinador o comité técnico necesitan además un segundo factor (TOTP). Con la contraseña
+        correcta responden 202 con un `challengeToken` y todavía NO hay sesión: si `step` es `VERIFY` el cliente
+        presenta el código en `POST /auth/mfa/verify`; si es `ENROLL` la cuenta debe configurar el factor primero
+        (`POST /auth/mfa/enrollment` y `POST /auth/mfa/enrollment/confirm`). Un código errado cuenta para el mismo
+        bloqueo por intentos fallidos que la contraseña.
       security: []
       requestBody:
         required: true
@@ -81,6 +87,14 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SessionResponse' }
+        '202':
+          description: Contraseña correcta; falta el segundo factor. No se entregan tokens.
+          headers:
+            Cache-Control:
+              schema: { type: string, examples: [no-store] }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MfaChallengeResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/EmailNotVerified' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
@@ -236,6 +250,145 @@ paths:
           description: Correo confirmado.
         '422': { $ref: '#/components/responses/ValidationFailed' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
+  /auth/mfa:
+    get:
+      tags: [auth]
+      operationId: getMfaStatus
+      summary: Estado del segundo factor de la sesión actual.
+      description: Indica si el rol de la cuenta lo exige, si ya está configurado y cuántos códigos de respaldo quedan.
+      responses:
+        '200':
+          description: Estado del segundo factor.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MfaStatusResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/mfa/enrollment:
+    post:
+      tags: [auth]
+      operationId: beginMfaEnrollment
+      summary: Entrega el secreto del segundo factor para cargarlo en la aplicación autenticadora.
+      description: |
+        Se usa antes de tener sesión, con el `challengeToken` (`step = ENROLL`) que devolvió el inicio de sesión. Se puede
+        pedir de nuevo mientras el factor no esté confirmado (el secreto anterior deja de servir). El secreto se muestra
+        solo aquí: la base lo guarda cifrado. Un desafío inservible (vencido, usado, de otro tipo) responde 401.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MfaChallengeRequest' }
+      responses:
+        '200':
+          description: Secreto TOTP (Base32) y URI `otpauth://` para el código QR.
+          headers:
+            Cache-Control:
+              schema: { type: string, examples: [no-store] }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MfaEnrollmentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /auth/mfa/enrollment/confirm:
+    post:
+      tags: [auth]
+      operationId: confirmMfaEnrollment
+      summary: Confirma la configuración con el primer código y abre la sesión.
+      description: |
+        Activa el factor, abre la sesión y entrega los códigos de respaldo, que se muestran UNA sola vez. Un código errado
+        responde 401, cuenta para el bloqueo por intentos fallidos y, tras 5, cierra el desafío.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MfaVerifyRequest' }
+      responses:
+        '200':
+          description: Factor activo y sesión abierta.
+          headers:
+            Cache-Control:
+              schema: { type: string, examples: [no-store] }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MfaEnrolledResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /auth/mfa/verify:
+    post:
+      tags: [auth]
+      operationId: verifyMfa
+      summary: Completa el inicio de sesión con el código del segundo factor.
+      description: |
+        Acepta el código de 6 dígitos de la aplicación autenticadora o un código de respaldo (`XXXXX-XXXXX`, con o sin
+        guion y en cualquier caso). Un código TOTP no se puede repetir y un código de respaldo sirve una sola vez. Toda
+        causa de rechazo (código errado, repetido, desafío vencido, usado o de otro tipo, cuenta bloqueada) responde el
+        mismo 401. Los fallos cuentan para el bloqueo por intentos fallidos de la cuenta (5 intentos, 15 minutos).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MfaVerifyRequest' }
+      responses:
+        '200':
+          description: Sesión abierta.
+          headers:
+            Cache-Control:
+              schema: { type: string, examples: [no-store] }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /auth/mfa/backup-codes:
+    post:
+      tags: [auth]
+      operationId: regenerateMfaBackupCodes
+      summary: Reemplaza los códigos de respaldo por otros nuevos.
+      description: |
+        Exige un código TOTP vigente. Los códigos anteriores dejan de servir y los nuevos se muestran una sola vez. Un
+        código errado responde 422 sobre `code` y cuenta para el bloqueo por intentos fallidos (si la cuenta está
+        bloqueada, 429). Sin factor configurado responde 409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MfaCodeRequest' }
+      responses:
+        '200':
+          description: Códigos de respaldo nuevos.
+          headers:
+            Cache-Control:
+              schema: { type: string, examples: [no-store] }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BackupCodesResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /users/{userId}/mfa/reset:
+    post:
+      tags: [users]
+      operationId: resetUserMfa
+      summary: Reinicia el segundo factor de otra persona.
+      description: |
+        Solo el coordinador, para quien perdió el teléfono y los códigos de respaldo. Borra el factor y los códigos, cierra
+        todas las sesiones de esa persona y la obliga a configurarlo de nuevo en su próximo inicio de sesión. Nadie puede
+        reiniciar el suyo (409): así un access token robado no sirve para quitarse el factor. Queda auditado.
+      parameters:
+        - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204':
+          description: Factor reiniciado.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /users:
     post:
       tags: [users]
@@ -2502,6 +2655,64 @@ components:
       properties:
         currentPassword: { type: string, maxLength: 128, format: password }
         newPassword: { type: string, maxLength: 128, format: password, description: 12 a 72 bytes con al menos una letra y un dígito. }
+    MfaChallengeResponse:
+      type: object
+      required: [mfaRequired, step, challengeToken, expiresIn]
+      properties:
+        mfaRequired: { type: boolean, enum: [true] }
+        step:
+          type: string
+          enum: [VERIFY, ENROLL]
+          description: VERIFY = presentar un código; ENROLL = la cuenta aún no tiene factor y debe configurarlo.
+        challengeToken: { type: string, description: 'Valor opaco de un solo uso que identifica este inicio de sesión; vale unos minutos.' }
+        expiresIn: { type: integer, description: 'Segundos de vigencia del desafío.' }
+    MfaChallengeRequest:
+      type: object
+      required: [challengeToken]
+      properties:
+        challengeToken: { type: string, maxLength: 256 }
+    MfaVerifyRequest:
+      type: object
+      required: [challengeToken, code]
+      properties:
+        challengeToken: { type: string, maxLength: 256 }
+        code: { type: string, maxLength: 32, description: 'Código de 6 dígitos o código de respaldo XXXXX-XXXXX.' }
+    MfaCodeRequest:
+      type: object
+      required: [code]
+      properties:
+        code: { type: string, maxLength: 32, description: Código TOTP de 6 dígitos. }
+    MfaEnrollmentResponse:
+      type: object
+      required: [secret, otpauthUri, issuer, accountName]
+      properties:
+        secret: { type: string, description: 'Secreto en Base32 para teclear en la aplicación autenticadora.' }
+        otpauthUri: { type: string, description: 'URI otpauth:// que se muestra como código QR.' }
+        issuer: { type: string }
+        accountName: { type: string }
+    MfaEnrolledResponse:
+      type: object
+      required: [session, backupCodes]
+      properties:
+        session: { $ref: '#/components/schemas/SessionResponse' }
+        backupCodes:
+          type: array
+          items: { type: string }
+          description: 'Códigos de respaldo de un solo uso; se muestran una sola vez.'
+    MfaStatusResponse:
+      type: object
+      required: [required, enrolled, backupCodesRemaining]
+      properties:
+        required: { type: boolean, description: Si el rol de la cuenta exige el segundo factor. }
+        enrolled: { type: boolean }
+        backupCodesRemaining: { type: integer, minimum: 0 }
+    BackupCodesResponse:
+      type: object
+      required: [backupCodes]
+      properties:
+        backupCodes:
+          type: array
+          items: { type: string }
     UserResponse:
       type: object
       required: [id, email, fullName, roles, emailVerified]

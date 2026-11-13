@@ -54,6 +54,9 @@ public class SecurityConfig {
                                 ApiPaths.V1 + "/auth/password-reset/confirm",
                                 ApiPaths.V1 + "/auth/email-verification/request",
                                 ApiPaths.V1 + "/auth/email-verification/confirm",
+                                ApiPaths.V1 + "/auth/mfa/verify",
+                                ApiPaths.V1 + "/auth/mfa/enrollment",
+                                ApiPaths.V1 + "/auth/mfa/enrollment/confirm",
                                 ApiPaths.V1 + "/guardians").permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2

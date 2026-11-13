@@ -29,6 +29,8 @@ canchatrack:
     jwt:
       secret: ${JWT_SECRET} # sin valor por defecto: la aplicación no arranca si falta
   identity:
+    mfa:
+      encryption-key: ${MFA_ENCRYPTION_KEY} # sin valor por defecto: la aplicación no arranca si falta
     bootstrap:
       # Solo para el primer arranque (si no hay usuarios). Definir las variables, arrancar una vez y retirarlas.
       coordinator-email: ${BOOTSTRAP_COORDINATOR_EMAIL:}

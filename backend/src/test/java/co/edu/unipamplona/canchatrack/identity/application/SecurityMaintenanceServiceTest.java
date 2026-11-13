@@ -9,6 +9,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 import co.edu.unipamplona.canchatrack.identity.application.Fakes.InMemoryAccountTokens;
+import co.edu.unipamplona.canchatrack.identity.application.Fakes.InMemoryMfaStore;
 import co.edu.unipamplona.canchatrack.identity.application.Fakes.InMemoryRateLimits;
 import co.edu.unipamplona.canchatrack.identity.application.Fakes.InMemoryRefreshTokens;
 import co.edu.unipamplona.canchatrack.identity.application.Fakes.MutableClock;
@@ -22,7 +23,8 @@ class SecurityMaintenanceServiceTest {
     private final InMemoryRefreshTokens refresh = new InMemoryRefreshTokens();
     private final InMemoryAccountTokens account = new InMemoryAccountTokens();
     private final InMemoryRateLimits limits = new InMemoryRateLimits();
-    private final SecurityMaintenanceService service = new SecurityMaintenanceService(refresh, account, limits,
+    private final InMemoryMfaStore mfa = new InMemoryMfaStore();
+    private final SecurityMaintenanceService service = new SecurityMaintenanceService(refresh, account, limits, mfa,
             new AccountSecuritySettings(Duration.ofMinutes(30), Duration.ofHours(48), "", "/r", "/v", Duration.ofDays(7)), clock);
 
     private void refreshToken(String hash, Instant familyExpires, boolean revoke) {
@@ -53,12 +55,20 @@ class SecurityMaintenanceServiceTest {
                 now.minus(Duration.ofHours(25)));
         limits.tryRecord(RateLimitBucket.LOGIN_IP, "y".repeat(64), new RateLimitRule(5, Duration.ofMinutes(15)), now);
 
+        mfa.insertChallenge(new MfaStore.NewChallenge(UUID.randomUUID(), user, "c".repeat(64),
+                co.edu.unipamplona.canchatrack.identity.domain.MfaStep.VERIFY, now.minus(Duration.ofDays(9)),
+                now.minus(Duration.ofDays(9)).plusSeconds(300), null));                                                   // vencido hace 9 días
+        mfa.insertChallenge(new MfaStore.NewChallenge(UUID.randomUUID(), user, "d".repeat(64),
+                co.edu.unipamplona.canchatrack.identity.domain.MfaStep.VERIFY, now, now.plusSeconds(300), null));        // vigente
+
         SecurityMaintenanceService.Result result = service.purge();
 
         assertThat(result.refreshTokens()).isEqualTo(2);
         assertThat(result.accountTokens()).isEqualTo(1);
         assertThat(result.rateLimitEvents()).isEqualTo(1);
-        assertThat(result.total()).isEqualTo(4);
+        assertThat(result.mfaChallenges()).isEqualTo(1);
+        assertThat(result.total()).isEqualTo(5);
+        assertThat(mfa.challengeCount()).isEqualTo(1);
         assertThat(refresh.size()).isEqualTo(2);
         assertThat(account.size()).isEqualTo(1);
         assertThat(limits.size()).isEqualTo(1);

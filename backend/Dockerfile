@@ -1,6 +1,6 @@
 # Imagen de producción del backend (multi-etapa, capas de Spring Boot, usuario sin privilegios).
 #   docker build -t canchatrack-backend backend
-# El perfil por defecto es `prod`: sin DB_URL, DB_USER, DB_PASSWORD, JWT_SECRET, MAIL_HOST y MAIL_FROM no arranca (a propósito).
+# El perfil por defecto es `prod`: sin DB_URL, DB_USER, DB_PASSWORD, JWT_SECRET, MFA_ENCRYPTION_KEY, MAIL_HOST y MAIL_FROM no arranca (a propósito).
 
 # ---- Etapa 1: compilar y extraer capas ------------------------------------------------------------
 FROM maven:3.9-eclipse-temurin-21 AS build

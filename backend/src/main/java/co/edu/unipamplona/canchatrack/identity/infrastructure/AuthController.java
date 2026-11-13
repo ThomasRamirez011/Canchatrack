@@ -53,7 +53,7 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<SessionResponse> login(@Valid @RequestBody LoginRequest request, HttpServletRequest http) {
+    public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request, HttpServletRequest http) {
         ClientOrigin origin = ClientOrigins.from(http);
         rateLimiter.checkIp(RateLimitBucket.LOGIN_IP, origin);
         SessionResult result = authentication.login(request.email(), request.password(), origin);
@@ -61,7 +61,7 @@ public class AuthController {
     }
 
     @PostMapping("/refresh")
-    public ResponseEntity<SessionResponse> refresh(@Valid @RequestBody RefreshRequest request, HttpServletRequest http) {
+    public ResponseEntity<?> refresh(@Valid @RequestBody RefreshRequest request, HttpServletRequest http) {
         SessionResult result = authentication.refresh(request.refreshToken(), ClientOrigins.from(http));
         return respond(result, INVALID_REFRESH_TOKEN);
     }
@@ -83,7 +83,7 @@ public class AuthController {
         return UserResponse.from(view);
     }
 
-    private ResponseEntity<SessionResponse> respond(SessionResult result, String rejectionDetail) {
+    private ResponseEntity<?> respond(SessionResult result, String rejectionDetail) {
         return switch (result) {
             case SessionResult.Opened opened -> ResponseEntity.ok()
                     .header("Cache-Control", "no-store")
@@ -92,6 +92,10 @@ public class AuthController {
                     throw new DomainException(ErrorCode.AUTH_UNAUTHENTICATED, rejectionDetail);
             case SessionResult.EmailNotVerified unverified ->
                     throw new DomainException(ErrorCode.EMAIL_NOT_VERIFIED, null);
+            // 202: la contraseña fue aceptada pero aún no hay sesión; falta el segundo factor (POST /auth/mfa/...).
+            case SessionResult.MfaRequired challenge -> ResponseEntity.accepted()
+                    .header("Cache-Control", "no-store")
+                    .body(AuthDtos.MfaChallengeResponse.from(challenge, clock.instant()));
         };
     }
 }

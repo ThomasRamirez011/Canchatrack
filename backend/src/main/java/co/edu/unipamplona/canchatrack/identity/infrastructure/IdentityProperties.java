@@ -16,6 +16,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param requireVerifiedEmail si es verdadero, una cuenta con el correo sin confirmar no puede iniciar sesión
  * @param recovery            enlaces de restablecimiento y confirmación, y retención de tokens
  * @param rateLimit           límite de tasa de los puntos de entrada públicos
+ * @param mfa                 segundo factor (TOTP) para los roles que lo exigen
  * @param bootstrap           credenciales de la primera cuenta (coordinador); vacías = no se crea nada
  */
 @ConfigurationProperties(prefix = "canchatrack.identity")
@@ -28,6 +29,7 @@ public record IdentityProperties(
         @DefaultValue("true") boolean requireVerifiedEmail,
         @DefaultValue Recovery recovery,
         @DefaultValue RateLimit rateLimit,
+        @DefaultValue Mfa mfa,
         @DefaultValue Bootstrap bootstrap) {
 
     /**
@@ -57,6 +59,30 @@ public record IdentityProperties(
             @DefaultValue("1h") Duration recoveryWindow,
             @DefaultValue("30") int confirmPerIp,
             @DefaultValue("15m") Duration confirmWindow) {
+    }
+
+    /**
+     * @param enabled         si es falso nadie debe segundo factor (desarrollo y pruebas)
+     * @param requiredRoles   roles que lo deben tener (por defecto coordinador y comité)
+     * @param issuer          nombre que muestra la aplicación autenticadora
+     * @param challengeTtl    vigencia del desafío entre la contraseña y el código
+     * @param window          intervalos de 30 s tolerados a cada lado del actual (reloj del teléfono)
+     * @param backupCodes     cuántos códigos de respaldo se entregan
+     * @param encryptionKey   llave maestra de 32 bytes en Base64 que cifra los secretos; obligatoria si {@code enabled}
+     */
+    public record Mfa(
+            @DefaultValue("true") boolean enabled,
+            @DefaultValue({"COORDINATOR", "COMMITTEE"}) java.util.List<String> requiredRoles,
+            @DefaultValue("CanchaTrack") String issuer,
+            @DefaultValue("5m") Duration challengeTtl,
+            @DefaultValue("1") int window,
+            @DefaultValue("10") int backupCodes,
+            String encryptionKey) {
+
+        @Override
+        public String toString() {
+            return "Mfa[enabled=" + enabled + ", requiredRoles=" + requiredRoles + ", encryptionKey=***]";
+        }
     }
 
     /** Primera cuenta del sistema. La contraseña nunca se registra en logs. */
