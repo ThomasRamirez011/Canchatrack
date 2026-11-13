@@ -120,7 +120,9 @@ class JwtSecurityTest {
         Jwt jwt = decoder.decode(validToken());
 
         List<String> authorities = SecurityConfig.jwtAuthenticationConverter().convert(jwt)
-                .getAuthorities().stream().map(GrantedAuthority::getAuthority).toList();
+                .getAuthorities().stream().map(GrantedAuthority::getAuthority)
+                // Spring Security 7 añade autoridades FACTOR_* (p. ej. FACTOR_BEARER); aquí solo importan los roles.
+                .filter(authority -> authority.startsWith("ROLE_")).toList();
 
         assertThat(authorities).containsExactlyInAnyOrder("ROLE_COORDINATOR", "ROLE_COACH");
     }
