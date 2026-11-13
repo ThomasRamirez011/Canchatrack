@@ -1,0 +1,65 @@
+name: frontend-pages
+
+# Publica el front estático (carpeta frontend/) en GitHub Pages.
+# Sitio: https://thomasramirez011.github.io/canchatrack/
+# El origen https://thomasramirez011.github.io debe estar en CORS_ALLOWED_ORIGINS del backend.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  # URL pública del backend. Se puede cambiar sin tocar código con la variable de repositorio API_URL.
+  NEXT_PUBLIC_API_URL: ${{ vars.API_URL || 'https://canchatrack-backend-sha-4f472ac411c7.onrender.com/api/v1' }}
+  BASE_PATH: /canchatrack
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.1
+      - name: Instalar pnpm (misma versión que .mise.toml)
+        run: npm install --global pnpm@10.34.3
+      - name: Instalar dependencias
+        run: pnpm install --frozen-lockfile
+      - name: Compilar sitio estático
+        run: NODE_OPTIONS=--no-deprecation pnpm build
+      - name: Evitar el procesado Jekyll de GitHub Pages
+        run: touch out/.nojekyll
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: frontend/out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
