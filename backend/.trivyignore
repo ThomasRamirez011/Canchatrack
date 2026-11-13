@@ -1,0 +1,5 @@
+# Plantilla de exclusiones justificadas (Guía 12, Ejercicio 4). Está VACÍA A PROPÓSITO: no se inventan CVE.
+# Regla: cada línea necesita (1) el identificador, (2) por qué es seguro ignorarlo, (3) responsable y (4) fecha de revisión.
+# Formato:
+#   CVE-AAAA-NNNNN   # motivo: la clase vulnerable no se usa en runtime / solo test; responsable: X; revisar: AAAA-MM-DD
+# Nunca se excluye por severidad ni por comodidad. Una exclusión sin fecha de revisión no se acepta en la revisión del PR.

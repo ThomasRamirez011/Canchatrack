@@ -1,0 +1,22 @@
+# Mantiene al día las acciones de GitHub, las dependencias Maven/npm y la imagen base (Guías 9 y 12).
+# Las acciones están fijadas por SHA completo (con el número de versión en un comentario): Dependabot actualiza ambos.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: maven
+    directory: /backend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: docker
+    directory: /backend
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

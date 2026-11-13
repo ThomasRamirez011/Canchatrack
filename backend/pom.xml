@@ -26,6 +26,12 @@
     </properties>
 
     <dependencies>
+        <!-- Observabilidad (Guía 13): solo la API de OpenTelemetry; el agente Java aporta la implementación en ejecución -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-api</artifactId>
+        </dependency>
+
         <!-- API REST -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
