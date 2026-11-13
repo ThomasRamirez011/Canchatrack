@@ -25,8 +25,8 @@ spring:
     baseline-on-migrate: false
   jackson:
     default-property-inclusion: non_null
-    serialization:
-      write-dates-as-timestamps: false # fechas ISO 8601 (DDS 8.1)
+    # Fechas ISO 8601 (DDS 8.1): en Jackson 3 (Boot 4) WRITE_DATES_AS_TIMESTAMPS ya es false por defecto
+    # y la clave spring.jackson.serialization.write-dates-as-timestamps dejó de existir.
   servlet:
     multipart:
       max-file-size: 10MB # coherente con canchatrack.files.max-size

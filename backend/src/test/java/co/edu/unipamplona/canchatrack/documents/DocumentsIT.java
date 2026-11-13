@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
@@ -30,6 +30,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -150,7 +151,7 @@ class DocumentsIT {
     }
 
     private ResultActions uploadDocument(UUID player, UUID type, LocalDate expiresOn, String bearer) throws Exception {
-        MockHttpServletRequestBuilder request = multipart(API + "/players/" + player + "/documents")
+        MockMultipartHttpServletRequestBuilder request = multipart(API + "/players/" + player + "/documents")
                 .file(new MockMultipartFile("file", "certificado.pdf", "application/pdf", PDF))
                 .param("documentTypeId", type.toString());
         if (expiresOn != null) {
