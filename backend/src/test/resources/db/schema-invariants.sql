@@ -449,6 +449,27 @@ $test$
         PERFORM pg_temp.expect_error(format($q$DELETE FROM season_closures WHERE id = %L$q$, v_uuid), 'CT001');
         INSERT INTO season_closures (player_id, season_id, report_id, closed_by) VALUES (v_p1, v_season, v_report, v_coord); -- tras reabrir puede cerrarse de nuevo
 
+        -- V18: series de sesiones recurrentes (RF-014)
+        INSERT INTO event_series (event_type, category_id, venue_id, head_coach_id, weekdays, start_date, end_date, start_time, end_time, time_zone, occurrence_count)
+        VALUES ('TRAINING', v_cat, v_venue, v_coach, '{1,3}'::smallint[], DATE '2027-03-01', DATE '2027-03-10', TIME '17:00', TIME '19:00', 'America/Bogota', 3) RETURNING id INTO v_uuid;
+        INSERT INTO sports_events (event_type, category_id, venue_id, start_at, end_at, series_id, series_position)
+        VALUES ('TRAINING', v_cat, v_venue, '2027-03-01 22:00+00', '2027-03-02 00:00+00', v_uuid, 1);
+        PERFORM pg_temp.expect_error(
+                format($q$INSERT INTO sports_events (event_type, category_id, venue_id, start_at, end_at, series_id, series_position) VALUES ('TRAINING', %L, %L, '2027-03-08 22:00+00', '2027-03-09 00:00+00', %L, 1)$q$, v_cat, v_venue, v_uuid),
+                '23505'); -- una posición por serie
+        PERFORM pg_temp.expect_error(
+                format($q$INSERT INTO sports_events (event_type, category_id, venue_id, start_at, end_at, series_id) VALUES ('TRAINING', %L, %L, '2027-03-08 22:00+00', '2027-03-09 00:00+00', %L)$q$, v_cat, v_venue, v_uuid),
+                '23514'); -- serie y posición van juntas
+        PERFORM pg_temp.expect_error(
+                format($q$INSERT INTO event_series (event_type, category_id, venue_id, head_coach_id, weekdays, start_date, end_date, start_time, end_time, time_zone, occurrence_count) VALUES ('TRAINING', %L, %L, %L, '{8}'::smallint[], DATE '2027-03-01', DATE '2027-03-10', '17:00', '19:00', 'x', 1)$q$, v_cat, v_venue, v_coach),
+                '23514'); -- días ISO de 1 a 7
+        PERFORM pg_temp.expect_error(
+                format($q$INSERT INTO event_series (event_type, category_id, venue_id, head_coach_id, weekdays, start_date, end_date, start_time, end_time, time_zone, occurrence_count) VALUES ('TRAINING', %L, %L, %L, '{1}'::smallint[], DATE '2027-03-01', DATE '2027-03-10', '17:00', '19:00', 'x', 61)$q$, v_cat, v_venue, v_coach),
+                '23514'); -- máximo 60 sesiones
+        PERFORM pg_temp.expect_error(
+                format($q$INSERT INTO event_series (event_type, category_id, venue_id, head_coach_id, weekdays, start_date, end_date, start_time, end_time, time_zone, occurrence_count) VALUES ('FRIENDLY_MATCH', %L, %L, %L, '{1}'::smallint[], DATE '2027-03-01', DATE '2027-03-10', '17:00', '19:00', 'x', 1)$q$, v_cat, v_venue, v_coach),
+                '23514'); -- solo entrenamientos y evaluaciones
+
         INSERT INTO notifications (notification_type, recipient_email, dedup_key)
         VALUES ('EVENT_SCHEDULED', 'a@test.local', 'evt:1:a@test.local') RETURNING id INTO v_notif;
         PERFORM pg_temp.expect_error($q$INSERT INTO notifications (notification_type, recipient_email, dedup_key) VALUES ('EVENT_SCHEDULED', 'a@test.local', 'evt:1:a@test.local')$q$, '23505'); -- PA-10: sin duplicar

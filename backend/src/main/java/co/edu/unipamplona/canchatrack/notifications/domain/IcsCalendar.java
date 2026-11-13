@@ -24,6 +24,10 @@ public final class IcsCalendar {
     private IcsCalendar() {
     }
 
+    /** Una sesión dentro de una invitación que agrupa varias (una serie). */
+    public record Occurrence(String uid, int sequence, Instant start, Instant end) {
+    }
+
     /**
      * @param method   {@link #REQUEST} o {@link #CANCEL}
      * @param uid      identificador estable del evento (el mismo en la invitación, sus cambios y la cancelación)
@@ -31,6 +35,15 @@ public final class IcsCalendar {
      */
     public static CalendarInvite event(String method, String uid, int sequence, Instant stamp, Instant start, Instant end,
                                        String summary, String location, String description) {
+        return series(method, stamp, java.util.List.of(new Occurrence(uid, sequence, start, end)), summary, location, description);
+    }
+
+    /**
+     * Una sola invitación con un {@code VEVENT} por sesión: cada una conserva su propio UID, así que reprogramar o cancelar
+     * después una sesión suelta actualiza la misma cita del calendario. Todas comparten título, lugar y descripción.
+     */
+    public static CalendarInvite series(String method, Instant stamp, java.util.List<Occurrence> occurrences, String summary,
+                                        String location, String description) {
         boolean cancel = CANCEL.equals(method);
         StringBuilder out = new StringBuilder();
         line(out, "BEGIN:VCALENDAR");
@@ -38,21 +51,23 @@ public final class IcsCalendar {
         line(out, "PRODID:-//CanchaTrack//Agenda//ES");
         line(out, "CALSCALE:GREGORIAN");
         line(out, "METHOD:" + (cancel ? CANCEL : REQUEST));
-        line(out, "BEGIN:VEVENT");
-        line(out, "UID:" + token(uid));
-        line(out, "DTSTAMP:" + UTC.format(stamp));
-        line(out, "SEQUENCE:" + Math.max(sequence, 0));
-        line(out, "DTSTART:" + UTC.format(start));
-        line(out, "DTEND:" + UTC.format(end));
-        line(out, "SUMMARY:" + escape(summary));
-        if (location != null && !location.isBlank()) {
-            line(out, "LOCATION:" + escape(location));
+        for (Occurrence o : occurrences) {
+            line(out, "BEGIN:VEVENT");
+            line(out, "UID:" + token(o.uid()));
+            line(out, "DTSTAMP:" + UTC.format(stamp));
+            line(out, "SEQUENCE:" + Math.max(o.sequence(), 0));
+            line(out, "DTSTART:" + UTC.format(o.start()));
+            line(out, "DTEND:" + UTC.format(o.end()));
+            line(out, "SUMMARY:" + escape(summary));
+            if (location != null && !location.isBlank()) {
+                line(out, "LOCATION:" + escape(location));
+            }
+            if (description != null && !description.isBlank()) {
+                line(out, "DESCRIPTION:" + escape(description));
+            }
+            line(out, "STATUS:" + (cancel ? "CANCELLED" : "CONFIRMED"));
+            line(out, "END:VEVENT");
         }
-        if (description != null && !description.isBlank()) {
-            line(out, "DESCRIPTION:" + escape(description));
-        }
-        line(out, "STATUS:" + (cancel ? "CANCELLED" : "CONFIRMED"));
-        line(out, "END:VEVENT");
         line(out, "END:VCALENDAR");
         return new CalendarInvite(cancel ? CANCEL : REQUEST, out.toString());
     }

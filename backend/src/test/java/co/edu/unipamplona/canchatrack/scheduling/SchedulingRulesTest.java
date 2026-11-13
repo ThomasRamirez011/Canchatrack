@@ -51,4 +51,17 @@ class SchedulingRulesTest {
         assertThat(SchedulingRules.cancellationViolations("Lluvia")).isEmpty();
         assertThat(fields(SchedulingRules.cancellationViolations(" "))).containsExactly("reason");
     }
+
+    @Test
+    void calendarFiltersAcceptKnownTypesAndStatusesAndAnOrderedRange() {
+        assertThat(SchedulingRules.queryViolations(null, null, null, null)).isEmpty();
+        assertThat(SchedulingRules.queryViolations("TRAINING", "CONFIRMED", NOW, NOW.plusSeconds(60))).isEmpty();
+        assertThat(SchedulingRules.queryViolations("TOURNAMENT_MATCH", "CANCELLED", NOW, null)).isEmpty();
+    }
+
+    @Test
+    void calendarFilterErrorsAreAccumulated() {
+        assertThat(fields(SchedulingRules.queryViolations("PARTIDO", "HECHO", NOW, NOW))).containsExactly("eventType", "status", "to");
+        assertThat(fields(SchedulingRules.queryViolations(null, null, NOW, NOW.minusSeconds(1)))).containsExactly("to");
+    }
 }

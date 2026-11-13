@@ -19,6 +19,8 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import co.edu.unipamplona.canchatrack.scheduling.application.CreateVenueCommand;
+import co.edu.unipamplona.canchatrack.scheduling.application.EventQuery;
+import co.edu.unipamplona.canchatrack.scheduling.application.ScheduleSeriesCommand;
 import co.edu.unipamplona.canchatrack.scheduling.application.RescheduleEventCommand;
 import co.edu.unipamplona.canchatrack.scheduling.application.ScheduleEventCommand;
 import co.edu.unipamplona.canchatrack.scheduling.application.SchedulingActor;
@@ -28,6 +30,8 @@ import co.edu.unipamplona.canchatrack.scheduling.infrastructure.SchedulingDtos.C
 import co.edu.unipamplona.canchatrack.scheduling.infrastructure.SchedulingDtos.EventResponse;
 import co.edu.unipamplona.canchatrack.scheduling.infrastructure.SchedulingDtos.RescheduleEventRequest;
 import co.edu.unipamplona.canchatrack.scheduling.infrastructure.SchedulingDtos.ScheduleEventRequest;
+import co.edu.unipamplona.canchatrack.scheduling.infrastructure.SchedulingDtos.ScheduleSeriesRequest;
+import co.edu.unipamplona.canchatrack.scheduling.infrastructure.SchedulingDtos.SeriesResponse;
 import co.edu.unipamplona.canchatrack.scheduling.infrastructure.SchedulingDtos.VenueResponse;
 import co.edu.unipamplona.canchatrack.shared.security.AuthenticatedUser;
 import co.edu.unipamplona.canchatrack.shared.security.CurrentUser;
@@ -68,15 +72,47 @@ public class SchedulingController {
                 request.meetingAt(), request.meetingPoint(), request.instructions())));
     }
 
-    /** Coordinador y comité, todos; el entrenador, solo los suyos. */
+    /**
+     * Calendario (RF-013): coordinador y comité ven todo, el entrenador solo lo suyo. Los filtros se combinan con Y; el rango
+     * {@code from} (inclusivo) a {@code to} (exclusivo) da la vista diaria, semanal o mensual.
+     */
     @GetMapping("/events")
     @PreAuthorize("hasAnyRole('COORDINATOR', 'COMMITTEE', 'COACH')")
     public List<EventResponse> events(@RequestParam(required = false) UUID categoryId,
+                                      @RequestParam(required = false) UUID venueId,
+                                      @RequestParam(required = false) UUID headCoachId,
+                                      @RequestParam(required = false) String eventType,
+                                      @RequestParam(required = false) String status,
+                                      @RequestParam(required = false) UUID seriesId,
                                       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime from,
                                       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime to) {
         AuthenticatedUser user = CurrentUser.require();
-        return scheduling.list(user.id(), user.roles(), categoryId,
-                from == null ? null : from.toInstant(), to == null ? null : to.toInstant()).stream().map(EventResponse::from).toList();
+        return scheduling.list(user.id(), user.roles(), new EventQuery(categoryId, venueId, headCoachId, eventType, status, seriesId,
+                from == null ? null : from.toInstant(), to == null ? null : to.toInstant())).stream().map(EventResponse::from).toList();
+    }
+
+    /** Programa una serie semanal de entrenamientos o evaluaciones (RF-014); todo o nada ante cruces. */
+    @PostMapping("/event-series")
+    @PreAuthorize("hasRole('COORDINATOR')")
+    @ResponseStatus(HttpStatus.CREATED)
+    public SeriesResponse scheduleSeries(@RequestBody ScheduleSeriesRequest request, HttpServletRequest http) {
+        return SeriesResponse.from(scheduling.scheduleSeries(actor(http), new ScheduleSeriesCommand(request.eventType(),
+                request.categoryId(), request.venueId(), request.headCoachId(), request.weekdays(), request.startDate(),
+                request.endDate(), request.startTime(), request.endTime(), request.meetingPoint(), request.instructions())));
+    }
+
+    @GetMapping("/event-series/{seriesId}")
+    @PreAuthorize("hasAnyRole('COORDINATOR', 'COMMITTEE', 'COACH')")
+    public SeriesResponse series(@PathVariable UUID seriesId) {
+        AuthenticatedUser user = CurrentUser.require();
+        return SeriesResponse.from(scheduling.getSeries(user.id(), user.roles(), seriesId));
+    }
+
+    /** Cancela las sesiones futuras y confirmadas de la serie con un motivo y un solo aviso. */
+    @PostMapping("/event-series/{seriesId}/cancel")
+    @PreAuthorize("hasRole('COORDINATOR')")
+    public SeriesResponse cancelSeries(@PathVariable UUID seriesId, @RequestBody CancelEventRequest request, HttpServletRequest http) {
+        return SeriesResponse.from(scheduling.cancelSeries(actor(http), seriesId, request.reason()));
     }
 
     @GetMapping("/events/{eventId}")

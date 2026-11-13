@@ -556,4 +556,114 @@ class NotificationRulesTest {
             return "ref-" + counter;
         }
     }
+
+    // ---------- series de sesiones (RF-014, RF-016) ----------
+
+    private static final String FIRST = "11111111-1111-4111-8111-111111111111";
+    private static final String SECOND = "22222222-2222-4222-8222-222222222222";
+
+    private static Map<String, String> seriesPayload() {
+        Map<String, String> payload = eventPayload();
+        payload.remove("eventId");
+        payload.remove("startAt");
+        payload.remove("endAt");
+        payload.remove("meetingAt");
+        payload.put("seriesId", "33333333-3333-4333-8333-333333333333");
+        payload.put("count", "2");
+        payload.put("occurrences", FIRST + "|2026-12-07T22:00:00Z|2026-12-08T00:00:00Z|0;" + SECOND + "|2026-12-09T22:00:00Z|2026-12-10T00:00:00Z|0");
+        return payload;
+    }
+
+    @Test
+    void aSeriesScheduledEmailListsEverySessionAndAttachesOneInvitationForAll() {
+        OutboundEmail email = EmailTemplates.render("EVENT_SERIES_SCHEDULED", "padre@example.com", null, seriesPayload(), BOGOTA).orElseThrow();
+
+        assertThat(email.subject()).isEqualTo("Serie de entrenamientos programada · Sub-12");
+        assertThat(email.body()).contains("serie de 2 entrenamientos de la categoría Sub-12", "- lun 07/12/2026 17:00 a 19:00",
+                "- mié 09/12/2026 17:00 a 19:00", "Cancha Municipal (Calle 5 # 3-20)", "Carlos Ruiz", "Traer uniforme de color azul",
+                "https://app.club.example");
+        assertThat(email.calendar().method()).isEqualTo("REQUEST");
+        assertThat(email.calendar().content().split("BEGIN:VEVENT", -1).length - 1).isEqualTo(2);
+        assertThat(email.calendar().content()).contains("UID:" + FIRST + "@canchatrack", "UID:" + SECOND + "@canchatrack",
+                "DTSTART:20261207T220000Z", "DTSTART:20261209T220000Z", "SEQUENCE:0", "SUMMARY:Entrenamientos · Sub-12");
+    }
+
+    @Test
+    void anEvaluationSeriesUsesItsOwnWording() {
+        Map<String, String> payload = seriesPayload();
+        payload.put("eventType", "EVALUATION");
+
+        OutboundEmail email = EmailTemplates.render("EVENT_SERIES_SCHEDULED", "a@b.co", null, payload, BOGOTA).orElseThrow();
+
+        assertThat(email.subject()).isEqualTo("Serie de sesiones de evaluación programada · Sub-12");
+        assertThat(email.body()).contains("serie de 2 sesiones de evaluación");
+    }
+
+    @Test
+    void aSeriesCancelledEmailListsTheSessionsTheReasonAndCancelsEachAppointment() {
+        Map<String, String> payload = seriesPayload();
+        payload.put("reason", "Cancha cerrada por obras\nBcc: x@y.z");
+        payload.put("occurrences", FIRST + "|2026-12-07T22:00:00Z|2026-12-08T00:00:00Z|1;" + SECOND + "|2026-12-09T22:00:00Z|2026-12-10T00:00:00Z|2");
+
+        OutboundEmail email = EmailTemplates.render("EVENT_SERIES_CANCELLED", "a@b.co", null, payload, BOGOTA).orElseThrow();
+
+        assertThat(email.subject()).isEqualTo("CANCELADO: serie de entrenamientos · Sub-12");
+        assertThat(email.body()).contains("CANCELACIÓN", "se cancelaron 2 entrenamientos", "- lun 07/12/2026 17:00 a 19:00",
+                "Motivo: Cancha cerrada por obras Bcc: x@y.z");
+        assertThat(email.body().contains("\nBcc")).isFalse();
+        assertThat(email.calendar().method()).isEqualTo("CANCEL");
+        assertThat(email.calendar().content().split("STATUS:CANCELLED", -1).length - 1).isEqualTo(2);
+        assertThat(email.calendar().content()).contains("SEQUENCE:1", "SEQUENCE:2");
+    }
+
+    @Test
+    void anUnreadableSessionIsSkippedAndTheRestStillGoOut() {
+        Map<String, String> payload = seriesPayload();
+        payload.put("occurrences", "basura;" + FIRST + "|no-es-fecha|2026-12-08T00:00:00Z|0;" + SECOND
+                + "|2026-12-09T22:00:00Z|2026-12-10T00:00:00Z|x;|2026-12-09T22:00:00Z|2026-12-10T00:00:00Z|0;"
+                + FIRST + "|2026-12-10T22:00:00Z|2026-12-10T21:00:00Z|0");
+
+        OutboundEmail email = EmailTemplates.render("EVENT_SERIES_SCHEDULED", "a@b.co", null, payload, BOGOTA).orElseThrow();
+
+        assertThat(email.body()).contains("serie de 1 entrenamientos", "- mié 09/12/2026 17:00 a 19:00");
+        assertThat(email.calendar().content().split("BEGIN:VEVENT", -1).length - 1).isEqualTo(1);
+        assertThat(email.calendar().content()).contains("SEQUENCE:0");
+    }
+
+    @Test
+    void aSeriesEmailWithoutSessionsOrStampStillGoesOutWithoutInvitation() {
+        Map<String, String> noSessions = seriesPayload();
+        noSessions.remove("occurrences");
+        assertThat(EmailTemplates.render("EVENT_SERIES_SCHEDULED", "a@b.co", null, noSessions, BOGOTA).orElseThrow().calendar()).isNull();
+
+        Map<String, String> noStamp = seriesPayload();
+        noStamp.remove("stamp");
+        OutboundEmail email = EmailTemplates.render("EVENT_SERIES_SCHEDULED", "a@b.co", null, noStamp, BOGOTA).orElseThrow();
+        assertThat(email.calendar()).isNull();
+        assertThat(email.body()).contains("Sub-12");
+    }
+
+    @Test
+    void aSeriesIsCappedAtSixtySessionsInTheEmailAndTheInvitation() {
+        StringBuilder many = new StringBuilder();
+        for (int i = 0; i < 70; i++) {
+            many.append(i == 0 ? "" : ";").append(UUID.randomUUID()).append("|2027-01-").append(String.format("%02d", 1 + i % 28))
+                    .append("T22:00:00Z|2027-01-").append(String.format("%02d", 1 + i % 28)).append("T23:00:00Z|0");
+        }
+        Map<String, String> payload = seriesPayload();
+        payload.put("occurrences", many.toString());
+
+        OutboundEmail email = EmailTemplates.render("EVENT_SERIES_SCHEDULED", "a@b.co", null, payload, BOGOTA).orElseThrow();
+
+        assertThat(email.calendar().content().split("BEGIN:VEVENT", -1).length - 1).isEqualTo(60);
+    }
+
+    @Test
+    void seriesEmailsNeverNameOrDescribeAnyPlayer() {
+        for (String type : List.of("EVENT_SERIES_SCHEDULED", "EVENT_SERIES_CANCELLED")) {
+            String body = EmailTemplates.render(type, "a@b.co", null, seriesPayload(), BOGOTA).orElseThrow().body();
+            assertThat(body.toLowerCase().contains("jugador")).isFalse();
+            assertThat(body.toLowerCase().contains("salud")).isFalse();
+        }
+    }
 }

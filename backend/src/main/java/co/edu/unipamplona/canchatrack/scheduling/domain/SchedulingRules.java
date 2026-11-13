@@ -61,11 +61,36 @@ public final class SchedulingRules {
         if (meetingAt != null && startAt != null && meetingAt.isAfter(startAt)) {
             errors.add(new FieldError("meetingAt", "La concentración no puede ser posterior al inicio."));
         }
+        errors.addAll(detailViolations(meetingPoint, instructions));
+        return errors;
+    }
+
+    /** Largo del punto de encuentro y de las instrucciones. */
+    public static List<FieldError> detailViolations(String meetingPoint, String instructions) {
+        List<FieldError> errors = new ArrayList<>();
         if (meetingPoint != null && meetingPoint.trim().length() > MAX_MEETING_POINT) {
             errors.add(new FieldError("meetingPoint", "El punto de encuentro no puede superar " + MAX_MEETING_POINT + " caracteres."));
         }
         if (instructions != null && instructions.trim().length() > MAX_TEXT) {
             errors.add(new FieldError("instructions", "Las instrucciones no pueden superar " + MAX_TEXT + " caracteres."));
+        }
+        return errors;
+    }
+
+    /** Tipos y estados que admite el filtro del calendario. */
+    public static final Set<String> ALL_EVENT_TYPES = Set.of("TRAINING", "EVALUATION", "FRIENDLY_MATCH", "TOURNAMENT_MATCH");
+    public static final Set<String> EVENT_STATUSES = Set.of("CONFIRMED", "CANCELLED", "COMPLETED");
+
+    public static List<FieldError> queryViolations(String eventType, String status, Instant from, Instant to) {
+        List<FieldError> errors = new ArrayList<>();
+        if (eventType != null && !ALL_EVENT_TYPES.contains(eventType)) {
+            errors.add(new FieldError("eventType", "El tipo debe ser uno de: " + String.join(", ", ALL_EVENT_TYPES.stream().sorted().toList()) + "."));
+        }
+        if (status != null && !EVENT_STATUSES.contains(status)) {
+            errors.add(new FieldError("status", "El estado debe ser uno de: " + String.join(", ", EVENT_STATUSES.stream().sorted().toList()) + "."));
+        }
+        if (from != null && to != null && !to.isAfter(from)) {
+            errors.add(new FieldError("to", "El fin del rango debe ser posterior al inicio."));
         }
         return errors;
     }

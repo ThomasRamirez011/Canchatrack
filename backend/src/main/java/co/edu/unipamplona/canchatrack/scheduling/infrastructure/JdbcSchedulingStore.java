@@ -1,13 +1,19 @@
 package co.edu.unipamplona.canchatrack.scheduling.infrastructure;
 
 import java.sql.SQLException;
+import java.time.DayOfWeek;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
@@ -16,6 +22,8 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 import co.edu.unipamplona.canchatrack.scheduling.application.ConflictView;
+import co.edu.unipamplona.canchatrack.scheduling.application.EventQuery;
+import co.edu.unipamplona.canchatrack.scheduling.application.SeriesInfo;
 import co.edu.unipamplona.canchatrack.scheduling.application.DuplicateVenueException;
 import co.edu.unipamplona.canchatrack.scheduling.application.EventContext;
 import co.edu.unipamplona.canchatrack.scheduling.application.EventView;
@@ -227,14 +235,84 @@ public class JdbcSchedulingStore implements SchedulingStore {
     }
 
     @Override
-    public List<EventView> findEvents(UUID categoryId, Instant from, Instant to, UUID coachId, int limit) {
+    public List<EventView> findEvents(EventQuery q, int limit) {
         return jdbc.query(EVENT_SELECT + """
                  WHERE (?::uuid IS NULL OR e.category_id = ?::uuid)
+                   AND (?::uuid IS NULL OR e.venue_id = ?::uuid)
+                   AND (?::uuid IS NULL OR hc.user_id = ?::uuid)
+                   AND (?::text IS NULL OR e.event_type = ?::text)
+                   AND (?::text IS NULL OR e.status = ?::text)
+                   AND (?::uuid IS NULL OR e.series_id = ?::uuid)
                    AND (?::timestamptz IS NULL OR e.start_at >= ?::timestamptz)
                    AND (?::timestamptz IS NULL OR e.start_at < ?::timestamptz)
-                   AND (?::uuid IS NULL OR hc.user_id = ?::uuid)
                  ORDER BY e.start_at, e.id
                  LIMIT ?
-                """, EVENT, categoryId, categoryId, utc(from), utc(from), utc(to), utc(to), coachId, coachId, limit);
+                """, EVENT, q.categoryId(), q.categoryId(), q.venueId(), q.venueId(), q.headCoachId(), q.headCoachId(),
+                q.eventType(), q.eventType(), q.status(), q.status(), q.seriesId(), q.seriesId(), utc(q.from()), utc(q.from()),
+                utc(q.to()), utc(q.to()), limit);
+    }
+
+    @Override
+    public UUID insertSeries(String eventType, UUID categoryId, UUID venueId, UUID headCoachId, Set<DayOfWeek> weekdays,
+                             LocalDate startDate, LocalDate endDate, LocalTime startTime, LocalTime endTime, String timeZone,
+                             String meetingPoint, String instructions, int occurrenceCount, UUID createdBy) {
+        String days = weekdays.stream().sorted().map(d -> Integer.toString(d.getValue())).collect(Collectors.joining(",", "{", "}"));
+        try {
+            return jdbc.queryForObject("""
+                    INSERT INTO event_series (event_type, category_id, venue_id, head_coach_id, weekdays, start_date, end_date,
+                                              start_time, end_time, time_zone, meeting_point, instructions, occurrence_count,
+                                              created_by)
+                    VALUES (?, ?, ?, ?, ?::smallint[], ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
+                    """, UUID.class, eventType, categoryId, venueId, headCoachId, days, startDate, endDate, startTime, endTime,
+                    timeZone, meetingPoint, instructions, occurrenceCount, createdBy);
+        } catch (DataIntegrityViolationException e) {
+            if (e.getCause() instanceof SQLException sql && FOREIGN_KEY_VIOLATION.equals(sql.getSQLState())) {
+                throw new ReferenceNotFoundException();
+            }
+            throw e;
+        }
+    }
+
+    @Override
+    public UUID insertSeriesEvent(UUID seriesId, int position, String eventType, UUID categoryId, UUID venueId, Instant startAt,
+                                  Instant endAt, String meetingPoint, String instructions, UUID headCoachId, UUID createdBy) {
+        UUID id = jdbc.queryForObject("""
+                INSERT INTO sports_events (event_type, category_id, venue_id, start_at, end_at, meeting_point, instructions,
+                                           created_by, series_id, series_position)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
+                """, UUID.class, eventType, categoryId, venueId, utc(startAt), utc(endAt), meetingPoint, instructions, createdBy,
+                seriesId, position);
+        jdbc.update("INSERT INTO event_participants (event_id, user_id, role, created_by) VALUES (?, ?, 'HEAD_COACH', ?)",
+                id, headCoachId, createdBy);
+        return id;
+    }
+
+    @Override
+    public Optional<SeriesInfo> findSeries(UUID seriesId) {
+        return jdbc.query("""
+                SELECT id, event_type, category_id, venue_id, head_coach_id, array_to_string(weekdays, ',') AS weekdays,
+                       start_date, end_date, start_time, end_time, time_zone, meeting_point, instructions, occurrence_count
+                FROM event_series WHERE id = ?
+                """, (rs, rowNum) -> new SeriesInfo(rs.getObject("id", UUID.class), rs.getString("event_type"),
+                rs.getObject("category_id", UUID.class), rs.getObject("venue_id", UUID.class),
+                rs.getObject("head_coach_id", UUID.class), weekdays(rs.getString("weekdays")),
+                rs.getObject("start_date", LocalDate.class), rs.getObject("end_date", LocalDate.class),
+                rs.getObject("start_time", LocalTime.class), rs.getObject("end_time", LocalTime.class), rs.getString("time_zone"),
+                rs.getString("meeting_point"), rs.getString("instructions"), rs.getInt("occurrence_count")), seriesId)
+                .stream().findFirst();
+    }
+
+    private static List<DayOfWeek> weekdays(String csv) {
+        List<DayOfWeek> days = new ArrayList<>();
+        for (String part : csv.split(",")) {
+            days.add(DayOfWeek.of(Integer.parseInt(part.trim())));
+        }
+        days.sort(Comparator.naturalOrder());
+        return days;
+    }
+
+    @Override
+    public List<EventView> findSeriesEvents(UUID seriesId) {
+        return jdbc.query(EVENT_SELECT + " WHERE e.series_id = ? ORDER BY e.series_position", EVENT, seriesId);
     }
 }

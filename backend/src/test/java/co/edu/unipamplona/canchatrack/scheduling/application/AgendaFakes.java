@@ -169,7 +169,31 @@ final class AgendaFakes {
         }
 
         @Override
-        public List<EventView> findEvents(UUID categoryId, Instant from, Instant to, UUID coachId, int limit) {
+        public List<EventView> findEvents(EventQuery query, int limit) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public UUID insertSeries(String eventType, UUID categoryId, UUID venueId, UUID headCoachId, Set<java.time.DayOfWeek> weekdays,
+                                 java.time.LocalDate startDate, java.time.LocalDate endDate, java.time.LocalTime startTime,
+                                 java.time.LocalTime endTime, String timeZone, String meetingPoint, String instructions,
+                                 int occurrenceCount, UUID createdBy) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public UUID insertSeriesEvent(UUID seriesId, int position, String eventType, UUID categoryId, UUID venueId, Instant startAt,
+                                      Instant endAt, String meetingPoint, String instructions, UUID headCoachId, UUID createdBy) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Optional<SeriesInfo> findSeries(UUID seriesId) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public List<EventView> findSeriesEvents(UUID seriesId) {
             throw new UnsupportedOperationException();
         }
     }

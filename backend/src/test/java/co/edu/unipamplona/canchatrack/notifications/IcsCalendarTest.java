@@ -86,4 +86,32 @@ class IcsCalendarTest {
     void aNegativeSequenceIsTreatedAsZero() {
         assertThat(sample("REQUEST", -3, "x", null, null).content()).contains("SEQUENCE:0\r\n");
     }
+
+    @Test
+    void aSeriesIsOneCalendarWithOneEventPerSessionAndItsOwnUid() {
+        CalendarInvite invite = IcsCalendar.series("REQUEST", STAMP, java.util.List.of(
+                new IcsCalendar.Occurrence("a-1@canchatrack", 0, START, END),
+                new IcsCalendar.Occurrence("b-2@canchatrack", 3, START.plusSeconds(7 * 86400), END.plusSeconds(7 * 86400))),
+                "Entrenamientos · Sub-12", "Cancha Municipal", "Traer agua");
+        String ics = invite.content();
+
+        assertThat(ics.split("BEGIN:VEVENT", -1).length - 1).isEqualTo(2);
+        assertThat(ics.split("BEGIN:VCALENDAR", -1).length - 1).isEqualTo(1);
+        assertThat(ics).contains("UID:a-1@canchatrack\r\n", "UID:b-2@canchatrack\r\n", "SEQUENCE:0\r\n", "SEQUENCE:3\r\n",
+                "DTSTART:20261208T220000Z\r\n", "METHOD:REQUEST\r\n");
+        assertThat(ics.split("SUMMARY:Entrenamientos", -1).length - 1).isEqualTo(2);
+        assertThat(ics).endsWith("END:VEVENT\r\nEND:VCALENDAR\r\n");
+    }
+
+    @Test
+    void aSeriesCancellationMarksEverySessionCancelled() {
+        CalendarInvite invite = IcsCalendar.series("CANCEL", STAMP, java.util.List.of(
+                new IcsCalendar.Occurrence("a-1@canchatrack", 1, START, END),
+                new IcsCalendar.Occurrence("b-2@canchatrack", 1, START.plusSeconds(86400), END.plusSeconds(86400))),
+                "CANCELADO: Entrenamientos", null, null);
+
+        assertThat(invite.method()).isEqualTo("CANCEL");
+        assertThat(invite.content().split("STATUS:CANCELLED", -1).length - 1).isEqualTo(2);
+        assertThat(invite.content()).contains("METHOD:CANCEL\r\n");
+    }
 }

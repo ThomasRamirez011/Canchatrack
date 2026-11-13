@@ -395,6 +395,42 @@ class OpenApiContractTest {
         assertThat((List<String>) staffRole.get("enum")).doesNotContain("GUARDIAN");
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void eventSeriesAndCalendarFiltersAreDocumentedAndMatchTheDomain() throws Exception {
+        Map<String, Object> spec = load();
+        Map<String, Object> paths = (Map<String, Object>) spec.get("paths");
+        Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) spec.get("components")).get("schemas");
+
+        assertThat(paths.keySet()).contains("/event-series", "/event-series/{seriesId}", "/event-series/{seriesId}/cancel");
+        assertThat(((Map<String, Object>) paths.get("/event-series")).keySet()).containsExactly("post");
+        Map<String, Object> schedule = (Map<String, Object>) ((Map<String, Object>) paths.get("/event-series")).get("post");
+        assertThat(((Map<String, Object>) schedule.get("responses")).keySet()).contains("201", "409", "422");
+
+        Map<String, Object> listEvents = (Map<String, Object>) ((Map<String, Object>) paths.get("/events")).get("get");
+        List<String> filters = ((List<Map<String, Object>>) listEvents.get("parameters")).stream().map(p -> (String) p.get("name")).toList();
+        assertThat(filters).containsExactlyInAnyOrder("categoryId", "venueId", "headCoachId", "eventType", "status", "seriesId", "from", "to");
+
+        // Los tipos y estados del filtro y los días de la serie son los del dominio.
+        List<Map<String, Object>> parameters = (List<Map<String, Object>>) listEvents.get("parameters");
+        List<String> typeEnum = (List<String>) ((Map<String, Object>) parameters.stream().filter(p -> "eventType".equals(p.get("name")))
+                .findFirst().orElseThrow().get("schema")).get("enum");
+        assertThat(typeEnum).containsExactlyInAnyOrderElementsOf(co.edu.unipamplona.canchatrack.scheduling.domain.SchedulingRules.ALL_EVENT_TYPES);
+        List<String> statusEnum = (List<String>) ((Map<String, Object>) parameters.stream().filter(p -> "status".equals(p.get("name")))
+                .findFirst().orElseThrow().get("schema")).get("enum");
+        assertThat(statusEnum).containsExactlyInAnyOrderElementsOf(co.edu.unipamplona.canchatrack.scheduling.domain.SchedulingRules.EVENT_STATUSES);
+        Map<String, Object> request = (Map<String, Object>) schemas.get("ScheduleSeriesRequest");
+        Map<String, Object> weekdays = (Map<String, Object>) ((Map<String, Object>) request.get("properties")).get("weekdays");
+        List<String> days = (List<String>) ((Map<String, Object>) weekdays.get("items")).get("enum");
+        assertThat(days).containsExactlyElementsOf(Arrays.stream(java.time.DayOfWeek.values()).map(Enum::name).toList());
+        Map<String, Object> seriesType = (Map<String, Object>) ((Map<String, Object>) request.get("properties")).get("eventType");
+        assertThat((List<String>) seriesType.get("enum")).containsExactlyInAnyOrderElementsOf(
+                co.edu.unipamplona.canchatrack.scheduling.domain.SchedulingRules.EVENT_TYPES);
+        Map<String, Object> count = (Map<String, Object>) ((Map<String, Object>) ((Map<String, Object>) schemas.get("SeriesResponse"))
+                .get("properties")).get("occurrenceCount");
+        assertThat(count.get("maximum")).isEqualTo(co.edu.unipamplona.canchatrack.scheduling.domain.RecurrenceRules.MAX_OCCURRENCES);
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> load() throws Exception {
         try (InputStream in = getClass().getResourceAsStream(SPEC)) {
