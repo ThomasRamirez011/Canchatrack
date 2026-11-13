@@ -23,6 +23,8 @@ public final class EmailTemplates {
     public static final String EVENT_CANCELLED = "EVENT_CANCELLED";
     public static final String EVENT_REMINDER = "EVENT_REMINDER";
     public static final String EVENT_RESCHEDULED = "EVENT_RESCHEDULED";
+    public static final String EVENT_SERIES_SCHEDULED = "EVENT_SERIES_SCHEDULED";
+    public static final String EVENT_SERIES_CANCELLED = "EVENT_SERIES_CANCELLED";
     public static final String MATCH_RESCHEDULED = "MATCH_RESCHEDULED";
     public static final String COMMITTEE_ASSIGNED = "COMMITTEE_ASSIGNED";
     public static final String COMMITTEE_REJECTED = "COMMITTEE_REJECTED";
@@ -191,6 +193,32 @@ public final class EmailTemplates {
                 }
                 body = sb.toString();
             }
+            case EVENT_SERIES_SCHEDULED -> {
+                String plural = eventPlural(data.get("eventType"));
+                String category = valueOr(data.get("categoryName"), "su categoría");
+                java.util.List<IcsCalendar.Occurrence> sessions = occurrencesOf(data);
+                defaultSubject = "Serie de " + plural + " programada · " + category;
+                body = "Hola,\n\nSe programó una serie de " + sessions.size() + " " + plural + " de la categoría " + category
+                        + ":\n" + sessionLines(sessions, zone) + "\n" + seriesDetails(data);
+                calendar = seriesInvite(IcsCalendar.REQUEST, data, sessions, capitalize(plural) + " · " + category);
+            }
+            case EVENT_SERIES_CANCELLED -> {
+                String plural = eventPlural(data.get("eventType"));
+                String category = valueOr(data.get("categoryName"), "su categoría");
+                java.util.List<IcsCalendar.Occurrence> sessions = occurrencesOf(data);
+                defaultSubject = "CANCELADO: serie de " + plural + " · " + category;
+                StringBuilder sb = new StringBuilder("Hola,\n\nCANCELACIÓN: se cancelaron " + sessions.size() + " " + plural
+                        + " de la categoría " + category + ":\n").append(sessionLines(sessions, zone));
+                if (data.get("reason") != null) {
+                    sb.append("\nMotivo: ").append(singleLine(data.get("reason")));
+                }
+                String link = link(data);
+                if (!link.isEmpty()) {
+                    sb.append("\n\n").append(link);
+                }
+                body = sb.toString();
+                calendar = seriesInvite(IcsCalendar.CANCEL, data, sessions, "CANCELADO: " + capitalize(plural) + " · " + category);
+            }
             case EVENT_REMINDER -> {
                 String label = eventLabel(data.get("eventType"));
                 String category = valueOr(data.get("categoryName"), "su categoría");
@@ -291,6 +319,115 @@ public final class EmailTemplates {
             return start + " a " + WHEN.format(to);
         } catch (RuntimeException e) {
             return start;
+        }
+    }
+
+    // ---------- series de sesiones (RF-014) ----------
+
+    private static final String[] DAYS = {"lun", "mar", "mié", "jue", "vie", "sáb", "dom"};
+    private static final int MAX_SESSIONS = 60;
+
+    private static String eventPlural(String eventType) {
+        if (eventType == null) {
+            return "sesiones";
+        }
+        return switch (eventType.trim()) {
+            case "TRAINING" -> "entrenamientos";
+            case "EVALUATION" -> "sesiones de evaluación";
+            default -> "sesiones";
+        };
+    }
+
+    /**
+     * Sesiones de una serie desde el payload: {@code idEvento|inicio|fin|secuencia} separadas por «;» (formato que arma
+     * {@code AgendaNotices}). Una sesión ilegible se omite en vez de impedir el aviso.
+     */
+    static java.util.List<IcsCalendar.Occurrence> occurrencesOf(Map<String, String> data) {
+        java.util.List<IcsCalendar.Occurrence> sessions = new java.util.ArrayList<>();
+        String raw = data.get("occurrences");
+        if (raw == null || raw.isBlank()) {
+            return sessions;
+        }
+        for (String item : raw.split(";")) {
+            String[] parts = item.trim().split("\\|");
+            if (parts.length < 3 || parts[0].isBlank() || sessions.size() >= MAX_SESSIONS) {
+                continue;
+            }
+            try {
+                Instant start = Instant.parse(parts[1].trim());
+                Instant end = Instant.parse(parts[2].trim());
+                int sequence = parts.length > 3 && parts[3].trim().matches("\\d{1,4}") ? Integer.parseInt(parts[3].trim()) : 0;
+                if (end.isAfter(start)) {
+                    sessions.add(new IcsCalendar.Occurrence(parts[0].trim() + "@canchatrack", sequence, start, end));
+                }
+            } catch (DateTimeParseException e) {
+                // sesión ilegible: se omite
+            }
+        }
+        return sessions;
+    }
+
+    /** Una línea por sesión: «- lun 02/03/2026 17:00 a 19:00». */
+    private static String sessionLines(java.util.List<IcsCalendar.Occurrence> sessions, ZoneId zone) {
+        StringBuilder sb = new StringBuilder();
+        for (IcsCalendar.Occurrence o : sessions) {
+            var from = o.start().atZone(zone);
+            sb.append("- ").append(DAYS[from.getDayOfWeek().getValue() - 1]).append(' ')
+                    .append(range(o.start().toString(), o.end().toString(), zone)).append('\n');
+        }
+        return sb.toString().stripTrailing();
+    }
+
+    /** Escenario, entrenador, punto de encuentro, indicaciones y enlace; sin jugadores ni datos de salud (RN-17). */
+    private static String seriesDetails(Map<String, String> data) {
+        StringBuilder sb = new StringBuilder();
+        if (data.get("venueName") != null) {
+            sb.append("\nEscenario: ").append(singleLine(data.get("venueName")));
+            if (data.get("venueAddress") != null) {
+                sb.append(" (").append(singleLine(data.get("venueAddress"))).append(')');
+            }
+            sb.append('.');
+        }
+        if (data.get("coachName") != null) {
+            sb.append("\nEntrenador: ").append(singleLine(data.get("coachName"))).append('.');
+        }
+        if (data.get("meetingPoint") != null) {
+            sb.append("\nPunto de encuentro: ").append(singleLine(data.get("meetingPoint"))).append('.');
+        }
+        if (data.get("instructions") != null) {
+            sb.append("\nIndicaciones: ").append(singleLine(data.get("instructions")));
+        }
+        String link = link(data);
+        if (!link.isEmpty()) {
+            sb.append("\n\n").append(link);
+        }
+        return sb.toString().stripLeading();
+    }
+
+    /** Una invitación con un VEVENT por sesión; sin sesiones legibles o sin sello, el correo sale sin ella. */
+    private static CalendarInvite seriesInvite(String method, Map<String, String> data,
+                                               java.util.List<IcsCalendar.Occurrence> sessions, String summary) {
+        try {
+            if (sessions.isEmpty()) {
+                return null;
+            }
+            Instant stamp = Instant.parse(data.get("stamp").trim()).truncatedTo(ChronoUnit.SECONDS);
+            String venue = data.get("venueName") == null ? null : singleLine(data.get("venueName"));
+            String address = data.get("venueAddress") == null ? null : singleLine(data.get("venueAddress"));
+            String location = venue == null ? address : address == null ? venue : venue + ", " + address;
+            StringBuilder description = new StringBuilder();
+            if (data.get("coachName") != null) {
+                description.append("Entrenador: ").append(singleLine(data.get("coachName")));
+            }
+            if (data.get("instructions") != null) {
+                description.append(description.length() == 0 ? "" : "\n").append(singleLine(data.get("instructions")));
+            }
+            if (data.get("reason") != null && IcsCalendar.CANCEL.equals(method)) {
+                description.append(description.length() == 0 ? "" : "\n").append("Motivo: ").append(singleLine(data.get("reason")));
+            }
+            return IcsCalendar.series(method, stamp, sessions, summary, location, description.toString());
+        } catch (RuntimeException e) {
+            return null;
         }
     }
 

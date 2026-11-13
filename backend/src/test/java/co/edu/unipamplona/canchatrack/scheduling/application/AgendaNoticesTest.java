@@ -269,4 +269,101 @@ class AgendaNoticesTest {
 
         assertThat(queue.sent.get(0).subject()).isEqualTo("Sesión de evaluación programado · Sub-12");
     }
+
+    // ---------- series (RF-014, RF-016) ----------
+
+    private SeriesInfo series() {
+        return new SeriesInfo(UUID.randomUUID(), "TRAINING", category, UUID.randomUUID(), coach,
+                List.of(java.time.DayOfWeek.MONDAY, java.time.DayOfWeek.WEDNESDAY), java.time.LocalDate.of(2026, 12, 7),
+                java.time.LocalDate.of(2026, 12, 9), java.time.LocalTime.of(17, 0), java.time.LocalTime.of(19, 0),
+                "America/Bogota", "Puerta principal", "Traer uniforme", 2);
+    }
+
+    private SeriesView seriesView(SeriesInfo series) {
+        return new SeriesView(series, List.of(
+                AgendaFakes.training(category, coach, Instant.parse("2026-12-07T22:00:00Z")),
+                AgendaFakes.training(category, coach, Instant.parse("2026-12-09T22:00:00Z"))));
+    }
+
+    @Test
+    void aSeriesIsOneNoticeForTheWholeSeriesToEachGuardianOnceAndTheCoach() {
+        SeriesInfo series = series();
+        SeriesView view = seriesView(series);
+
+        notices("https://app.club.example").seriesScheduled(view);
+
+        assertThat(queue.sent).hasSize(1);
+        Enqueued notice = queue.sent.get(0);
+        assertThat(notice.type()).isEqualTo("EVENT_SERIES_SCHEDULED");
+        assertThat(notice.recipients()).containsExactly(guardianOfBoth, guardianOfOne, coach);
+        assertThat(notice.relatedEntityType()).isEqualTo("event_series");
+        assertThat(notice.relatedEntityId()).isEqualTo(series.id());
+        assertThat(notice.dedupScope()).isEqualTo("scheduled");
+        assertThat(notice.subject()).isEqualTo("Serie de entrenamientos programada · Sub-12");
+    }
+
+    @Test
+    void theSeriesPayloadListsEverySessionWithItsOwnEventIdAndNoPlayerData() {
+        SeriesView view = seriesView(series());
+
+        notices("https://app.club.example").seriesScheduled(view);
+
+        var payload = queue.sent.get(0).payload();
+        String first = view.events().get(0).id() + "|2026-12-07T22:00:00Z|2026-12-07T23:30:00Z|0";
+        String second = view.events().get(1).id() + "|2026-12-09T22:00:00Z|2026-12-09T23:30:00Z|0";
+        assertThat(payload.get("occurrences")).isEqualTo(first + ";" + second);
+        assertThat(payload.get("count")).isEqualTo("2");
+        assertThat(payload.get("seriesId")).isEqualTo(view.series().id().toString());
+        assertThat(payload.get("categoryName")).isEqualTo("Sub-12");
+        assertThat(payload.get("meetingPoint")).isEqualTo("Puerta principal");
+        assertThat(payload.get("instructions")).isEqualTo("Traer uniforme");
+        assertThat(payload.get("appUrl")).isEqualTo("https://app.club.example");
+        assertThat(payload.get("stamp")).isEqualTo(AgendaFakes.NOW.toString());
+        assertThat(payload.values().stream().anyMatch(v -> v.contains("Jugadorcito") || v.contains("Ana"))).isFalse();
+    }
+
+    @Test
+    void onlyConfirmedSessionsAreAnnounced() {
+        SeriesInfo series = series();
+        EventView confirmed = AgendaFakes.training(category, coach, Instant.parse("2026-12-07T22:00:00Z"));
+        EventView cancelled = new EventView(UUID.randomUUID(), "TRAINING", category, UUID.randomUUID(), "Cancha", coach,
+                Instant.parse("2026-12-09T22:00:00Z"), Instant.parse("2026-12-09T23:30:00Z"), null, null, null, "CANCELLED", "Lluvia");
+
+        notices("").seriesScheduled(new SeriesView(series, List.of(confirmed, cancelled)));
+
+        assertThat(queue.sent.get(0).payload().get("count")).isEqualTo("1");
+        assertThat(queue.sent.get(0).payload().get("occurrences")).startsWith(confirmed.id().toString());
+    }
+
+    @Test
+    void aSeriesWithoutRecipientsOrSessionsQueuesNothing() {
+        AgendaNotices empty = new AgendaNotices(store, roster, guardians, queue, new AgendaSettings("", List.of(2, 24)), audience);
+        SeriesInfo noCoach = new SeriesInfo(UUID.randomUUID(), "TRAINING", UUID.randomUUID(), UUID.randomUUID(), null,
+                List.of(java.time.DayOfWeek.MONDAY), java.time.LocalDate.of(2026, 12, 7), java.time.LocalDate.of(2026, 12, 7),
+                java.time.LocalTime.of(17, 0), java.time.LocalTime.of(19, 0), "America/Bogota", null, null, 1);
+
+        empty.seriesScheduled(new SeriesView(noCoach, List.of(AgendaFakes.training(noCoach.categoryId(), null, Instant.parse("2026-12-07T22:00:00Z")))));
+        empty.seriesScheduled(new SeriesView(noCoach, List.of()));
+
+        assertThat(queue.sent).isEmpty();
+    }
+
+    @Test
+    void cancellingASeriesIsOneNoticeWithTheReasonAndEachSessionsRevisionAsSequence() {
+        SeriesInfo series = series();
+        SeriesView view = seriesView(series);
+        store.revisions.put(view.events().get(0).id(), 1);
+        store.revisions.put(view.events().get(1).id(), 2);
+
+        notices("").seriesCancelled(series, view.events(), "Cancha cerrada por obras");
+
+        assertThat(queue.sent).hasSize(1);
+        Enqueued notice = queue.sent.get(0);
+        assertThat(notice.type()).isEqualTo("EVENT_SERIES_CANCELLED");
+        assertThat(notice.recipients()).containsExactly(guardianOfBoth, guardianOfOne, coach);
+        assertThat(notice.payload().get("reason")).isEqualTo("Cancha cerrada por obras");
+        assertThat(notice.payload().get("occurrences")).contains("|1;").endsWith("|2");
+        assertThat(notice.subject()).isEqualTo("CANCELADO: serie de entrenamientos · Sub-12");
+        assertThat(notice.dedupScope()).startsWith("cancelled:");
+    }
 }

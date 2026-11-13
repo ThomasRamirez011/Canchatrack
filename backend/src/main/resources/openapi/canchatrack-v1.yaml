@@ -1160,19 +1160,36 @@ paths:
     get:
       tags: [scheduling]
       operationId: listEvents
-      summary: Lista eventos (coordinador y comité, todos; entrenador, solo los suyos).
+      summary: Calendario de eventos, filtrable (coordinador y comité, todos; entrenador, solo los suyos).
+      description: |
+        Los filtros son opcionales y se combinan con Y. El rango `from` (inclusivo) a `to` (exclusivo) da la vista diaria,
+        semanal o mensual del calendario. El entrenador siempre queda limitado a los eventos de los que es responsable: si pide
+        los de otro entrenador o de una serie ajena, la lista sale vacía. `eventType` y `status` no distinguen mayúsculas.
+        Un valor desconocido o un rango invertido responde 422 con todos los errores juntos.
       parameters:
         - { name: categoryId, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: venueId, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: headCoachId, in: query, required: false, schema: { type: string, format: uuid } }
+        - name: eventType
+          in: query
+          required: false
+          schema: { type: string, enum: [TRAINING, EVALUATION, FRIENDLY_MATCH, TOURNAMENT_MATCH] }
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [CONFIRMED, CANCELLED, COMPLETED] }
+        - { name: seriesId, in: query, required: false, schema: { type: string, format: uuid } }
         - { name: from, in: query, required: false, schema: { type: string, format: date-time } }
         - { name: to, in: query, required: false, schema: { type: string, format: date-time } }
       responses:
         '200':
-          description: Hasta 200 eventos ordenados por inicio.
+          description: Hasta 500 eventos ordenados por inicio.
           content:
             application/json:
               schema: { type: array, items: { $ref: '#/components/schemas/EventResponse' } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
     post:
       tags: [scheduling]
       operationId: scheduleEvent
@@ -1260,6 +1277,77 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/EventResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /event-series:
+    post:
+      tags: [scheduling]
+      operationId: scheduleEventSeries
+      summary: Programa una serie semanal de entrenamientos o evaluaciones (solo coordinador).
+      description: |
+        Crea una sesión por cada fecha entre `startDate` y `endDate` (ambas incluidas) que cae en alguno de los `weekdays`, a
+        la misma hora local del club (`startTime` a `endTime`). Máximo 60 sesiones y 366 días; la primera debe ser a futuro.
+        Cada sesión es un evento independiente: se cancela, se reprograma y tiene asistencia y recordatorios por su cuenta.
+        Es **todo o nada**: si alguna sesión cruza el horario de su escenario, entrenador o categoría (RN-14) no se crea
+        ninguna y se responde 409 SCHEDULE_CONFLICT con todos los cruces (`conflicts`, cada uno con `occurrenceStartAt`, la
+        sesión de la serie que choca). Un solo correo avisa a los acudientes de la categoría y al entrenador, con una
+        invitación de calendario de todas las sesiones.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ScheduleSeriesRequest' }
+      responses:
+        '201':
+          description: Serie creada, con sus sesiones.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeriesResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+  /event-series/{seriesId}:
+    get:
+      tags: [scheduling]
+      operationId: getEventSeries
+      summary: Detalle de una serie con todas sus sesiones (el entrenador solo ve las suyas; sin acceso responde 404).
+      parameters:
+        - { name: seriesId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Serie con sus sesiones, también las canceladas, en orden cronológico.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeriesResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /event-series/{seriesId}/cancel:
+    post:
+      tags: [scheduling]
+      operationId: cancelEventSeries
+      summary: Cancela las sesiones futuras y confirmadas de una serie con un motivo (solo coordinador).
+      description: |
+        Las sesiones que ya empezaron, se completaron o se cancelaron antes no se tocan. Cada sesión cancelada queda auditada y un
+        solo correo avisa a acudientes y entrenador, con una invitación de cancelación de todas ellas. Una serie sin sesiones
+        futuras confirmadas responde 409.
+      parameters:
+        - { name: seriesId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CancelEventRequest' }
+      responses:
+        '200':
+          description: La serie con sus sesiones ya canceladas.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeriesResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -2650,6 +2738,46 @@ components:
         meetingPoint: { type: string, maxLength: 200 }
         instructions: { type: string }
         reason: { type: string, maxLength: 2000 }
+    ScheduleSeriesRequest:
+      type: object
+      properties:
+        eventType: { type: string, enum: [TRAINING, EVALUATION] }
+        categoryId: { type: string, format: uuid }
+        venueId: { type: string, format: uuid }
+        headCoachId: { type: string, format: uuid }
+        weekdays:
+          type: array
+          minItems: 1
+          items: { type: string, enum: [MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY] }
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date }
+        startTime: { type: string, example: '17:00', description: Hora local del club. }
+        endTime: { type: string, example: '19:00', description: Hora local del club; posterior al inicio, el mismo día. }
+        meetingPoint: { type: string, maxLength: 200 }
+        instructions: { type: string }
+    SeriesResponse:
+      type: object
+      required: [id, eventType, categoryId, venueId, weekdays, startDate, endDate, startTime, endTime, timeZone, occurrenceCount, events]
+      properties:
+        id: { type: string, format: uuid }
+        eventType: { type: string, enum: [TRAINING, EVALUATION] }
+        categoryId: { type: string, format: uuid }
+        venueId: { type: string, format: uuid }
+        headCoachId: { type: string, format: uuid }
+        weekdays:
+          type: array
+          items: { type: string, enum: [MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY] }
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date }
+        startTime: { type: string }
+        endTime: { type: string }
+        timeZone: { type: string, example: America/Bogota }
+        meetingPoint: { type: string }
+        instructions: { type: string }
+        occurrenceCount: { type: integer, minimum: 1, maximum: 60 }
+        events:
+          type: array
+          items: { $ref: '#/components/schemas/EventResponse' }
     EventResponse:
       type: object
       required: [id, eventType, categoryId, venueId, venueName, startAt, endAt, status]

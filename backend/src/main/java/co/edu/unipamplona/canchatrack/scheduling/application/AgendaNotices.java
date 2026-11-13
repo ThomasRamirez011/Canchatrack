@@ -1,6 +1,8 @@
 package co.edu.unipamplona.canchatrack.scheduling.application;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Map;
@@ -29,7 +31,10 @@ public class AgendaNotices {
     public static final String CANCELLED = "EVENT_CANCELLED";
     public static final String REMINDER = "EVENT_REMINDER";
     public static final String RESCHEDULED = "EVENT_RESCHEDULED";
+    public static final String SERIES_SCHEDULED = "EVENT_SERIES_SCHEDULED";
+    public static final String SERIES_CANCELLED = "EVENT_SERIES_CANCELLED";
     static final String RELATED_ENTITY = "sports_event";
+    static final String SERIES_ENTITY = "event_series";
 
     private final SchedulingStore store;
     private final CategoryRoster roster;
@@ -83,6 +88,62 @@ public class AgendaNotices {
         int revision = store.revisionOf(event.id());
         String scope = revision == 0 ? "reminder:" + hoursBefore : "reminder:" + hoursBefore + ":r" + revision;
         enqueue(event, REMINDER, "Recordatorio: " + lower(label(event)), scope, Set.of(), Map.of("hoursBefore", Integer.toString(hoursBefore)));
+    }
+
+    /**
+     * Un solo correo por serie (RF-014, RF-016): lista las sesiones y adjunta una invitación con una cita por sesión. Cada cita
+     * conserva el identificador de su evento, así que reprogramar o cancelar una sesión suelta actualiza esa misma cita.
+     * Los recordatorios de 24 h y 2 h siguen saliendo por sesión.
+     */
+    public void seriesScheduled(SeriesView view) {
+        List<EventView> sessions = view.events().stream().filter(e -> "CONFIRMED".equals(e.status())).toList();
+        enqueueSeries(view.series(), sessions, SERIES_SCHEDULED, "scheduled", Map.of(), 0);
+    }
+
+    /** Un solo correo con la lista de las sesiones canceladas y una invitación de cancelación (una cita por sesión). */
+    public void seriesCancelled(SeriesInfo series, List<EventView> cancelled, String reason) {
+        enqueueSeries(series, cancelled, SERIES_CANCELLED, "cancelled:" + cancelled.get(0).id(), Map.of("reason", reason), -1);
+    }
+
+    /** @param fixedSequence {@code SEQUENCE} de todas las citas; -1 usa la revisión de cada evento (la cancelación la sube) */
+    private void enqueueSeries(SeriesInfo series, List<EventView> sessions, String type, String dedupScope,
+                               Map<String, String> extra, int fixedSequence) {
+        if (sessions.isEmpty()) {
+            return;
+        }
+        EventView first = sessions.get(0);
+        Set<UUID> recipients = new LinkedHashSet<>(guardians.guardianUserIdsOf(roster.activePlayerIds(series.categoryId())));
+        if (series.headCoachId() != null) {
+            recipients.add(series.headCoachId());
+        }
+        if (recipients.isEmpty()) {
+            return;
+        }
+        EventContext context = store.contextOf(first);
+        // idEvento|inicio|fin|secuencia separados por «;»: es el formato que lee la plantilla de notifications.
+        List<String> items = new ArrayList<>();
+        for (EventView e : sessions) {
+            int sequence = fixedSequence >= 0 ? fixedSequence : store.revisionOf(e.id());
+            items.add(e.id() + "|" + e.startAt() + "|" + e.endAt() + "|" + sequence);
+        }
+        Map<String, String> payload = new LinkedHashMap<>();
+        put(payload, "seriesId", series.id().toString());
+        put(payload, "eventType", series.eventType());
+        put(payload, "categoryName", context.categoryName());
+        put(payload, "venueName", first.venueName());
+        put(payload, "venueAddress", context.venueAddress());
+        put(payload, "coachName", context.coachName());
+        put(payload, "meetingPoint", series.meetingPoint());
+        put(payload, "instructions", series.instructions());
+        put(payload, "appUrl", settings.appUrl());
+        put(payload, "stamp", store.now().toString());
+        put(payload, "count", Integer.toString(sessions.size()));
+        put(payload, "occurrences", String.join(";", items));
+        extra.forEach((key, value) -> put(payload, key, value));
+        String category = context.categoryName() == null ? "" : " · " + context.categoryName();
+        String plural = "EVALUATION".equals(series.eventType()) ? "sesiones de evaluación" : "entrenamientos";
+        String subject = SERIES_CANCELLED.equals(type) ? "CANCELADO: serie de " + plural : "Serie de " + plural + " programada";
+        queue.enqueue(type, recipients, subject + category, payload, SERIES_ENTITY, series.id(), dedupScope);
     }
 
     private void enqueue(EventView event, String type, String subjectPrefix, String dedupScope, Set<UUID> extraRecipients,

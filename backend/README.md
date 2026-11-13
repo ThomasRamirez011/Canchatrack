@@ -67,6 +67,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 - `scheduling` + `notifications` (avisos de agenda, ver «Avisos de agenda»): al programar o cancelar un entrenamiento o una evaluación se
   avisa por correo a los acudientes de la categoría y al entrenador, con invitación `.ics`; recordatorios 24 h y 2 h antes, sin repetirse (RF-016, RF-018 a RF-020).
 - `scheduling` + `competitions` + `notifications` (reprogramación, ver «Reprogramación»): el coordinador cambia fecha, escenario, entrenador o indicaciones de un evento o de un partido confirmado, con motivo; el calendario recibe la misma cita actualizada, los acudientes un aviso y, en un partido, se revisa de nuevo la convocatoria (RF-017, RF-018).
+- `scheduling` + `notifications` (sesiones recurrentes y calendario, ver «Sesiones recurrentes y calendario»): el coordinador programa una serie semanal de entrenamientos o evaluaciones (días de la semana, hora local del club, fecha final; hasta 60 sesiones), todo o nada ante cruces, con un solo correo con la invitación `.ics` de todas las sesiones; cancela la serie de una vez; el calendario se filtra por categoría, entrenador, escenario, tipo, estado, serie y rango de fechas (RF-013, RF-014).
 - `audit`: puerto `AuditWriter` (`write` en la transacción de negocio; `writeIndependent` para intentos rechazados,
   p. ej. PA-01), adaptador JDBC y consulta de la bitácora con filtros y cursor (CU-14, ver «Auditoría y reportes»).
 - `reports` (ver «Auditoría y reportes» e «Informe de temporada y cierre del expediente»): cartera por categoría con exportación a CSV y resumen de temporada, como modelo de lectura; informe PDF versionado por jugador y cierre o reapertura del expediente (CU-10, CU-11).
@@ -75,7 +76,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 
 | Qué | Cómo se verificó | Estado |
 |---|---|---|
-| Migraciones V1..V17 sobre PostgreSQL 16 real | `scripts/check-schema.sh` | Ejecutado: OK |
+| Migraciones V1..V18 sobre PostgreSQL 16 real | `scripts/check-schema.sh` | Ejecutado: OK |
 | Invariantes críticas (≈90 aserciones, incl. pagos, asistencia, unanimidad, auditoría) | `schema-invariants.sql`; se comprobó que **fallan** si se quitan los triggers | Ejecutado: OK |
 | `ErrorCode` coincide con DDS 13, `DomainException`, `AuditRecord` | `javac` + ejecución | Ejecutado: OK |
 | YAML (perfiles, compose), `pom.xml`, OpenAPI 3.1 | parseo / `openapi-spec-validator` | Ejecutado: OK |
@@ -98,6 +99,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 | Reprogramación (`scheduling`, `competitions`, `notifications`, `AgendaNoticesTest`, `NotificationRulesTest`, `AgendaNotificationsIT`, `CompetitionsIT`) | Sin migración nueva. Las sentencias SQL nuevas (cruces con exclusión del propio evento, `UPDATE` de fecha, escenario y datos con la revisión + 1 y la guarda `status = 'CONFIRMED'`, cambio del entrenador titular, lectura de la revisión, `updated_at` actualizado por el trigger y usado como base de los recordatorios) ejecutadas sobre PostgreSQL 16 real con V1..V17; dominio y aplicación compilados con `javac -Xlint:all` y 44 pruebas unitarias (`AgendaNoticesTest`, `EventReminderServiceTest`, `NotificationRulesTest` con las plantillas de reprogramación y la secuencia de la cancelación) ejecutadas con un sustituto mínimo de JUnit y AssertJ; sintaxis de los 25 fuentes modificados analizada con el parser de `javac`; OpenAPI validado (73 rutas, 120 esquemas). Controladores, adaptador JDBC y las pruebas de integración nuevas **no** se compilaron contra Spring en el sandbox | **Verificado** el 12/11/2026 en el pipeline de GitHub Actions (PR #19): `mvn verify` en BUILD SUCCESS con 379 pruebas unitarias y 157 de integración, 0 fallos, incluidas `AgendaNoticesTest` (12), `NotificationRulesTest` (29), `AgendaNotificationsIT` (9) y `CompetitionsIT` (8); imagen Docker y smoke test en verde. Dos corridas: la primera falló en 3 pruebas de `AgendaNotificationsIT` por errores de las pruebas (asunto esperado distinto del que guarda la cola y un `UPDATE` que el trigger `set_updated_at` marcaba como modificación reciente), no del código de producción |
 | Recordatorios de partidos y aviso al entrenador (`scheduling`, `competitions`, `notifications`, `AgendaNoticesTest`, `EventReminderServiceTest`, `NotificationRulesTest`, `ReminderPolicyTest`, `AgendaNotificationsIT`, `CompetitionsIT`) | Sin migración nueva. Las consultas nuevas (contexto del evento con el rival, jugadores confirmados de un evento-partido, eventos próximos con los cuatro tipos) ejecutadas sobre PostgreSQL 16 real con V1..V17; dominio y aplicación compilados con `javac -Xlint:all` y 62 pruebas unitarias ejecutadas con un sustituto mínimo de JUnit y AssertJ; sintaxis de los 23 fuentes modificados analizada con el parser de `javac`. Adaptador JDBC, `MatchAudienceService` y las pruebas de integración nuevas se verificaron en el pipeline | **Verificado** en GitHub Actions (PR #20): 388 pruebas unitarias y 160 de integración, 0 fallos; imagen Docker y smoke test en verde |
 | Avisos de mora y del resultado del comité (`payments`, `players`, `notifications`, `ArrearsPolicyTest`, `ArrearsNoticeServiceTest`, `CommitteeDecisionServiceTest`, `NotificationRulesTest`, `ArrearsNoticeIT`, `CommitteeIT`) | Sin migración nueva. La consulta de cargos vencidos con saldo ejecutada sobre PostgreSQL 16 real con V1..V17 (excluye pagados, futuros, demasiado antiguos y jugadores rechazados; el pago parcial deja su saldo); dominio y aplicación compilados con `javac -Xlint:all` y 107 pruebas unitarias ejecutadas con un sustituto mínimo de JUnit y AssertJ (incluye las de agenda ya existentes); sintaxis de las clases Spring y de las pruebas de integración analizada con el parser de `javac`. Adaptador JDBC, programador, configuración y las pruebas de integración nuevas se verificaron en el pipeline | **Verificado** en GitHub Actions (PR #21): 409 pruebas unitarias y 166 de integración, 0 fallos; imagen Docker y smoke test en verde. La primera corrida falló en `DocumentsIT` por un borde horario de la propia prueba (UTC frente a Bogotá), corregido en el mismo PR |
+| Sesiones recurrentes y calendario filtrable (`scheduling`, `notifications`, V18, `RecurrenceRulesTest`, `SchedulingRulesTest`, `IcsCalendarTest`, `NotificationRulesTest`, `AgendaNoticesTest`, `OpenApiContractTest`, `RecurringSessionsIT`) | V18 y `schema-invariants.sql` sobre PostgreSQL 16 real (`scripts/check-schema.sh`, con cinco aserciones nuevas); las sentencias nuevas del almacén (alta de la serie con el arreglo de días, sesiones ligadas por posición, lectura ordenada de la serie, calendario con los ocho filtros opcionales, rango inclusivo-exclusivo) y las ocho restricciones de la serie ejecutadas contra esa base; dominio, aplicación y plantillas compilados con `javac -Xlint:all` y 102 pruebas unitarias ejecutadas con un sustituto mínimo de JUnit y AssertJ; sintaxis de los 24 fuentes modificados o nuevos analizada con el parser de `javac`; OpenAPI validado con `openapi-spec-validator` (76 rutas, 122 esquemas). Adaptador JDBC, controlador, configuración y `RecurringSessionsIT` **no** se compilaron contra Spring en el sandbox | **Verificado** en GitHub Actions (PR #22, commit 3101f1a): `mvn verify` en BUILD SUCCESS con 436 pruebas unitarias y 176 de integración, 0 fallos, incluidas `RecurrenceRulesTest` (10), `SchedulingRulesTest` (6), `IcsCalendarTest` (9), `NotificationRulesTest` (40), `AgendaNoticesTest` (22), `OpenApiContractTest` (17) y `RecurringSessionsIT` (10); imagen Docker y smoke test en verde. Una sola corrida |
 | Contenedor e integración continua (`Dockerfile`, `.github/workflows/backend-ci.yml`) | El pipeline es su propia verificación: se ejecutó en GitHub Actions sobre el PR | **Verificado:** `mvn verify` (unitarias + integración con Testcontainers), construcción de la imagen y smoke test (health `UP`, login del coordinador de desarrollo, 401 sin token) en verde (2026-11-12). La primera ejecución falló por Docker Engine 29 (ver «Contenedor e integración continua») |
 | Código Spring (filtro, handler, seguridad, `JdbcAuditWriter`), `ArchitectureTest`, unitarias | `mvn test` en Windows 11, JDK 24 (compila con `--release 21`), Maven 3.10.0 | Ejecutado: OK (19 pruebas, 0 fallos) |
 | `*IT` con Testcontainers (`DatabaseSchemaIT`, `AuditWriterIT`) | `mvn verify`, Docker Desktop 4.98 / Engine 29.9.2 | Ejecutado: OK (7 pruebas, 0 fallos) |
@@ -136,6 +138,7 @@ api.version=1.44
    (`UnanimityPolicy`), cruces de agenda (el DDS 11.2 admite "resolución explícita según política"), cupo de categoría,
    y las "acciones concretas" de RN-11 (la base exige solo la justificación, como el DDS).
 10. Requiere **PostgreSQL ≥ 15** (`UNIQUE NULLS NOT DISTINCT` en `charges`).
+11. **Sesiones recurrentes (RF-014):** el ERS no define la repetición. Se implementó semanal por días de la semana y fecha final (máx. 60 sesiones), todo o nada ante cruces y un correo por serie con el `.ics` de todas las sesiones (decisiones del usuario). Confirmar con el club si necesita feriados excluidos o repetición cada N semanas.
 
 ## Convenciones
 
@@ -501,7 +504,7 @@ con marcas en curso, y el trigger `CT002` sigue siendo la última defensa. (4) L
 (DP pendiente): es una propuesta documentada. (6) Auditoría: `VENUE_CREATED`, `EVENT_SCHEDULED`, `EVENT_CANCELLED`,
 `ATTENDANCE_SESSION_CLOSED`, `ATTENDANCE_CORRECTED`.
 
-**Pendiente.** Sesiones recurrentes (RF-014) y calendario con filtros por entrenador y escenario. Los avisos por correo con `.ics` ya están (ver
+**Pendiente.** Nada de RF-013 y RF-014: las sesiones recurrentes y el calendario filtrable están en «Sesiones recurrentes y calendario». Los avisos por correo con `.ics` ya están (ver
 «Avisos de agenda»), la reprogramación también (ver «Reprogramación») y los partidos viven en `competitions`.
 
 ## Evaluaciones y ascenso (evaluations, players)
@@ -719,6 +722,49 @@ no debe incluir datos de salud (RN-17).
 
 **Pendiente.** Retirar del calendario del entrenador anterior con una cancelación propia y reprogramación masiva de una jornada.
 
+## Sesiones recurrentes y calendario (scheduling, notifications)
+
+**RF-014.** Una *serie* programa de una vez muchas sesiones semanales de entrenamiento o evaluación. V18 añade `event_series` (la regla con la que se generó la
+serie) y `sports_events.series_id` / `series_position`; **cada sesión sigue siendo un evento independiente**: se cancela, se reprograma, tiene asistencia,
+recordatorios 24 h y 2 h y cruces por su cuenta, y el calendario las muestra como cualquier otro evento.
+
+| Operación | Ruta | Quién |
+|---|---|---|
+| Programar una serie | `POST /event-series` | COORDINATOR |
+| Ver una serie con sus sesiones | `GET /event-series/{seriesId}` | COORDINATOR, COMMITTEE; COACH solo las suyas (si no, 404) |
+| Cancelar las sesiones futuras de una serie | `POST /event-series/{seriesId}/cancel` | COORDINATOR |
+
+**Cuerpo de `POST /event-series`.** `eventType` (`TRAINING` o `EVALUATION`), `categoryId`, `venueId`, `headCoachId`, `weekdays` (`MONDAY`..`SUNDAY`),
+`startDate` y `endDate` (ambas incluidas), `startTime` y `endTime` (hora **local del club**, `canchatrack.zone-id`) y, opcionales, `meetingPoint` e `instructions`.
+Se crea una sesión por cada fecha entre el inicio y el fin que cae en esos días, a esa hora local.
+
+**Reglas.** (1) Máximo **60 sesiones** y **366 días** entre el inicio y el fin; la fecha de inicio no puede ser anterior a hoy y la primera sesión debe ser a futuro.
+(2) Una sesión no cruza la medianoche ni dura más de 12 horas. (3) Todos los errores se informan juntos en un 422, incluidos los días mal escritos (`weekdays`).
+(4) **Todo o nada ante cruces (RN-14):** se revisan las fechas de la serie contra el escenario, el entrenador y la categoría; si alguna choca no se crea ninguna y la respuesta es 409
+`SCHEDULE_CONFLICT` con la lista completa en `conflicts` (cada entrada trae `occurrenceStartAt`, la sesión de la serie que choca, además de la dimensión y el evento existente). Un evento cancelado libera el horario.
+(5) Las solicitudes simultáneas sobre el mismo escenario, entrenador o categoría se serializan con los mismos bloqueos que ya usa la programación de un solo evento.
+(6) La serie guarda la zona horaria con la que convirtió las horas, de modo que "17:00" sigue siendo las 17:00 del club aunque cambie el desfase con UTC.
+
+**Avisos (RF-016, RF-020).** Una serie envía **un solo correo** (`EVENT_SERIES_SCHEDULED`) a los acudientes de la categoría y al entrenador, con la lista de las sesiones
+(`- lun 02/03/2027 17:00 a 19:00`) y **una invitación `.ics` con una cita por sesión**. Cada cita conserva el UID de su evento (`<id del evento>@canchatrack`), así que reprogramar o cancelar
+después una sesión suelta actualiza esa misma cita en el calendario. Los recordatorios de 24 h y 2 h siguen saliendo por sesión. El correo no nombra jugadores ni lleva datos de salud (RN-17).
+
+**Cancelar la serie.** Cancela las sesiones futuras y confirmadas con un solo motivo (obligatorio); las que ya empezaron, se completaron o se cancelaron antes no se tocan. Cada sesión
+queda auditada como `EVENT_CANCELLED` y la serie como `EVENT_SERIES_CANCELLED`; un solo correo (`EVENT_SERIES_CANCELLED`) lleva la lista y una invitación de cancelación de todas las sesiones canceladas
+(`SEQUENCE` igual a la revisión de cada evento). Una serie sin sesiones futuras confirmadas responde 409.
+
+**Calendario (RF-013).** `GET /events` acepta, todos opcionales y combinados con Y: `categoryId`, `venueId`, `headCoachId`, `eventType`, `status`, `seriesId` y el rango
+`from` (inclusivo) a `to` (exclusivo). Las vistas diaria, semanal y mensual son un rango de fechas: la presentación es del front. `eventType` y `status` no distinguen mayúsculas; un valor desconocido
+o un rango invertido responde 422 con todos los errores. El entrenador sigue viendo solo lo suyo: si pide los eventos de otro entrenador, la lista sale vacía. El tope de la lista sube de 200 a 500 eventos.
+
+**Decisiones del usuario.** Repetición semanal por días y fecha final; todo o nada ante cruces; un correo por serie con el `.ics` de todas las sesiones.
+
+**Decisiones propias.** (1) No hay "editar la serie": para cambiar algo se cancela y se programa otra, o se reprograma una sesión suelta. (2) La serie no tiene estado propio: se deduce de sus sesiones.
+(3) Una serie no lleva hora de concentración (`meetingAt`); si hace falta, se agrega reprogramando una sesión. (4) Las sesiones que no se cancelaron individualmente no reciben aviso de cancelación propio al cancelar la serie
+(llegan en el correo único). (5) Sin excepciones por feriados: el coordinador cancela la sesión suelta. (6) Auditoría: `EVENT_SERIES_SCHEDULED` (regla y conteo; no repite cada sesión) y `EVENT_SERIES_CANCELLED`.
+
+**Pendiente.** Excluir fechas (feriados) al crear la serie, repetición cada N semanas, editar la serie completa y un resumen mensual de asistencia por serie.
+
 ## Procesador de notificaciones (notifications)
 
 Los módulos encolan avisos con `notifications.api.NotificationQueue` (fila `PENDING` en la misma transacción del negocio, deduplicada). El
@@ -761,5 +807,5 @@ registro, despliegue, y que `main` exija el pipeline en verde (protección de ra
 
 ## Siguiente paso
 
-Siguiente incremento: sesiones recurrentes y filtros de calendario, adjuntos en la radicación,
+Siguiente incremento: adjuntos en la radicación,
 exportaciones, seguridad (recuperación de contraseña, verificación de correo, límite de tasa) y puertas de calidad. CORS ya está resuelto. CU-10 y CU-11 quedan con plantilla provisional hasta que el club defina P-09.

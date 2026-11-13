@@ -4,7 +4,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.time.ZoneId;
+
 import co.edu.unipamplona.canchatrack.scheduling.application.AgendaSettings;
+import co.edu.unipamplona.canchatrack.scheduling.application.SeriesSettings;
 import co.edu.unipamplona.canchatrack.scheduling.domain.ReminderPolicy;
 
 @Configuration(proxyBeanMethods = false)
@@ -20,5 +23,11 @@ class SchedulingConfig {
                                   @Value("${canchatrack.scheduling.reminders.match-hours:48,2}") String matchReminderHours) {
         return new AgendaSettings(appUrl, ReminderPolicy.parseHours(reminderHours),
                 ReminderPolicy.parseHours(matchReminderHours, "canchatrack.scheduling.reminders.match-hours"));
+    }
+
+    /** Zona del club: las horas de una serie semanal son horas locales de esta zona. */
+    @Bean
+    SeriesSettings seriesSettings(@Value("${canchatrack.zone-id:America/Bogota}") String zoneId) {
+        return new SeriesSettings(ZoneId.of(zoneId));
     }
 }

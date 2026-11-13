@@ -1,7 +1,11 @@
 package co.edu.unipamplona.canchatrack.scheduling.application;
 
+import java.time.DayOfWeek;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
+import java.util.Set;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -68,6 +72,20 @@ public interface SchedulingStore {
      */
     List<ReminderCandidate> findUpcomingForReminders(Instant from, Instant to);
 
-    /** @param coachId si no es nulo, solo los eventos de los que es entrenador responsable */
-    List<EventView> findEvents(UUID categoryId, Instant from, Instant to, UUID coachId, int limit);
+    /** Eventos que cumplen todos los filtros, ordenados por inicio. */
+    List<EventView> findEvents(EventQuery query, int limit);
+
+    /** @throws ReferenceNotFoundException si la categoría, el escenario o el entrenador no existen */
+    UUID insertSeries(String eventType, UUID categoryId, UUID venueId, UUID headCoachId, Set<DayOfWeek> weekdays,
+                      LocalDate startDate, LocalDate endDate, LocalTime startTime, LocalTime endTime, String timeZone,
+                      String meetingPoint, String instructions, int occurrenceCount, UUID createdBy);
+
+    /** Igual que {@link #insertEvent} pero ligado a su serie; {@code position} empieza en 1. */
+    UUID insertSeriesEvent(UUID seriesId, int position, String eventType, UUID categoryId, UUID venueId, Instant startAt,
+                           Instant endAt, String meetingPoint, String instructions, UUID headCoachId, UUID createdBy);
+
+    Optional<SeriesInfo> findSeries(UUID seriesId);
+
+    /** Todas las sesiones de la serie, también las canceladas, por orden cronológico. */
+    List<EventView> findSeriesEvents(UUID seriesId);
 }
