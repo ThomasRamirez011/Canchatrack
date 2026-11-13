@@ -38,7 +38,7 @@ class AuthenticationServiceTest {
     void setUp() {
         AuthSettings settings = new AuthSettings(Duration.ofDays(7), Duration.ofDays(30),
                 new LockoutPolicy(5, Duration.ofMinutes(15)), false);
-        auth = new AuthenticationService(users, refreshTokens, hasher, new FakeIssuer(), audit, settings, clock);
+        auth = new AuthenticationService(users, refreshTokens, hasher, new FakeIssuer(), audit, settings, MfaGate.DISABLED, clock);
         userId = new UserAdministrationService(users, hasher, audit)
                 .createStaffUser(new CreateUserCommand(EMAIL, "Entrenador Uno", PASSWORD, List.of("COACH")),
                         UUID.randomUUID(), "COORDINATOR", ClientOrigin.UNKNOWN)
@@ -214,7 +214,7 @@ class AuthenticationServiceTest {
     private AuthenticationService strictAuth() {
         AuthSettings strict = new AuthSettings(Duration.ofDays(7), Duration.ofDays(30),
                 new LockoutPolicy(5, Duration.ofMinutes(15)), true);
-        return new AuthenticationService(users, refreshTokens, hasher, new FakeIssuer(), audit, strict, clock);
+        return new AuthenticationService(users, refreshTokens, hasher, new FakeIssuer(), audit, strict, MfaGate.DISABLED, clock);
     }
 
     private UUID unverifiedGuardian() {

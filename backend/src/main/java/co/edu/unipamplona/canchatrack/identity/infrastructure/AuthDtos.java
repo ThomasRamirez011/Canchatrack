@@ -120,4 +120,74 @@ public final class AuthDtos {
             return "SessionResponse[user=" + user + "]";
         }
     }
+
+    /** Respuesta de {@code POST /auth/login} cuando falta el segundo factor: todavía no hay sesión. */
+    public record MfaChallengeResponse(boolean mfaRequired, String step, String challengeToken, long expiresIn) {
+
+        public static MfaChallengeResponse from(co.edu.unipamplona.canchatrack.identity.application.SessionResult.MfaRequired challenge,
+                                                Instant now) {
+            long expiresIn = Math.max(0, challenge.expiresAt().getEpochSecond() - now.getEpochSecond());
+            return new MfaChallengeResponse(true, challenge.step().name(), challenge.challengeToken(), expiresIn);
+        }
+
+        @Override
+        public String toString() {
+            return "MfaChallengeResponse[step=" + step + ", challengeToken=***]";
+        }
+    }
+
+    public record MfaVerifyRequest(
+            @NotBlank(message = "El desafío es obligatorio.") @Size(max = 256, message = "El desafío es demasiado largo.") String challengeToken,
+            @NotBlank(message = "El código es obligatorio.") @Size(max = 32, message = "El código es demasiado largo.") String code) {
+
+        @Override
+        public String toString() {
+            return "MfaVerifyRequest[challengeToken=***, code=***]";
+        }
+    }
+
+    public record MfaChallengeRequest(
+            @NotBlank(message = "El desafío es obligatorio.") @Size(max = 256, message = "El desafío es demasiado largo.") String challengeToken) {
+
+        @Override
+        public String toString() {
+            return "MfaChallengeRequest[challengeToken=***]";
+        }
+    }
+
+    public record MfaCodeRequest(
+            @NotBlank(message = "El código es obligatorio.") @Size(max = 32, message = "El código es demasiado largo.") String code) {
+
+        @Override
+        public String toString() {
+            return "MfaCodeRequest[code=***]";
+        }
+    }
+
+    public record MfaEnrollmentResponse(String secret, String otpauthUri, String issuer, String accountName) {
+
+        @Override
+        public String toString() {
+            return "MfaEnrollmentResponse[accountName=" + accountName + ", secret=***]";
+        }
+    }
+
+    public record MfaEnrolledResponse(SessionResponse session, List<String> backupCodes) {
+
+        @Override
+        public String toString() {
+            return "MfaEnrolledResponse[session=" + session + ", backupCodes=***]";
+        }
+    }
+
+    public record MfaStatusResponse(boolean required, boolean enrolled, int backupCodesRemaining) {
+    }
+
+    public record BackupCodesResponse(List<String> backupCodes) {
+
+        @Override
+        public String toString() {
+            return "BackupCodesResponse[backupCodes=***]";
+        }
+    }
 }

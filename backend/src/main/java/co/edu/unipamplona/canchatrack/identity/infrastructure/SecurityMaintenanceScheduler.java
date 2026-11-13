@@ -29,8 +29,8 @@ class SecurityMaintenanceScheduler {
     void run() {
         try {
             SecurityMaintenanceService.Result result = maintenance.purge();
-            LOG.info("Limpieza de seguridad: {} refresh tokens, {} tokens de cuenta, {} eventos de límite de tasa",
-                    result.refreshTokens(), result.accountTokens(), result.rateLimitEvents());
+            LOG.info("Limpieza de seguridad: {} refresh tokens, {} tokens de cuenta, {} eventos de límite de tasa, {} desafíos MFA",
+                    result.refreshTokens(), result.accountTokens(), result.rateLimitEvents(), result.mfaChallenges());
         } catch (RuntimeException e) {
             LOG.error("No fue posible limpiar los datos de seguridad vencidos", e);
         }

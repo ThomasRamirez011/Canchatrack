@@ -398,4 +398,155 @@ final class Fakes {
             return notices.stream().filter(n -> n.type().equals(type)).toList();
         }
     }
+
+    /** Cifrado reversible de mentira: liga el secreto a su dueño como lo hace el real, sin criptografía. */
+    static final class FakeMfaCrypto implements MfaCrypto {
+
+        @Override
+        public byte[] seal(UUID owner, byte[] secret) {
+            byte[] out = new byte[16 + secret.length];
+            java.nio.ByteBuffer.wrap(out).putLong(owner.getMostSignificantBits()).putLong(owner.getLeastSignificantBits())
+                    .put(secret);
+            return out;
+        }
+
+        @Override
+        public byte[] open(UUID owner, byte[] sealed) {
+            java.nio.ByteBuffer buffer = java.nio.ByteBuffer.wrap(sealed);
+            if (buffer.getLong() != owner.getMostSignificantBits() || buffer.getLong() != owner.getLeastSignificantBits()) {
+                throw new IllegalStateException("secreto de otro usuario");
+            }
+            byte[] secret = new byte[sealed.length - 16];
+            buffer.get(secret);
+            return secret;
+        }
+
+        @Override
+        public String fingerprint(UUID owner, String normalizedCode) {
+            return "fp:" + owner + ":" + normalizedCode;
+        }
+    }
+
+    static final class InMemoryMfaStore implements MfaStore {
+
+        record Chal(NewChallenge data, int attempts, Instant consumedAt) {
+        }
+
+        final Map<UUID, Factor> factors = new HashMap<>();
+        final Map<UUID, Map<String, Boolean>> backupCodes = new HashMap<>(); // fingerprint -> usado
+        final Map<String, Chal> challenges = new LinkedHashMap<>();
+
+        @Override
+        public Optional<Factor> findFactorForUpdate(UUID userId) {
+            return Optional.ofNullable(factors.get(userId));
+        }
+
+        @Override
+        public Optional<Factor> findFactor(UUID userId) {
+            return findFactorForUpdate(userId);
+        }
+
+        @Override
+        public boolean savePendingFactor(UUID userId, byte[] sealedSecret, Instant at) {
+            Factor current = factors.get(userId);
+            if (current != null && current.active()) {
+                return false;
+            }
+            factors.put(userId, new Factor(userId, sealedSecret, false, null));
+            return true;
+        }
+
+        @Override
+        public void activateFactor(UUID userId, long usedStep, Instant at) {
+            Factor f = factors.get(userId);
+            if (f != null && !f.active()) {
+                factors.put(userId, new Factor(userId, f.sealedSecret(), true, usedStep));
+            }
+        }
+
+        @Override
+        public void recordUsedStep(UUID userId, long step) {
+            Factor f = factors.get(userId);
+            if (f != null && (f.lastUsedStep() == null || f.lastUsedStep() < step)) {
+                factors.put(userId, new Factor(userId, f.sealedSecret(), f.active(), step));
+            }
+        }
+
+        @Override
+        public void deleteFactorAndCodes(UUID userId) {
+            factors.remove(userId);
+            backupCodes.remove(userId);
+        }
+
+        @Override
+        public void insertChallenge(NewChallenge challenge) {
+            challenges.put(challenge.tokenHash(), new Chal(challenge, 0, null));
+        }
+
+        @Override
+        public Optional<Challenge> findChallengeForUpdate(String tokenHash) {
+            Chal c = challenges.get(tokenHash);
+            return c == null ? Optional.empty() : Optional.of(new Challenge(c.data().id(), c.data().userId(),
+                    c.data().purpose(), c.data().expiresAt(), c.attempts(), c.consumedAt()));
+        }
+
+        @Override
+        public void recordChallengeAttempt(UUID challengeId) {
+            challenges.replaceAll((k, c) -> c.data().id().equals(challengeId)
+                    ? new Chal(c.data(), c.attempts() + 1, c.consumedAt()) : c);
+        }
+
+        @Override
+        public void consumeChallenge(UUID challengeId, Instant at) {
+            challenges.replaceAll((k, c) -> c.data().id().equals(challengeId) && c.consumedAt() == null
+                    ? new Chal(c.data(), c.attempts(), at) : c);
+        }
+
+        @Override
+        public void consumeOpenChallenges(UUID userId, Instant at) {
+            challenges.replaceAll((k, c) -> c.data().userId().equals(userId) && c.consumedAt() == null
+                    ? new Chal(c.data(), c.attempts(), at) : c);
+        }
+
+        @Override
+        public void replaceBackupCodes(UUID userId, List<String> fingerprints, Instant at) {
+            Map<String, Boolean> codes = new HashMap<>();
+            fingerprints.forEach(f -> codes.put(f, false));
+            backupCodes.put(userId, codes);
+        }
+
+        @Override
+        public boolean consumeBackupCode(UUID userId, String fingerprint, Instant at) {
+            Map<String, Boolean> codes = backupCodes.get(userId);
+            if (codes == null || !Boolean.FALSE.equals(codes.get(fingerprint))) {
+                return false;
+            }
+            codes.put(fingerprint, true);
+            return true;
+        }
+
+        @Override
+        public int countUnusedBackupCodes(UUID userId) {
+            Map<String, Boolean> codes = backupCodes.get(userId);
+            return codes == null ? 0 : (int) codes.values().stream().filter(used -> !used).count();
+        }
+
+        @Override
+        public int deleteChallengesBefore(Instant cutoff) {
+            int before = challenges.size();
+            challenges.values().removeIf(c -> c.data().expiresAt().isBefore(cutoff)
+                    || (c.consumedAt() != null && c.consumedAt().isBefore(cutoff)));
+            return before - challenges.size();
+        }
+
+        int challengeCount() {
+            return challenges.size();
+        }
+
+        /** Desafío abierto más reciente de la cuenta, para comprobar su vigencia. */
+        Optional<NewChallenge> lastChallengeOf(UUID userId) {
+            return challenges.values().stream().filter(c -> c.data().userId().equals(userId))
+                    .reduce((first, second) -> second).map(Chal::data);
+        }
+    }
 }

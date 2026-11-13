@@ -71,6 +71,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 - `players` + `documents` (documentos iniciales en la radicación, ver «Inscripción»): al radicar, el acudiente adjunta archivos que ya subió con `POST /files`; cada uno pasa a ser la primera versión inmutable de su tipo de documento, en la misma transacción que la radicación (todo o nada); ninguno es obligatorio para radicar y la constancia informa los obligatorios pendientes (CU-02, RF-006, RF-007).
 - `reports` (exportaciones del ERS 7.3, ver «Exportaciones del ERS 7.3»): plantilla, asistencia, convocatorias y resultados, y seguimiento de evaluación en CSV (abre en Excel), solo coordinación y comité, con ventana por temporada o fechas, tope de 20000 filas, sin datos de identidad ni de salud y cada descarga auditada.
 - `identity` + `notifications` (seguridad de cuentas, ver «Seguridad de cuentas»): confirmación del correo obligatoria para iniciar sesión (acudientes autorregistrados), recuperación de contraseña por enlace de un solo uso, cambio de contraseña con cierre de todas las sesiones, límite de tasa guardado en PostgreSQL por IP y por correo, y limpieza programada de tokens y eventos antiguos.
+- `identity` (segundo factor, ver «Segundo factor (MFA)»): TOTP (RFC 6238) con 10 códigos de respaldo de un solo uso, **obligatorio para `COORDINATOR` y `COMMITTEE`**; con la contraseña correcta el inicio de sesión responde 202 con un desafío de 5 min (alta o verificación) y solo entrega tokens tras el código; secreto sellado con AES-256-GCM, anti-repetición por paso, bloqueo compartido con el de la cuenta y reinicio por el coordinador, auditado.
 - `audit`: puerto `AuditWriter` (`write` en la transacción de negocio; `writeIndependent` para intentos rechazados,
   p. ej. PA-01), adaptador JDBC y consulta de la bitácora con filtros y cursor (CU-14, ver «Auditoría y reportes»).
 - `reports` (ver «Auditoría y reportes» e «Informe de temporada y cierre del expediente»): cartera por categoría con exportación a CSV y resumen de temporada, como modelo de lectura; informe PDF versionado por jugador y cierre o reapertura del expediente (CU-10, CU-11).
@@ -106,6 +107,7 @@ infraestructura; un módulo solo usa la fachada `.api` de otro; sin ciclos.
 | Documentos iniciales en la radicación (`documents`, `players`, `EnrollmentDocumentServiceTest`, `EnrollmentServiceTest`, `DocumentRulesTest`, `PlayerDocumentServiceTest`, `OpenApiContractTest`, `EnrollmentDocumentsIT`) | Sin migración nueva. Las dos sentencias nuevas del almacén (existencia de una versión que usa el archivo y bloqueo de la fila del archivo) ejecutadas sobre PostgreSQL 16 real con V1..V18; la fachada, el servicio de documentos, la integración en `EnrollmentService`, el comando y la constancia compilados con `javac` y 55 pruebas unitarias ejecutadas con un sustituto mínimo de JUnit y AssertJ (`EnrollmentDocumentServiceTest`, `EnrollmentServiceTest`, `DocumentRulesTest`, `PlayerDocumentServiceTest`); OpenAPI validado con un lector YAML (76 rutas, 123 esquemas). Adaptador JDBC, DTO, controlador y `EnrollmentDocumentsIT` **no** se compilaron contra Spring en el sandbox | **Verificado** en GitHub Actions (PR #23, commit 337fb51): `mvn verify` en BUILD SUCCESS con 463 pruebas unitarias y 181 de integración, 0 fallos, incluidas `EnrollmentDocumentServiceTest` (17), `EnrollmentServiceTest` (19), `DocumentRulesTest` (11), `PlayerDocumentServiceTest` (8), `OpenApiContractTest` (18) y `EnrollmentDocumentsIT` (5); imagen Docker y smoke test en verde. Una sola corrida |
 | Exportaciones CSV del ERS 7.3 (`reports`, `ExportRulesTest`, `ExportServiceTest`, `OpenApiContractTest`, `ReportExportsIT`) | Sin migración nueva. Las cuatro consultas del almacén ejecutadas sobre PostgreSQL 16 real con V1..V18 y datos de prueba (excluyen sesiones abiertas o canceladas, convocados retirados y conceptos de otro periodo); reglas, servicio y encabezados compilados con `javac` y 24 pruebas unitarias ejecutadas con un sustituto mínimo de JUnit y AssertJ (`ExportRulesTest` 9, `ExportServiceTest` 15); OpenAPI validado con un lector YAML (80 rutas, 123 esquemas). Adaptador JDBC, controladores, `CsvResponses`, la nueva prueba de `OpenApiContractTest` y `ReportExportsIT` **no** se compilaron contra Spring en el sandbox | **Verificado** en GitHub Actions (PR #24, commit b3f265d): `mvn verify` en BUILD SUCCESS con 488 pruebas unitarias y 188 de integración, 0 fallos, incluidas `ExportRulesTest` (9), `ExportServiceTest` (15), `OpenApiContractTest` (19) y `ReportExportsIT` (7); imagen Docker y smoke test en verde. Una sola corrida |
 | Seguridad de cuentas (V19, `identity`, `notifications`, `RateLimitRuleTest`, `RateLimiterTest`, `AccountSecuritySettingsTest`, `PasswordRecoveryServiceTest`, `EmailVerificationServiceTest`, `SecurityMaintenanceServiceTest`, `AuthenticationServiceTest`, `GuardianRegistrationServiceTest`, `NotificationRulesTest`, `OpenApiContractTest`, `AccountSecurityIT`) | V19 y `schema-invariants.sql` sobre PostgreSQL 16 real (`scripts/check-schema.sh`, con seis aserciones nuevas); las sentencias nuevas (depuración de `token` y `url` en el `payload` de la cola, bloqueo asesor por sujeto, alta, revocación y borrado de tokens, borrado de eventos de límite, consultas de `AccountSecurityIT`) ejecutadas contra esa base; dominio y aplicación compilados y ejecutados con dobles en memoria (116 comprobaciones); sintaxis de los 51 fuentes nuevos o modificados analizada con el parser de `javac`; OpenAPI validado como YAML (85 rutas) y las aserciones de la prueba de contrato reproducidas con un lector YAML. Adaptadores JDBC, controladores, programador, configuración y `AccountSecurityIT` **no** se compilaron contra Spring en el sandbox | **Verificado** en GitHub Actions (PR #25, commit d747e76): `mvn verify` en BUILD SUCCESS con 544 pruebas unitarias y 206 de integración, 0 fallos, incluidas `RateLimitRuleTest` (6), `RateLimiterTest` (10), `AccountSecuritySettingsTest` (3), `PasswordRecoveryServiceTest` (17), `EmailVerificationServiceTest` (7), `SecurityMaintenanceServiceTest` (2), `AuthenticationServiceTest` (19), `GuardianRegistrationServiceTest` (9), `NotificationRulesTest` (43), `OpenApiContractTest` (20) y `AccountSecurityIT` (18); imagen Docker y smoke test en verde. Una sola corrida. Las cifras coincidieron con lo previsto (488 + 56 = 544 unitarias); en integración se previeron 19 por un conteo que incluía `@TestConfiguration`, y son 18 (188 + 18 = 206) |
+| Segundo factor (V20, `identity`: `Base32`, `Totp`, `BackupCodes`, `MfaSettings`, `MfaAuthenticationService`, `AesGcmMfaCrypto`, `MfaIT`, `OpenApiContractTest`) | V20 y las sentencias de `JdbcMfaStore` ejecutadas contra PostgreSQL 16 real (`scripts/check-schema.sh`); TOTP contrastado con los vectores de RFC 6238 y con una implementación independiente, cifrado AES-GCM con ida y vuelta y manipulación; dominio y aplicación compilados y ejecutados con dobles en memoria; sintaxis de todos los fuentes nuevos o modificados analizada con el parser de `javac`; OpenAPI validado como YAML (91 rutas, 135 esquemas) y las aserciones de la prueba de contrato reproducidas con un lector YAML. Adaptadores JDBC, controlador, configuración y `MfaIT` **no** se compilaron contra Spring en el sandbox | **Verificado** en GitHub Actions (PR #26, commit b0ca46e): `mvn verify` en BUILD SUCCESS con 602 pruebas unitarias y 221 de integración, 0 fallos, incluidas `MfaAuthenticationServiceTest` (31), `TotpTest` (8), `AesGcmMfaCryptoTest` (7), `Base32Test` (4), `BackupCodesTest` (4), `MfaSettingsTest` (3), `AuthenticationServiceTest` (19), `SecurityMaintenanceServiceTest` (2), `OpenApiContractTest` (21) y `MfaIT` (15); imagen Docker y smoke test en verde. Una sola corrida. Las cifras coincidieron con lo previsto (544 + 58 = 602 unitarias; 206 + 15 = 221 de integración) |
 | Contenedor e integración continua (`Dockerfile`, `.github/workflows/backend-ci.yml`) | El pipeline es su propia verificación: se ejecutó en GitHub Actions sobre el PR | **Verificado:** `mvn verify` (unitarias + integración con Testcontainers), construcción de la imagen y smoke test (health `UP`, login del coordinador de desarrollo, 401 sin token) en verde (2026-11-12). La primera ejecución falló por Docker Engine 29 (ver «Contenedor e integración continua») |
 | Código Spring (filtro, handler, seguridad, `JdbcAuditWriter`), `ArchitectureTest`, unitarias | `mvn test` en Windows 11, JDK 24 (compila con `--release 21`), Maven 3.10.0 | Ejecutado: OK (19 pruebas, 0 fallos) |
 | `*IT` con Testcontainers (`DatabaseSchemaIT`, `AuditWriterIT`) | `mvn verify`, Docker Desktop 4.98 / Engine 29.9.2 | Ejecutado: OK (7 pruebas, 0 fallos) |
@@ -182,7 +184,7 @@ OIDC (DT-06) queda como extensión posterior (`users.oidc_subject` ya existe).
 
 | Endpoint | Acceso | Notas |
 |---|---|---|
-| `POST /api/v1/auth/login` | público | Toda causa de rechazo responde igual (401): no revela qué cuentas existen. 5 fallos seguidos bloquean 15 min. |
+| `POST /api/v1/auth/login` | público | Toda causa de rechazo responde igual (401): no revela qué cuentas existen. 5 fallos seguidos bloquean 15 min. Si la cuenta exige MFA responde **202** con un desafío y sin tokens. |
 | `POST /api/v1/auth/refresh` | público (con refresh token) | Rotación + detección de reutilización. |
 | `POST /api/v1/auth/logout` | público (con refresh token) | Idempotente; 204 siempre. |
 | `GET /api/v1/auth/me` | autenticado | Lee de la base: una cuenta no activa responde 401. |
@@ -192,6 +194,12 @@ OIDC (DT-06) queda como extensión posterior (`users.oidc_subject` ya existe).
 | `POST /api/v1/auth/password` | autenticado | Cambio con la contraseña actual; cierra todas las sesiones. |
 | `POST /api/v1/auth/email-verification/request` | público | Reenvío del enlace de confirmación (202 siempre). |
 | `POST /api/v1/auth/email-verification/confirm` | público (con token) | 204; token de un solo uso. |
+| `POST /api/v1/auth/mfa/enrollment` | público (con desafío `ENROLL`) | Crea el factor pendiente y devuelve el secreto y el URI `otpauth://` (una sola vez). |
+| `POST /api/v1/auth/mfa/enrollment/confirm` | público (con desafío `ENROLL`) | Valida el primer código, abre la sesión y entrega los códigos de respaldo (una sola vez). |
+| `POST /api/v1/auth/mfa/verify` | público (con desafío `VERIFY`) | Código TOTP o de respaldo; abre la sesión. |
+| `GET /api/v1/auth/mfa` | autenticado | Estado del factor y códigos de respaldo restantes. |
+| `POST /api/v1/auth/mfa/backup-codes` | autenticado | Regenera los 10 códigos; exige un código TOTP vigente. |
+| `POST /api/v1/users/{userId}/mfa/reset` | `COORDINATOR` | Borra el factor, cierra las sesiones y obliga a un alta nueva; no sobre la propia cuenta. |
 
 **Reglas de acceso a jugadores** (`identity.api.PlayerAccessPolicy`, la usarán los demás módulos): coordinador y comité,
 todos; acudiente, solo con vínculo vigente en `player_guardians`; **entrenador y evaluador, ninguno todavía** (su alcance
@@ -203,6 +211,7 @@ depende de la categoría asignada y del panel de evaluación, que define `player
 |---|---|---|
 | `JWT_SECRET` | **obligatoria en prod** | Base64 de ≥ 32 bytes. Generar: `openssl rand -base64 48`. Sin ella la aplicación no arranca. |
 | `BOOTSTRAP_COORDINATOR_EMAIL` / `_PASSWORD` / `_NAME` | primer arranque | Crean el primer coordinador **solo si no hay ninguna cuenta**. Arrancar una vez, retirar las variables y cambiar la contraseña. |
+| `MFA_ENCRYPTION_KEY` | **obligatoria en prod** | Base64 de 32 bytes; sella los secretos TOTP. Generar: `openssl rand -base64 32`. Cambiarla invalida los factores ya dados de alta. |
 | `canchatrack.identity.*` | opcional | `bcrypt-strength` (12), `refresh-ttl` (7d), `refresh-absolute-ttl` (30d), `max-failed-attempts` (5), `lock-duration` (15m). |
 
 En **dev** hay una clave JWT y un coordinador desechables (`coordinador@canchatrack.local` / `Dev-Only-Change-Me-1`) para
@@ -214,7 +223,7 @@ poder probar sin configurar nada. **Nunca despliegue con el perfil por defecto (
    hay que añadir una lista de `jti` revocados o consultar la base en cada solicitud.
 2. **Reutilización estricta:** dos renovaciones simultáneas con el mismo token (p. ej. doble clic) cuentan como reutilización y
    cierran la sesión. Una ventana de gracia de unos segundos es posible, a costa de debilitar la detección.
-3. **Falta** el MFA del coordinador y del comité (DDS 12.1), que irá en su propio incremento. La recuperación y el cambio de
+3. El MFA del coordinador y del comité (DDS 12.1) está en «Segundo factor (MFA)». La recuperación y el cambio de
    contraseña, la verificación del correo, el límite de tasa y la limpieza de refresh tokens están en «Seguridad de cuentas».
 4. HS256 usa una clave simétrica: basta mientras un único servicio emite y valida. Si otro servicio debe validar sin poder
    emitir, migrar a RS256/ES256 sin cambiar el contrato.
@@ -224,7 +233,7 @@ poder probar sin configurar nada. **Nunca despliegue con el perfil por defecto (
 
 **Decisiones del cliente.** Recuperación por **enlace de un solo uso enviado al correo**; el correo **confirmado es obligatorio para
 iniciar sesión** (acudientes autorregistrados); límite de tasa **guardado en la base** y contado por IP y por correo; el MFA
-queda para un incremento propio.
+se describe en la sección siguiente.
 
 **Tokens de un solo uso.** Valor opaco de 256 bits (base64url) que viaja solo en el correo; en `account_tokens` queda su SHA-256.
 Se gasta al usarse, se invalida al pedir otro del mismo tipo y vence (restablecimiento 30 min, confirmación 48 h). Cualquier
@@ -267,7 +276,43 @@ correo lleva el código para pegarlo en la pantalla correspondiente.
 2. El registro público sigue revelando si un correo o documento ya existe; el restablecimiento solo difiere en el tiempo de respuesta.
 3. Con varios usuarios tras una misma IP (NAT del colegio) el tope por IP es compartido: ajustar los valores si molesta.
 4. Detrás de un proxy, la IP depende de `server.forward-headers-strategy` (activa en prod); sin IP no se aplica el tope por IP.
-5. Sin MFA todavía.
+5. El MFA solo alcanza a `COORDINATOR` y `COMMITTEE` (ver «Segundo factor (MFA)»).
+
+## Segundo factor (MFA) (identity)
+
+**Decisiones.** Factor **TOTP** (RFC 6238: HMAC-SHA1, 6 dígitos, paso de 30 s) más **10 códigos de respaldo**; **obligatorio para `COORDINATOR` y `COMMITTEE`**
+(`canchatrack.identity.mfa.required-roles`); los demás roles no lo usan. Elegidos por defecto, confirmar si el club prefiere otro factor.
+
+**Flujo.** Con la contraseña correcta y MFA exigido, `POST /auth/login` responde **202** con `{mfaRequired, step, challengeToken, expiresIn}` y **ninguna** credencial.
+El `step` es `ENROLL` si la cuenta aún no tiene factor activo y `VERIFY` si ya lo tiene.
+1. `ENROLL`: `POST /auth/mfa/enrollment` devuelve el secreto Base32 y el URI `otpauth://` para la app autenticadora; `POST /auth/mfa/enrollment/confirm` con el primer código
+   activa el factor, abre la sesión y entrega los códigos de respaldo **una sola vez**.
+2. `VERIFY`: `POST /auth/mfa/verify` con un código TOTP o un código de respaldo (`XXXXX-XXXXX`) abre la sesión.
+3. Con sesión: `GET /auth/mfa` (estado) y `POST /auth/mfa/backup-codes` (regenerar; exige un TOTP vigente).
+4. El coordinador puede reiniciar el factor de otra cuenta con `POST /users/{userId}/mfa/reset` (nunca el propio: 409): se borran el factor y los códigos, se revocan todos los refresh tokens y la cuenta vuelve a darse de alta en el siguiente inicio de sesión.
+
+**Desafío.** Valor opaco de 256 bits; en `mfa_challenges` solo queda su SHA-256. Vence a los 5 min, un inicio de sesión nuevo reemplaza los abiertos, está atado a su paso
+(un desafío `ENROLL` no sirve para verificar) y muere al quinto intento fallido o si la cuenta se bloquea.
+
+**Código TOTP.** Ventana de ±1 paso (configurable de 0 a 3), comparación en tiempo constante y **anti-repetición**: solo se acepta un paso mayor que el último usado (`mfa_factors.last_used_step`).
+Los códigos de respaldo se guardan como HMAC-SHA256 con el id de la cuenta, son de un solo uso y se normalizan al recibirlos (mayúsculas, sin guiones ni espacios).
+
+**Secreto.** 20 bytes aleatorios, sellado con AES-256-GCM (IV de 12 bytes; el id de la cuenta va como dato asociado, de modo que un secreto copiado a otra cuenta no abre). La clave
+maestra es `MFA_ENCRYPTION_KEY` (Base64 de 32 bytes); de ella se derivan por HMAC-SHA256 las claves de cifrado y de huella. Con MFA activo y sin clave la aplicación **no arranca**.
+
+**Intentos fallidos.** Un código erróneo suma al mismo contador de bloqueo de la cuenta (5 fallos, 15 min) y siempre responde el mismo 401 genérico, sin distinguir código, desafío o cuenta. Los
+tres endpoints públicos comparten el cubo de límite de tasa por IP de la confirmación. Si una cuenta que exige MFA se queda sin factor activo, la renovación de sesión se deniega.
+
+**Auditoría.** `MFA_ENROLLMENT_STARTED`, `MFA_ENROLLED`, `MFA_VERIFIED` (motivo `TOTP` o `BACKUP_CODE`), `MFA_VERIFY_FAILED`, `MFA_BACKUP_CODES_REGENERATED`, `MFA_RESET` y `AUTH_LOGIN_MFA_CHALLENGED`. Nunca se registran secretos ni códigos.
+
+**Configuración (`canchatrack.identity.mfa.*`).** `enabled`, `required-roles` (COORDINATOR, COMMITTEE), `issuer`, `challenge-ttl` (5m), `window` (1), `backup-codes` (10), `encryption-key`.
+Activo en el perfil base y en `prod`; en `dev` se enciende con `MFA_ENABLED=true` (clave desechable incluida) para que el coordinador de desarrollo y el smoke test del pipeline sigan iniciando sesión sin segundo factor; apagado en las pruebas salvo `MfaIT`.
+
+**Límites conocidos (confirmar).**
+1. **Sin aviso por correo** cuando el coordinador reinicia el MFA de otra cuenta (no hay plantilla); queda en la bitácora.
+2. Cambiar `MFA_ENCRYPTION_KEY` deja ilegibles los factores existentes: hay que reiniciar el MFA de cada cuenta. No hay rotación con clave doble.
+3. Si el único coordinador pierde su dispositivo y sus códigos de respaldo, solo otro coordinador puede reiniciarlo; en el caso límite hay que intervenir la base.
+4. La hora del servidor define los pasos TOTP: un reloj desfasado más allá de la ventana rechaza códigos válidos.
 
 ## CORS (shared.security)
 
@@ -908,7 +953,7 @@ el `.ics` de la agenda ya están (ver «Avisos de agenda»).
 ## Contenedor e integración continua
 
 - **`Dockerfile`** (multi-etapa): compila con Maven 3.9 y Temurin 21, extrae las capas de Spring Boot y ejecuta sobre `eclipse-temurin:21-jre-alpine` con un
-  usuario sin privilegios. El perfil por defecto es **`prod`**: sin `DB_URL`, `DB_USER`, `DB_PASSWORD`, `JWT_SECRET`, `MAIL_HOST` y `MAIL_FROM` no arranca, a propósito.
+  usuario sin privilegios. El perfil por defecto es **`prod`**: sin `DB_URL`, `DB_USER`, `DB_PASSWORD`, `JWT_SECRET`, `MFA_ENCRYPTION_KEY`, `MAIL_HOST` y `MAIL_FROM` no arranca, a propósito.
   Los archivos se guardan en el volumen `/data/files`. `docker build -t canchatrack-backend backend`.
 - **`docker-compose.yml`**: `docker compose up -d` levanta solo PostgreSQL (puerto configurable con `DB_PORT`, p. ej. `$env:DB_PORT=5433`);
   `docker compose --profile app up --build` levanta además el backend en su imagen con el perfil `dev` (credenciales desechables, solo para la máquina local).
@@ -925,4 +970,4 @@ registro, despliegue, y que `main` exija el pipeline en verde (protección de ra
 ## Siguiente paso
 
 Siguiente incremento:
-MFA del coordinador y del comité (bloque propio) y puertas de calidad. CORS y la seguridad de cuentas ya están resueltos. CU-10 y CU-11 quedan con plantilla provisional hasta que el club defina P-09.
+Puertas de calidad y operación (cobertura con umbral, análisis estático, escaneo de dependencias, pruebas de carga con k6, Swagger UI en desarrollo, protección de `main`). CORS, la seguridad de cuentas y el MFA ya están resueltos. CU-10 y CU-11 quedan con plantilla provisional hasta que el club defina P-09.
