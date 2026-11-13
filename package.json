@@ -21,7 +21,7 @@
     "@payloadcms/translations": "4.0.0-beta.6",
     "@payloadcms/ui": "4.0.0-beta.6",
     "graphql": "^16.8.1",
-    "html-react-parser": "^5.2.17",
+    "html-react-parser": "^6.1.9",
     "monaco-editor": "0.55.1",
     "next": "16.4.2",
     "payload": "4.0.0-beta.6",
