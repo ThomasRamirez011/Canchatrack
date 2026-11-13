@@ -52,7 +52,7 @@ jobs:
         run: mvn -B -ntp verify
 
       # Cobertura (JaCoCo, solo informe): resumen en la pestaña del job y el informe HTML/CSV como artefacto.
-      # No hay umbral: primero se mide y después se fija (deuda D1).
+      # El umbral (líneas >= 90 %) lo impone jacoco:check en la fase verify del pom.
       - name: Resumen de cobertura
         if: always()
         run: |
@@ -75,7 +75,7 @@ jobs:
               printf "T| **Total** | **%.1f %% (%d/%d)** | **%.1f %% (%d/%d)** |\n", (lt ? 100*Li/lt : 0), Li, lt, (bt ? 100*Bi/bt : 0), Bi, bt;
             }' "$CSV" > cobertura.tmp
           {
-            echo "### Cobertura JaCoCo (unitarias + integración, sin umbral)"
+            echo "### Cobertura JaCoCo (unitarias + integración; umbral de líneas 90 %)"
             echo
             echo "| Módulo | Líneas cubiertas | Ramas cubiertas |"
             echo "|---|---|---|"
