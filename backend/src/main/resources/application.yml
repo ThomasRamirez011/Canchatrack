@@ -5,6 +5,11 @@ spring:
     name: canchatrack-backend
   profiles:
     default: dev
+  datasource:
+    hikari:
+      # Espera máxima por una conexión del pool. El valor por defecto de Hikari (30 s) hacía que /actuator/health no respondiera
+      # con la base caída (deuda D15); con 5 s el indicador de base responde DOWN (503) en menos de 10 s. Se puede subir por entorno.
+      connection-timeout: ${DB_CONNECTION_TIMEOUT_MS:5000}
   autoconfigure:
     exclude:
       # Sin usuario en memoria con contraseña generada: la autenticación es por JWT (ver canchatrack.security / identity).
