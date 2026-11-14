@@ -1,6 +1,6 @@
 # CanchaTrack · Backend
 
-Monolito modular (hexagonal) en **Java 21 + Spring Boot 3.5 + PostgreSQL ≥ 15 + Flyway**.
+Monolito modular (hexagonal) en **Java 21 + Spring Boot 4.1 + PostgreSQL ≥ 15 + Flyway**.
 Proyecto académico: Universidad de Pamplona · Ingeniería de Software II. Fuentes de diseño: ERS v1.1, DAD v0.9, DDS v0.9.
 
 ## Arranque rápido
