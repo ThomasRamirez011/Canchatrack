@@ -30,8 +30,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import co.edu.unipamplona.canchatrack.TestcontainersConfiguration;
 
@@ -85,7 +85,7 @@ class EnrollmentDocumentsIT {
 
     private String login(String email) throws Exception {
         return body(postJson("/auth/login", Map.of("email", email, "password", PASSWORD), null).andExpect(status().isOk()))
-                .get("accessToken").asText();
+                .get("accessToken").asString();
     }
 
     private Guardian registerGuardian() throws Exception {
@@ -97,7 +97,7 @@ class EnrollmentDocumentsIT {
         request.put("documentType", "CC");
         request.put("documentNumber", String.valueOf(ThreadLocalRandom.current().nextLong(1_000_000_000L, 9_999_999_999L)));
         request.put("phone", "300 123 4567");
-        UUID userId = UUID.fromString(body(postJson("/guardians", request, null).andExpect(status().isCreated())).get("id").asText());
+        UUID userId = UUID.fromString(body(postJson("/guardians", request, null).andExpect(status().isCreated())).get("id").asString());
         return new Guardian(login(email), userId);
     }
 
@@ -132,13 +132,13 @@ class EnrollmentDocumentsIT {
         String code = "ADJ_" + UUID.randomUUID().toString().substring(0, 8).toUpperCase().replace("-", "");
         return UUID.fromString(body(postJson("/document-types", Map.of("code", code, "name", "Soporte " + code, "mandatory", false,
                 "requiresExpiry", false, "allowedContentTypes", List.of("application/pdf")), coordinatorToken)
-                .andExpect(status().isCreated())).get("id").asText());
+                .andExpect(status().isCreated())).get("id").asString());
     }
 
     private UUID uploadFile(String token) throws Exception {
         return UUID.fromString(body(mvc.perform(multipart(API + "/files").file(new MockMultipartFile("file", "soporte.pdf",
                         "application/pdf", PDF)).header("Authorization", "Bearer " + token)).andExpect(status().isCreated()))
-                .get("id").asText());
+                .get("id").asString());
     }
 
     private Map<String, Object> attachment(UUID type, UUID file, LocalDate expiresOn) {
@@ -196,10 +196,10 @@ class EnrollmentDocumentsIT {
                 attachment(medicalType(), certificateFile, LocalDate.now().plusDays(300)),
                 attachment(support, supportFile, null))), guardian.token()).andExpect(status().isCreated()));
 
-        UUID playerId = UUID.fromString(receipt.get("playerId").asText());
+        UUID playerId = UUID.fromString(receipt.get("playerId").asString());
         assertThat(receipt.get("attachedDocuments").asInt()).isEqualTo(2);
         List<String> missing = new ArrayList<>();
-        receipt.get("missingDocuments").forEach(n -> missing.add(n.asText()));
+        receipt.get("missingDocuments").forEach(n -> missing.add(n.asString()));
         assertThat(missing).doesNotContain("Certificado médico");
 
         List<Map<String, Object>> versions = jdbc.queryForList("""
@@ -228,9 +228,9 @@ class EnrollmentDocumentsIT {
         String medicalStatus = null;
         UUID medicalVersion = null;
         for (JsonNode item : documents) {
-            if ("MEDICAL_CERTIFICATE".equals(item.get("type").get("code").asText())) {
-                medicalStatus = item.get("status").asText();
-                medicalVersion = UUID.fromString(item.get("current").get("id").asText());
+            if ("MEDICAL_CERTIFICATE".equals(item.get("type").get("code").asString())) {
+                medicalStatus = item.get("status").asString();
+                medicalVersion = UUID.fromString(item.get("current").get("id").asString());
             }
         }
         assertThat(medicalStatus).isEqualTo("VALID");
@@ -253,9 +253,9 @@ class EnrollmentDocumentsIT {
 
         assertThat(receipt.get("attachedDocuments").asInt()).isZero();
         List<String> missing = new ArrayList<>();
-        receipt.get("missingDocuments").forEach(n -> missing.add(n.asText()));
+        receipt.get("missingDocuments").forEach(n -> missing.add(n.asString()));
         assertThat(missing).contains("Certificado médico");
-        assertThat(versionsOf(UUID.fromString(receipt.get("playerId").asText()))).isZero();
+        assertThat(versionsOf(UUID.fromString(receipt.get("playerId").asString()))).isZero();
     }
 
     @Test
@@ -270,12 +270,12 @@ class EnrollmentDocumentsIT {
                 attachment(UUID.randomUUID(), UUID.randomUUID(), null))),           // tipo y archivo inexistentes
                 guardian.token()).andExpect(status().isUnprocessableEntity()));
 
-        assertThat(problem.get("code").asText()).isEqualTo("VALIDATION_FAILED");
-        List<String> fields = problem.get("errors").findValuesAsText("field");
+        assertThat(problem.get("code").asString()).isEqualTo("VALIDATION_FAILED");
+        List<String> fields = problem.get("errors").findValuesAsString("field");
         assertThat(fields).containsExactlyInAnyOrder("documents[0].fileId", "documents[0].expiresOn",
                 "documents[1].documentTypeId", "documents[1].fileId");
         // Ajeno e inexistente responden igual: no se revela qué archivos existen.
-        assertThat(problem.get("errors").findValuesAsText("message")).contains("El archivo no existe.");
+        assertThat(problem.get("errors").findValuesAsString("message")).contains("El archivo no existe.");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM players WHERE document_number = ?", Long.class, document)).isZero();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM enrollments WHERE guardian_id = (SELECT id FROM guardians WHERE user_id = ?)",
                 Long.class, guardian.userId())).isZero();
@@ -295,13 +295,13 @@ class EnrollmentDocumentsIT {
         // Reutilizar el mismo archivo en otra radicación se rechaza.
         JsonNode reuse = body(postJson("/enrollments", request(openCall(), newPlayerDocument(), List.of(attachment(support, file, null))),
                 guardian.token()).andExpect(status().isUnprocessableEntity()));
-        assertThat(reuse.get("errors").findValuesAsText("field")).containsExactly("documents[0].fileId");
+        assertThat(reuse.get("errors").findValuesAsString("field")).containsExactly("documents[0].fileId");
 
         // Dos adjuntos del mismo tipo en la misma radicación también.
         JsonNode repeated = body(postJson("/enrollments", request(openCall(), newPlayerDocument(), List.of(
                 attachment(support, second, null), attachment(support, uploadFile(guardian.token()), null))),
                 guardian.token()).andExpect(status().isUnprocessableEntity()));
-        assertThat(repeated.get("errors").findValuesAsText("field")).containsExactly("documents[1].documentTypeId");
+        assertThat(repeated.get("errors").findValuesAsString("field")).containsExactly("documents[1].documentTypeId");
     }
 
     @Test
@@ -313,14 +313,14 @@ class EnrollmentDocumentsIT {
         JsonNode first = body(postJson("/enrollments", request(openCall(), document, List.of(
                 attachment(medical, uploadFile(guardian.token()), LocalDate.now().plusDays(300)))), guardian.token())
                 .andExpect(status().isCreated()));
-        UUID playerId = UUID.fromString(first.get("playerId").asText());
+        UUID playerId = UUID.fromString(first.get("playerId").asString());
         jdbc.update("UPDATE players SET status = 'REJECTED' WHERE id = ?", playerId);
 
         // El expediente reutilizado ya tiene un certificado vigente por 300 días y no hay ventana: se rechaza todo (RN-05).
         UUID renewal = uploadFile(guardian.token());
         JsonNode refused = body(postJson("/enrollments", request(openCall(), document, List.of(
                 attachment(medical, renewal, LocalDate.now().plusDays(600)))), guardian.token()).andExpect(status().isConflict()));
-        assertThat(refused.get("code").asText()).isEqualTo("DOCUMENT_UPLOAD_NOT_ALLOWED");
+        assertThat(refused.get("code").asString()).isEqualTo("DOCUMENT_UPLOAD_NOT_ALLOWED");
         assertThat(jdbc.queryForObject("SELECT status FROM players WHERE id = ?", String.class, playerId)).isEqualTo("REJECTED");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM enrollments WHERE player_id = ?", Long.class, playerId)).isEqualTo(1L);
         assertThat(versionsOf(playerId)).isEqualTo(1L);

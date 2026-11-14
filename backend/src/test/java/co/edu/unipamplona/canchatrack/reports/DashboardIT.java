@@ -21,8 +21,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import co.edu.unipamplona.canchatrack.TestcontainersConfiguration;
 
@@ -62,7 +62,7 @@ class DashboardIT {
         String body = mvc.perform(post(API + "/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of("email", email, "password", PASSWORD))))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        return json.readTree(body).get("accessToken").asText();
+        return json.readTree(body).get("accessToken").asString();
     }
 
     private JsonNode overview(String bearer) throws Exception {
@@ -73,7 +73,7 @@ class DashboardIT {
 
     private static JsonNode find(JsonNode array, String field, String value) {
         return StreamSupport.stream(array.spliterator(), false)
-                .filter(n -> n.has(field) && value.equals(n.get(field).asText())).findFirst().orElseThrow();
+                .filter(n -> n.has(field) && value.equals(n.get(field).asString())).findFirst().orElseThrow();
     }
 
     @Test
@@ -130,19 +130,19 @@ class DashboardIT {
         JsonNode team = find(overview.get("teams"), "categoryId", category.toString());
         assertThat(team.get("rosterSize").asInt()).isEqualTo(1);
         assertThat(team.get("enabledCount").asInt()).isZero(); // debe algo vencido: no está habilitado
-        assertThat(team.get("headCoach").asText()).isEqualTo("Entrenador Prueba");
-        assertThat(team.get("headCoachId").asText()).isEqualTo(coach.toString());
+        assertThat(team.get("headCoach").asString()).isEqualTo("Entrenador Prueba");
+        assertThat(team.get("headCoachId").asString()).isEqualTo(coach.toString());
         assertThat(team.get("debt").decimalValue()).isEqualByComparingTo("70000");
-        assertThat(team.get("nextMatch").get("opponent").asText()).isEqualTo("Rivales del Norte");
+        assertThat(team.get("nextMatch").get("opponent").asString()).isEqualTo("Rivales del Norte");
 
         JsonNode row = find(overview.get("players"), "playerId", player.toString());
-        assertThat(row.get("fullName").asText()).isEqualTo("Mateo Tablero");
+        assertThat(row.get("fullName").asString()).isEqualTo("Mateo Tablero");
         assertThat(row.get("enabled").asBoolean()).isFalse();
         assertThat(row.get("pendingCharge").get("outstanding").decimalValue()).isEqualByComparingTo("70000");
 
         JsonNode event = find(overview.get("events"), "id", match.toString());
-        assertThat(event.get("eventType").asText()).isEqualTo("FRIENDLY_MATCH");
-        assertThat(event.get("opponent").asText()).isEqualTo("Rivales del Norte");
+        assertThat(event.get("eventType").asString()).isEqualTo("FRIENDLY_MATCH");
+        assertThat(event.get("opponent").asString()).isEqualTo("Rivales del Norte");
     }
 
     @Test

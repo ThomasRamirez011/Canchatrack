@@ -23,8 +23,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import co.edu.unipamplona.canchatrack.TestcontainersConfiguration;
 
@@ -63,7 +63,7 @@ class StaffScopeIT {
         String body = mvc.perform(post(API + "/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of("email", email, "password", PASSWORD))))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        return new Account(id, json.readTree(body).get("accessToken").asText());
+        return new Account(id, json.readTree(body).get("accessToken").asString());
     }
 
     private ResultActions getJson(String path, Account who) throws Exception {
@@ -110,7 +110,7 @@ class StaffScopeIT {
     private List<UUID> listedIds(Account who) throws Exception {
         JsonNode page = body(getJson("/players?size=100", who).andExpect(status().isOk()));
         List<UUID> ids = new ArrayList<>();
-        page.get("items").forEach(n -> ids.add(UUID.fromString(n.get("id").asText())));
+        page.get("items").forEach(n -> ids.add(UUID.fromString(n.get("id").asString())));
         return ids;
     }
 
@@ -123,8 +123,8 @@ class StaffScopeIT {
         coach(other, account("COACH"));
 
         JsonNode view = body(getJson("/players/" + mine, coach).andExpect(status().isOk()));
-        assertThat(view.get("id").asText()).isEqualTo(mine.toString());
-        assertThat(view.get("firstName").asText()).isEqualTo("Luis");
+        assertThat(view.get("id").asString()).isEqualTo(mine.toString());
+        assertThat(view.get("firstName").asString()).isEqualTo("Luis");
         assertThat(view.has("documentNumber")).isFalse();
         assertThat(view.has("documentType")).isFalse();
         assertThat(view.get("enrollments").size()).isEqualTo(0);
@@ -138,7 +138,7 @@ class StaffScopeIT {
         Account coordinator = account("COORDINATOR");
 
         JsonNode view = body(getJson("/players/" + player, coordinator).andExpect(status().isOk()));
-        assertThat(view.get("documentNumber").asText()).startsWith("TI-");
+        assertThat(view.get("documentNumber").asString()).startsWith("TI-");
     }
 
     @Test

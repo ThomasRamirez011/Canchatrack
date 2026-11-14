@@ -3,13 +3,14 @@ package co.edu.unipamplona.canchatrack.reports.application;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /** Resúmenes JSON para la auditoría (Jackson: un texto con comillas no rompe el documento). Omite los valores nulos. */
 final class Json {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builder().build();
 
     private Json() {
     }
@@ -24,7 +25,7 @@ final class Json {
         }
         try {
             return MAPPER.writeValueAsString(map);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalStateException(e);
         }
     }

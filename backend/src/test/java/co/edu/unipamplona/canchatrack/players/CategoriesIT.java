@@ -28,8 +28,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import co.edu.unipamplona.canchatrack.TestcontainersConfiguration;
 
@@ -86,7 +86,7 @@ class CategoriesIT {
 
     private String login(String email) throws Exception {
         return body(postJson("/auth/login", Map.of("email", email, "password", PASSWORD), null)
-                .andExpect(status().isOk())).get("accessToken").asText();
+                .andExpect(status().isOk())).get("accessToken").asString();
     }
 
     private String staffToken(String roleCode) throws Exception {
@@ -98,7 +98,7 @@ class CategoriesIT {
     }
 
     private UUID userIdOf(String token) throws Exception {
-        return UUID.fromString(body(getJson("/auth/me", token).andExpect(status().isOk())).get("id").asText());
+        return UUID.fromString(body(getJson("/auth/me", token).andExpect(status().isOk())).get("id").asString());
     }
 
     private record Guardian(String token, UUID userId, UUID guardianId) {
@@ -112,7 +112,7 @@ class CategoriesIT {
         request.put("password", PASSWORD);
         request.put("documentType", "CC");
         request.put("documentNumber", String.valueOf(ThreadLocalRandom.current().nextLong(1_000_000_000L, 9_999_999_999L)));
-        UUID userId = UUID.fromString(body(postJson("/guardians", request, null).andExpect(status().isCreated())).get("id").asText());
+        UUID userId = UUID.fromString(body(postJson("/guardians", request, null).andExpect(status().isCreated())).get("id").asString());
         UUID guardianId = jdbc.queryForObject("SELECT id FROM guardians WHERE user_id = ?", UUID.class, userId);
         return new Guardian(login(email), userId, guardianId);
     }
@@ -136,7 +136,7 @@ class CategoriesIT {
 
     private String createCategory(String coordinator, int[] years, int capacity) throws Exception {
         return body(postJson("/categories", categoryRequest("Cat " + UUID.randomUUID(), years, capacity), coordinator)
-                .andExpect(status().isCreated())).get("id").asText();
+                .andExpect(status().isCreated())).get("id").asString();
     }
 
     private UUID newPlayer(int birthYear) {
@@ -250,9 +250,9 @@ class CategoriesIT {
         patchJson("/categories/" + categoryId, Map.of("active", true), coordinator).andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.errors[?(@.field == 'birthYearMin')]").isNotEmpty());
 
-        assertThat(body(getJson("/categories", coordinator).andExpect(status().isOk())).findValuesAsText("id"))
+        assertThat(body(getJson("/categories", coordinator).andExpect(status().isOk())).findValuesAsString("id"))
                 .contains(replacement).doesNotContain(categoryId);
-        assertThat(body(getJson("/categories?includeInactive=true", coordinator).andExpect(status().isOk())).findValuesAsText("id"))
+        assertThat(body(getJson("/categories?includeInactive=true", coordinator).andExpect(status().isOk())).findValuesAsString("id"))
                 .contains(replacement, categoryId);
         assertThat(countAudit("CATEGORY_UPDATED", coordinatorId)).isEqualTo(2L);
     }

@@ -3,13 +3,14 @@ package co.edu.unipamplona.canchatrack.players.application;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /** Resúmenes JSON para la auditoría. Serializa con Jackson: un nombre con comillas no puede romper el documento. */
 final class AuditJson {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builder().build();
 
     private AuditJson() {
     }
@@ -29,7 +30,7 @@ final class AuditJson {
         }
         try {
             return MAPPER.writeValueAsString(map);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalStateException("audit summary cannot be serialized", e);
         }
     }

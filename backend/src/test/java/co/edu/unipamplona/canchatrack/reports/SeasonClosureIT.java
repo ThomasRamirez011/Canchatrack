@@ -34,8 +34,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import co.edu.unipamplona.canchatrack.TestcontainersConfiguration;
 
@@ -100,7 +100,7 @@ class SeasonClosureIT {
         String email = "staff-" + UUID.randomUUID() + "@club.test";
         UUID id = user(email, fullName, roleCode);
         String token = body(send(post(API + "/auth/login"), Map.of("email", email, "password", PASSWORD), null)
-                .andExpect(status().isOk())).get("accessToken").asText();
+                .andExpect(status().isOk())).get("accessToken").asString();
         return new Account(id, token);
     }
 
@@ -205,7 +205,7 @@ class SeasonClosureIT {
     }
 
     private static List<String> fields(JsonNode problem) {
-        return StreamSupport.stream(problem.get("errors").spliterator(), false).map(e -> e.get("field").asText()).toList();
+        return StreamSupport.stream(problem.get("errors").spliterator(), false).map(e -> e.get("field").asString()).toList();
     }
 
     /** Jugador activo con trayectoria completa: dos sesiones (asistió y faltó), una ronda cerrada y un partido. */
@@ -242,24 +242,24 @@ class SeasonClosureIT {
 
         JsonNode report = generate(s.coordinator(), s.player(), s.season(), null);
 
-        assertThat(report.get("number").asText()).matches("IT-\\d{6}");
+        assertThat(report.get("number").asString()).matches("IT-\\d{6}");
         assertThat(report.get("version").asInt()).isEqualTo(1);
         assertThat(report.has("previousReportId")).isFalse();
-        assertThat(report.get("verificationCode").asText()).matches("[A-HJ-NP-Z2-9]{4}(-[A-HJ-NP-Z2-9]{4}){2}");
-        assertThat(report.get("fileHash").asText()).matches("[0-9a-f]{64}");
-        assertThat(report.get("templateVersion").asText()).isEqualTo("plantilla-1");
-        assertThat(report.get("playerId").asText()).isEqualTo(s.player().toString());
+        assertThat(report.get("verificationCode").asString()).matches("[A-HJ-NP-Z2-9]{4}(-[A-HJ-NP-Z2-9]{4}){2}");
+        assertThat(report.get("fileHash").asString()).matches("[0-9a-f]{64}");
+        assertThat(report.get("templateVersion").asString()).isEqualTo("plantilla-1");
+        assertThat(report.get("playerId").asString()).isEqualTo(s.player().toString());
 
         // El PDF se descarga con el endpoint de archivos y su huella coincide con la registrada.
-        byte[] pdf = mvc.perform(get(API + "/files/" + report.get("fileId").asText()).header("Authorization", "Bearer " + s.coordinator().token()))
+        byte[] pdf = mvc.perform(get(API + "/files/" + report.get("fileId").asString()).header("Authorization", "Bearer " + s.coordinator().token()))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray();
         assertThat(new String(pdf, 0, 8, StandardCharsets.ISO_8859_1)).startsWith("%PDF-1.4");
-        assertThat(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(pdf))).isEqualTo(report.get("fileHash").asText());
+        assertThat(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(pdf))).isEqualTo(report.get("fileHash").asString());
         String raw = new String(pdf, StandardCharsets.ISO_8859_1);
-        assertThat(raw).contains(report.get("number").asText(), report.get("verificationCode").asText(), s.playerCode());
+        assertThat(raw).contains(report.get("number").asString(), report.get("verificationCode").asString(), s.playerCode());
 
         // Auditoría de la generación.
-        assertThat(audits("SEASON_REPORT_GENERATED", UUID.fromString(report.get("id").asText()))).isEqualTo(1L);
+        assertThat(audits("SEASON_REPORT_GENERATED", UUID.fromString(report.get("id").asString()))).isEqualTo(1L);
     }
 
     @Test
@@ -269,7 +269,7 @@ class SeasonClosureIT {
         JsonNode report = generate(s.coordinator(), s.player(), s.season(), null);
 
         JsonNode snapshot = json.readTree(jdbc.queryForObject("SELECT snapshot::text FROM season_reports WHERE id = ?", String.class,
-                UUID.fromString(report.get("id").asText())));
+                UUID.fromString(report.get("id").asString())));
         JsonNode attendance = snapshot.get("attendance");
         assertThat(attendance.get("sessions").asInt()).as("el cancelado y el anterior a la temporada no cuentan").isEqualTo(2);
         assertThat(attendance.get("present").asInt()).isEqualTo(1);
@@ -278,9 +278,9 @@ class SeasonClosureIT {
 
         JsonNode rounds = snapshot.get("evaluations");
         assertThat(rounds).hasSize(1);
-        assertThat(rounds.get(0).get("result").asText()).isEqualTo("APPROVED");
+        assertThat(rounds.get(0).get("result").asString()).isEqualTo("APPROVED");
         assertThat(rounds.get(0).get("concepts")).hasSize(3);
-        assertThat(StreamSupport.stream(rounds.get(0).get("concepts").spliterator(), false).map(c -> c.get("verdict").asText()).distinct().toList())
+        assertThat(StreamSupport.stream(rounds.get(0).get("concepts").spliterator(), false).map(c -> c.get("verdict").asString()).distinct().toList())
                 .containsExactly("FAVORABLE");
 
         assertThat(snapshot.get("matches")).hasSize(1);
@@ -305,22 +305,22 @@ class SeasonClosureIT {
         JsonNode second = generate(s.coordinator(), s.player(), s.season(), "Se corrigió la asistencia del 9 de marzo");
 
         assertThat(second.get("version").asInt()).isEqualTo(2);
-        assertThat(second.get("previousReportId").asText()).isEqualTo(first.get("id").asText());
-        assertThat(second.get("reason").asText()).contains("asistencia");
+        assertThat(second.get("previousReportId").asString()).isEqualTo(first.get("id").asString());
+        assertThat(second.get("reason").asString()).contains("asistencia");
         assertThat(second.get("consecutive").asLong()).isGreaterThan(first.get("consecutive").asLong());
-        assertThat(second.get("verificationCode").asText()).isNotEqualTo(first.get("verificationCode").asText());
-        assertThat(second.get("fileId").asText()).isNotEqualTo(first.get("fileId").asText());
+        assertThat(second.get("verificationCode").asString()).isNotEqualTo(first.get("verificationCode").asString());
+        assertThat(second.get("fileId").asString()).isNotEqualTo(first.get("fileId").asString());
 
         JsonNode list = body(getJson("/players/" + s.player() + "/season-reports?seasonId=" + s.season(), s.coordinator().token())
                 .andExpect(status().isOk()));
         assertThat(list).hasSize(2);
         assertThat(list.get(0).get("version").asInt()).as("el más reciente primero").isEqualTo(2);
-        assertThat(body(getJson("/season-reports/" + first.get("id").asText(), s.coordinator().token()).andExpect(status().isOk()))
+        assertThat(body(getJson("/season-reports/" + first.get("id").asString(), s.coordinator().token()).andExpect(status().isOk()))
                 .get("version").asInt()).isEqualTo(1);
 
         // La primera versión no se puede alterar.
         org.junit.jupiter.api.Assertions.assertThrows(org.springframework.dao.DataAccessException.class,
-                () -> jdbc.update("UPDATE season_reports SET reason = 'x' WHERE id = ?", UUID.fromString(first.get("id").asText())));
+                () -> jdbc.update("UPDATE season_reports SET reason = 'x' WHERE id = ?", UUID.fromString(first.get("id").asString())));
     }
 
     @Test
@@ -329,13 +329,13 @@ class SeasonClosureIT {
         JsonNode first = generate(s.coordinator(), s.player(), s.season(), null);
         JsonNode second = generate(s.coordinator(), s.player(), s.season(), "Nueva versión");
 
-        String handwritten = first.get("verificationCode").asText().toLowerCase().replace("-", "");
+        String handwritten = first.get("verificationCode").asString().toLowerCase().replace("-", "");
         JsonNode old = body(getJson("/season-reports/verify?code=" + handwritten, s.coordinator().token())
                 .andExpect(status().isOk()));
         assertThat(old.get("current").asBoolean()).isFalse();
-        assertThat(old.get("report").get("id").asText()).isEqualTo(first.get("id").asText());
+        assertThat(old.get("report").get("id").asString()).isEqualTo(first.get("id").asString());
 
-        JsonNode current = body(getJson("/season-reports/verify?code=" + second.get("verificationCode").asText(), s.coordinator().token())
+        JsonNode current = body(getJson("/season-reports/verify?code=" + second.get("verificationCode").asString(), s.coordinator().token())
                 .andExpect(status().isOk()));
         assertThat(current.get("current").asBoolean()).isTrue();
 
@@ -381,24 +381,24 @@ class SeasonClosureIT {
         assertThat(fields(body(postJson("/players/" + s.player() + "/season-closure", Map.of(), s.coordinator().token())
                 .andExpect(status().isUnprocessableEntity())))).containsExactlyInAnyOrder("seasonId", "reportId");
         assertThat(fields(body(postJson("/players/" + s.player() + "/season-closure",
-                Map.of("seasonId", s.season(), "reportId", strangerReport.get("id").asText()), s.coordinator().token())
+                Map.of("seasonId", s.season(), "reportId", strangerReport.get("id").asString()), s.coordinator().token())
                 .andExpect(status().isUnprocessableEntity())))).containsExactly("reportId");
 
         // Una versión más reciente anula a la anterior.
         JsonNode second = generate(s.coordinator(), s.player(), s.season(), "Revisión previa al cierre");
         JsonNode stale = body(postJson("/players/" + s.player() + "/season-closure",
-                Map.of("seasonId", s.season(), "reportId", first.get("id").asText()), s.coordinator().token())
+                Map.of("seasonId", s.season(), "reportId", first.get("id").asString()), s.coordinator().token())
                 .andExpect(status().isConflict()));
-        assertThat(stale.get("detail").asText()).contains("versión más reciente");
+        assertThat(stale.get("detail").asString()).contains("versión más reciente");
         assertThat(statusOf(s.player())).isEqualTo("ACTIVE");
 
         JsonNode closure = body(postJson("/players/" + s.player() + "/season-closure",
-                Map.of("seasonId", s.season(), "reportId", second.get("id").asText()), s.coordinator().token())
+                Map.of("seasonId", s.season(), "reportId", second.get("id").asString()), s.coordinator().token())
                 .andExpect(status().isCreated()));
 
         assertThat(closure.get("open").asBoolean()).isTrue();
-        assertThat(closure.get("reportId").asText()).isEqualTo(second.get("id").asText());
-        assertThat(closure.get("closedBy").asText()).isEqualTo(s.coordinator().id().toString());
+        assertThat(closure.get("reportId").asString()).isEqualTo(second.get("id").asString());
+        assertThat(closure.get("closedBy").asString()).isEqualTo(s.coordinator().id().toString());
         assertThat(statusOf(s.player())).isEqualTo("SEASON_CLOSED");
         Map<String, Object> history = jdbc.queryForMap(
                 "SELECT transition_code, from_state, to_state, actor_id FROM state_history WHERE entity_id = ?", s.player());
@@ -406,11 +406,11 @@ class SeasonClosureIT {
                 .containsEntry("to_state", "SEASON_CLOSED").containsEntry("actor_id", s.coordinator().id());
         assertThat(audits("PLAYER_SEASON_CLOSED", s.player())).isEqualTo(1L);
         assertThat(body(getJson("/players/" + s.player() + "/season-closure", s.coordinator().token()).andExpect(status().isOk()))
-                .get("id").asText()).isEqualTo(closure.get("id").asText());
+                .get("id").asString()).isEqualTo(closure.get("id").asString());
 
         // Cerrar dos veces no es posible, y el categoría y el historial siguen ahí.
         postJson("/players/" + s.player() + "/season-closure",
-                Map.of("seasonId", s.season(), "reportId", second.get("id").asText()), s.coordinator().token())
+                Map.of("seasonId", s.season(), "reportId", second.get("id").asString()), s.coordinator().token())
                 .andExpect(status().isConflict());
         assertThat(jdbc.queryForObject("SELECT count(*) FROM category_assignments WHERE player_id = ? AND valid_to IS NULL",
                 Long.class, s.player())).as("la categoría se conserva").isEqualTo(1L);
@@ -426,14 +426,14 @@ class SeasonClosureIT {
                 s.coach().id());
 
         JsonNode outdated = body(postJson("/players/" + s.player() + "/season-closure",
-                Map.of("seasonId", s.season(), "reportId", report.get("id").asText()), s.coordinator().token())
+                Map.of("seasonId", s.season(), "reportId", report.get("id").asString()), s.coordinator().token())
                 .andExpect(status().isConflict()));
-        assertThat(outdated.get("detail").asText()).contains("cambió después de generar el informe");
+        assertThat(outdated.get("detail").asString()).contains("cambió después de generar el informe");
         assertThat(statusOf(s.player())).isEqualTo("ACTIVE");
 
         JsonNode fresh = generate(s.coordinator(), s.player(), s.season(), "Incluye la sesión del 23 de marzo");
         postJson("/players/" + s.player() + "/season-closure",
-                Map.of("seasonId", s.season(), "reportId", fresh.get("id").asText()), s.coordinator().token())
+                Map.of("seasonId", s.season(), "reportId", fresh.get("id").asString()), s.coordinator().token())
                 .andExpect(status().isCreated());
         assertThat(statusOf(s.player())).isEqualTo("SEASON_CLOSED");
     }
@@ -446,10 +446,10 @@ class SeasonClosureIT {
             JsonNode report = generate(s.coordinator(), busy, s.season(), null); // el informe sí se puede emitir
 
             JsonNode refused = body(postJson("/players/" + busy + "/season-closure",
-                    Map.of("seasonId", s.season(), "reportId", report.get("id").asText()), s.coordinator().token())
+                    Map.of("seasonId", s.season(), "reportId", report.get("id").asString()), s.coordinator().token())
                     .andExpect(status().isConflict()));
 
-            assertThat(refused.get("code").asText()).isEqualTo("PLAYER_STATE_CONFLICT");
+            assertThat(refused.get("code").asString()).isEqualTo("PLAYER_STATE_CONFLICT");
             assertThat(statusOf(busy)).isEqualTo(state);
             assertThat(jdbc.queryForObject("SELECT count(*) FROM season_closures WHERE player_id = ?", Long.class, busy)).isZero();
         }
@@ -459,7 +459,7 @@ class SeasonClosureIT {
     void twoSimultaneousClosuresOfTheSamePlayerLeaveExactlyOne() throws Exception {
         Scene s = scene();
         JsonNode report = generate(s.coordinator(), s.player(), s.season(), null);
-        Map<String, Object> request = Map.of("seasonId", s.season(), "reportId", report.get("id").asText());
+        Map<String, Object> request = Map.of("seasonId", s.season(), "reportId", report.get("id").asString());
 
         CountDownLatch start = new CountDownLatch(1);
         ExecutorService pool = Executors.newFixedThreadPool(2);
@@ -494,7 +494,7 @@ class SeasonClosureIT {
         Scene s = scene();
         JsonNode report = generate(s.coordinator(), s.player(), s.season(), null);
         JsonNode closed = body(postJson("/players/" + s.player() + "/season-closure",
-                Map.of("seasonId", s.season(), "reportId", report.get("id").asText()), s.coordinator().token())
+                Map.of("seasonId", s.season(), "reportId", report.get("id").asString()), s.coordinator().token())
                 .andExpect(status().isCreated()));
         String path = "/players/" + s.player() + "/season-closure/reopen";
 
@@ -504,16 +504,16 @@ class SeasonClosureIT {
         JsonNode wrong = body(postJson(path, Map.of("reason", "Error de captura", "detail", "Se corrige la asistencia del 9 de marzo",
                 "confirmation", "JG-999999"), s.coordinator().token()).andExpect(status().isUnprocessableEntity()));
         assertThat(fields(wrong)).containsExactly("confirmation");
-        assertThat(wrong.get("errors").get(0).get("message").asText()).contains(s.playerCode());
+        assertThat(wrong.get("errors").get(0).get("message").asString()).contains(s.playerCode());
         assertThat(statusOf(s.player())).isEqualTo("SEASON_CLOSED");
 
         JsonNode reopened = body(postJson(path, Map.of("reason", "Error de captura", "detail", "Se corrige la asistencia del 9 de marzo",
                 "confirmation", s.playerCode().toLowerCase()), s.coordinator().token()).andExpect(status().isOk()));
 
-        assertThat(reopened.get("id").asText()).isEqualTo(closed.get("id").asText());
+        assertThat(reopened.get("id").asString()).isEqualTo(closed.get("id").asString());
         assertThat(reopened.get("open").asBoolean()).isFalse();
-        assertThat(reopened.get("reopenReason").asText()).isEqualTo("Error de captura");
-        assertThat(reopened.get("reopenedBy").asText()).isEqualTo(s.coordinator().id().toString());
+        assertThat(reopened.get("reopenReason").asString()).isEqualTo("Error de captura");
+        assertThat(reopened.get("reopenedBy").asString()).isEqualTo(s.coordinator().id().toString());
         assertThat(statusOf(s.player())).isEqualTo("ACTIVE");
         List<Map<String, Object>> history = jdbc.queryForList(
                 "SELECT transition_code, reason FROM state_history WHERE entity_id = ? ORDER BY occurred_at, transition_code", s.player());
@@ -530,7 +530,7 @@ class SeasonClosureIT {
 
         // El expediente puede volver a cerrarse con el mismo informe, mientras siga vigente y sin cambios.
         postJson("/players/" + s.player() + "/season-closure",
-                Map.of("seasonId", s.season(), "reportId", report.get("id").asText()), s.coordinator().token())
+                Map.of("seasonId", s.season(), "reportId", report.get("id").asString()), s.coordinator().token())
                 .andExpect(status().isCreated());
         assertThat(jdbc.queryForObject("SELECT count(*) FROM season_closures WHERE player_id = ?", Long.class, s.player())).isEqualTo(2L);
     }
@@ -554,7 +554,7 @@ class SeasonClosureIT {
     void onlyTheCoordinatorGeneratesClosesAndReopensWhileTheCommitteeCanOnlyRead() throws Exception {
         Scene s = scene();
         JsonNode report = generate(s.coordinator(), s.player(), s.season(), null);
-        String reportId = report.get("id").asText();
+        String reportId = report.get("id").asString();
         Map<String, Object> generate = Map.of("seasonId", s.season());
         Map<String, Object> close = Map.of("seasonId", s.season(), "reportId", reportId);
         Map<String, Object> reopen = Map.of("reason", "x", "detail", "y", "confirmation", s.playerCode());
@@ -573,13 +573,13 @@ class SeasonClosureIT {
             String token = staff(role).token();
             getJson("/players/" + s.player() + "/season-reports", token).andExpect(status().isForbidden());
             getJson("/season-reports/" + reportId, token).andExpect(status().isForbidden());
-            getJson("/season-reports/verify?code=" + report.get("verificationCode").asText(), token).andExpect(status().isForbidden());
+            getJson("/season-reports/verify?code=" + report.get("verificationCode").asString(), token).andExpect(status().isForbidden());
             getJson("/players/" + s.player() + "/season-closure", token).andExpect(status().isForbidden());
         }
         String committee = staff("COMMITTEE").token();
         getJson("/players/" + s.player() + "/season-reports", committee).andExpect(status().isOk());
         getJson("/season-reports/" + reportId, committee).andExpect(status().isOk());
-        getJson("/season-reports/verify?code=" + report.get("verificationCode").asText(), committee).andExpect(status().isOk());
+        getJson("/season-reports/verify?code=" + report.get("verificationCode").asString(), committee).andExpect(status().isOk());
         assertThat(statusOf(s.player())).isEqualTo("ACTIVE");
     }
 }

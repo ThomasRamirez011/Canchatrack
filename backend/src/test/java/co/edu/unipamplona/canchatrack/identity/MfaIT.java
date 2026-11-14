@@ -25,8 +25,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import co.edu.unipamplona.canchatrack.TestcontainersConfiguration;
 import co.edu.unipamplona.canchatrack.identity.application.SecurityMaintenanceService;
@@ -110,7 +110,7 @@ class MfaIT {
                 .andExpect(jsonPath("$.accessToken").doesNotExist())
                 .andExpect(jsonPath("$.refreshToken").doesNotExist()));
         assertThat(challenge.get("expiresIn").asLong()).isBetween(1L, 300L);
-        return challenge.get("challengeToken").asText();
+        return challenge.get("challengeToken").asString();
     }
 
     /** Código de un intervalo relativo al actual (0 = ahora, 1 = el siguiente, que el servidor también acepta). */
@@ -140,16 +140,16 @@ class MfaIT {
         JsonNode secret = read(postJson("/auth/mfa/enrollment", Map.of("challengeToken", challenge), null)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.otpauthUri").exists()));
-        byte[] bytes = Base32.decode(secret.get("secret").asText());
+        byte[] bytes = Base32.decode(secret.get("secret").asString());
         JsonNode done = read(postJson("/auth/mfa/enrollment/confirm",
                 Map.of("challengeToken", challenge, "code", code(bytes, 0)), null)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.session.accessToken").exists())
                 .andExpect(jsonPath("$.backupCodes.length()").value(10)));
         List<String> codes = new ArrayList<>();
-        done.get("backupCodes").forEach(node -> codes.add(node.asText()));
-        return new Enrolled(email, idOf(email), bytes, done.get("session").get("accessToken").asText(),
-                done.get("session").get("refreshToken").asText(), codes);
+        done.get("backupCodes").forEach(node -> codes.add(node.asString()));
+        return new Enrolled(email, idOf(email), bytes, done.get("session").get("accessToken").asString(),
+                done.get("session").get("refreshToken").asString(), codes);
     }
 
     private long audited(String action, UUID entity) {
@@ -208,7 +208,7 @@ class MfaIT {
     void rolesThatAreNotRequiredLogInWithJustThePassword() throws Exception {
         String email = account("COACH");
 
-        String token = read(login(email).andExpect(status().isOk())).get("accessToken").asText();
+        String token = read(login(email).andExpect(status().isOk())).get("accessToken").asString();
 
         getJson("/auth/mfa", token).andExpect(status().isOk()).andExpect(jsonPath("$.required").value(false))
                 .andExpect(jsonPath("$.enrolled").value(false));
@@ -219,7 +219,7 @@ class MfaIT {
         String email = account("COORDINATOR");
         String challenge = challengeOf(email, "ENROLL");
         byte[] secret = Base32.decode(read(postJson("/auth/mfa/enrollment", Map.of("challengeToken", challenge), null)
-                .andExpect(status().isOk())).get("secret").asText());
+                .andExpect(status().isOk())).get("secret").asString());
 
         postJson("/auth/mfa/enrollment/confirm", Map.of("challengeToken", challenge, "code", wrongCode(secret)), null)
                 .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("AUTH_UNAUTHENTICATED"));
@@ -241,8 +241,8 @@ class MfaIT {
                 Map.of("challengeToken", challenge, "code", code(enrolled.secret(), 1)), null)
                 .andExpect(status().isOk()).andExpect(jsonPath("$.user.roles[0]").value("COORDINATOR")));
 
-        getJson("/auth/me", session.get("accessToken").asText()).andExpect(status().isOk());
-        postJson("/auth/refresh", Map.of("refreshToken", session.get("refreshToken").asText()), null)
+        getJson("/auth/me", session.get("accessToken").asString()).andExpect(status().isOk());
+        postJson("/auth/refresh", Map.of("refreshToken", session.get("refreshToken").asString()), null)
                 .andExpect(status().isOk());
         assertThat(audited("MFA_VERIFIED", enrolled.id())).isEqualTo(1L);
     }
@@ -275,7 +275,7 @@ class MfaIT {
         String token = read(postJson("/auth/mfa/verify",
                 Map.of("challengeToken", challengeOf(enrolled.email(), "VERIFY"),
                         "code", enrolled.backupCodes().get(1).replace("-", "").toLowerCase()), null)
-                .andExpect(status().isOk())).get("accessToken").asText();
+                .andExpect(status().isOk())).get("accessToken").asString();
         getJson("/auth/mfa", token).andExpect(jsonPath("$.backupCodesRemaining").value(8));
         assertThat(jdbc.queryForObject("SELECT count(*) FROM mfa_backup_codes WHERE user_id = ? AND used_at IS NOT NULL",
                 Integer.class, enrolled.id())).isEqualTo(2);
@@ -338,13 +338,13 @@ class MfaIT {
         JsonNode fresh = read(postJson("/auth/mfa/backup-codes", Map.of("code", code(enrolled.secret(), 1)),
                 enrolled.accessToken()).andExpect(status().isOk()).andExpect(jsonPath("$.backupCodes.length()").value(10)));
 
-        assertThat(fresh.get("backupCodes").get(0).asText()).isNotIn(enrolled.backupCodes());
+        assertThat(fresh.get("backupCodes").get(0).asString()).isNotIn(enrolled.backupCodes());
         postJson("/auth/mfa/verify",
                 Map.of("challengeToken", challengeOf(enrolled.email(), "VERIFY"), "code", enrolled.backupCodes().get(0)), null)
                 .andExpect(status().isUnauthorized());
         postJson("/auth/mfa/verify",
                 Map.of("challengeToken", challengeOf(enrolled.email(), "VERIFY"),
-                        "code", fresh.get("backupCodes").get(0).asText()), null)
+                        "code", fresh.get("backupCodes").get(0).asString()), null)
                 .andExpect(status().isOk());
     }
 

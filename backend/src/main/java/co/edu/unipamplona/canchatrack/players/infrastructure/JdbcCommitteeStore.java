@@ -10,8 +10,9 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 import co.edu.unipamplona.canchatrack.players.application.AssignmentView;
 import co.edu.unipamplona.canchatrack.players.application.CommitteeStore;
@@ -23,7 +24,7 @@ import co.edu.unipamplona.canchatrack.players.domain.PlayerStatus;
 @Repository
 public class JdbcCommitteeStore implements CommitteeStore {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builder().build();
 
     private final JdbcTemplate jdbc;
 
@@ -75,7 +76,7 @@ public class JdbcCommitteeStore implements CommitteeStore {
     private static String attendeesJson(List<String> attendees) {
         try {
             return MAPPER.writeValueAsString(attendees);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalStateException("No se pudo serializar la lista de asistentes", e);
         }
     }

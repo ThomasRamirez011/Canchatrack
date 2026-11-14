@@ -13,15 +13,16 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 import co.edu.unipamplona.canchatrack.notifications.api.NotificationQueue;
 
 @Repository
 public class JdbcNotificationQueue implements NotificationQueue {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builder().build();
 
     private final JdbcTemplate jdbc;
 
@@ -64,7 +65,7 @@ public class JdbcNotificationQueue implements NotificationQueue {
     private static String write(Map<String, String> payload) {
         try {
             return MAPPER.writeValueAsString(payload == null ? Map.of() : payload);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalArgumentException("payload is not serializable", e);
         }
     }

@@ -27,8 +27,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import co.edu.unipamplona.canchatrack.TestcontainersConfiguration;
 
@@ -89,7 +89,7 @@ class ReportsIT {
         String email = "staff-" + UUID.randomUUID() + "@club.test";
         UUID id = user(email, "Personal de prueba", roleCode);
         String token = body(send(post(API + "/auth/login"), Map.of("email", email, "password", PASSWORD), null)
-                .andExpect(status().isOk())).get("accessToken").asText();
+                .andExpect(status().isOk())).get("accessToken").asString();
         return new Account(id, token);
     }
 
@@ -149,12 +149,12 @@ class ReportsIT {
     }
 
     private static List<String> names(JsonNode lines) {
-        return StreamSupport.stream(lines.spliterator(), false).map(l -> l.get("playerName").asText()).toList();
+        return StreamSupport.stream(lines.spliterator(), false).map(l -> l.get("playerName").asString()).toList();
     }
 
     private JsonNode categoryTotals(JsonNode report, UUID category) {
         return StreamSupport.stream(report.get("categories").spliterator(), false)
-                .filter(c -> c.has("categoryId") && c.get("categoryId").asText().equals(category.toString()))
+                .filter(c -> c.has("categoryId") && c.get("categoryId").asString().equals(category.toString()))
                 .findFirst().orElseThrow();
     }
 
@@ -191,18 +191,18 @@ class ReportsIT {
         JsonNode report = body(getJson("/reports/receivables?seasonId=" + s.season() + "&asOf=2030-01-15", s.coordinator().token())
                 .andExpect(status().isOk()));
 
-        assertThat(report.get("asOf").asText()).isEqualTo("2030-01-15");
+        assertThat(report.get("asOf").asString()).isEqualTo("2030-01-15");
         assertThat(report.get("truncated").asBoolean()).isFalse();
         assertThat(names(report.get("lines"))).containsExactlyInAnyOrder("Ana Ruiz", "Luis Ruiz");
         for (JsonNode line : report.get("lines")) {
-            if (line.get("playerName").asText().equals("Ana Ruiz")) {
-                assertThat(line.get("guardianName").asText()).isEqualTo("Marta López");
+            if (line.get("playerName").asString().equals("Ana Ruiz")) {
+                assertThat(line.get("guardianName").asString()).isEqualTo("Marta López");
                 assertThat(line.get("daysOverdue").asInt()).isEqualTo(10);
-                assertThat(line.get("status").asText()).isEqualTo("PENDING");
+                assertThat(line.get("status").asString()).isEqualTo("PENDING");
                 assertThat(line.get("outstanding").decimalValue()).isEqualByComparingTo("100000");
             } else {
                 assertThat(line.get("daysOverdue").asInt()).as("aún no vence").isZero();
-                assertThat(line.get("status").asText()).isEqualTo("PARTIAL");
+                assertThat(line.get("status").asString()).isEqualTo("PARTIAL");
                 assertThat(line.get("amount").decimalValue()).isEqualByComparingTo("100000");
                 assertThat(line.get("applied").decimalValue()).isEqualByComparingTo("40000");
                 assertThat(line.get("outstanding").decimalValue()).isEqualByComparingTo("60000");
@@ -222,7 +222,7 @@ class ReportsIT {
                 .andExpect(status().isOk()));
         assertThat(categoryTotals(later, s.olderCategory()).get("overdue").decimalValue()).isEqualByComparingTo("60000");
         for (JsonNode line : later.get("lines")) {
-            if (line.get("playerName").asText().equals("Luis Ruiz")) {
+            if (line.get("playerName").asString().equals("Luis Ruiz")) {
                 assertThat(line.get("daysOverdue").asInt()).isEqualTo(12);
             }
         }
@@ -239,7 +239,7 @@ class ReportsIT {
 
         JsonNode problem = body(getJson("/reports/receivables?seasonId=" + UUID.randomUUID() + "&categoryId=" + UUID.randomUUID(),
                 s.coordinator().token()).andExpect(status().isUnprocessableEntity()));
-        assertThat(StreamSupport.stream(problem.get("errors").spliterator(), false).map(e -> e.get("field").asText()).toList())
+        assertThat(StreamSupport.stream(problem.get("errors").spliterator(), false).map(e -> e.get("field").asString()).toList())
                 .containsExactlyInAnyOrder("seasonId", "categoryId");
     }
 
@@ -373,16 +373,16 @@ class ReportsIT {
 
         JsonNode summary = body(getJson("/reports/season-summary?seasonId=" + season, coordinator.token()).andExpect(status().isOk()));
 
-        assertThat(summary.get("season").get("id").asText()).isEqualTo(season.toString());
-        assertThat(summary.get("season").get("status").asText()).isEqualTo("ACTIVE");
+        assertThat(summary.get("season").get("id").asString()).isEqualTo(season.toString());
+        assertThat(summary.get("season").get("status").asString()).isEqualTo("ACTIVE");
 
         JsonNode roster = StreamSupport.stream(summary.get("roster").spliterator(), false)
-                .filter(r -> r.get("categoryId").asText().equals(category.toString())).findFirst().orElseThrow();
+                .filter(r -> r.get("categoryId").asString().equals(category.toString())).findFirst().orElseThrow();
         assertThat(roster.get("capacity").asInt()).isEqualTo(25);
         assertThat(roster.get("players").asInt()).isEqualTo(4);
 
         Map<String, Integer> events = new java.util.HashMap<>();
-        summary.get("events").forEach(e -> events.put(e.get("eventType").asText() + "/" + e.get("status").asText(), e.get("total").asInt()));
+        summary.get("events").forEach(e -> events.put(e.get("eventType").asString() + "/" + e.get("status").asString(), e.get("total").asInt()));
         assertThat(events).containsEntry("TRAINING/CONFIRMED", 1).containsEntry("TRAINING/CANCELLED", 1)
                 .containsEntry("FRIENDLY_MATCH/COMPLETED", 1).containsEntry("TOURNAMENT_MATCH/COMPLETED", 1);
         assertThat(events.values().stream().mapToInt(Integer::intValue).sum()).as("el entrenamiento de 2032 queda fuera").isEqualTo(4);
@@ -436,6 +436,6 @@ class ReportsIT {
 
         getJson("/reports/season-summary?seasonId=" + UUID.randomUUID(), coordinator.token()).andExpect(status().isNotFound());
         JsonNode problem = body(getJson("/reports/season-summary", coordinator.token()).andExpect(status().isUnprocessableEntity()));
-        assertThat(problem.get("errors").get(0).get("field").asText()).isEqualTo("seasonId");
+        assertThat(problem.get("errors").get(0).get("field").asString()).isEqualTo("seasonId");
     }
 }

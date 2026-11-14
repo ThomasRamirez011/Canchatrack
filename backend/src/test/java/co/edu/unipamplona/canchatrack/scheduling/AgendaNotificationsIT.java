@@ -32,8 +32,8 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import co.edu.unipamplona.canchatrack.TestcontainersConfiguration;
 import co.edu.unipamplona.canchatrack.notifications.application.EmailDeliveryException;
@@ -100,7 +100,7 @@ class AgendaNotificationsIT {
 
     private String login(String email) throws Exception {
         return body(postJson("/auth/login", Map.of("email", email, "password", PASSWORD), null).andExpect(status().isOk()))
-                .get("accessToken").asText();
+                .get("accessToken").asString();
     }
 
     /** Categoría con entrenador, escenario y dos jugadores: uno con su acudiente y otro con el mismo acudiente más otro. */
@@ -165,7 +165,7 @@ class AgendaNotificationsIT {
         request.put("startAt", start.toString());
         request.put("endAt", start.plus(90, ChronoUnit.MINUTES).toString());
         request.put("instructions", "Traer uniforme");
-        return UUID.fromString(body(postJson("/events", request, club.coordinatorToken()).andExpect(status().isCreated())).get("id").asText());
+        return UUID.fromString(body(postJson("/events", request, club.coordinatorToken()).andExpect(status().isCreated())).get("id").asString());
     }
 
     /** Evento insertado como si se hubiera programado hace una semana: la API siempre lo crea "ahora". */
@@ -354,14 +354,14 @@ class AgendaNotificationsIT {
         // Correrlo media hora se cruza con su propio horario anterior, pero eso no es un conflicto.
         JsonNode moved = body(reschedule(club, event, rescheduleBody(start.plus(30, ChronoUnit.MINUTES), 90, "Lluvia"))
                 .andExpect(status().isOk()));
-        assertThat(moved.get("startAt").asText()).isEqualTo(start.plus(30, ChronoUnit.MINUTES).toString());
-        assertThat(moved.get("status").asText()).isEqualTo("CONFIRMED");
-        assertThat(moved.get("instructions").asText()).as("lo no indicado se conserva").isEqualTo("Traer uniforme");
+        assertThat(moved.get("startAt").asString()).isEqualTo(start.plus(30, ChronoUnit.MINUTES).toString());
+        assertThat(moved.get("status").asString()).isEqualTo("CONFIRMED");
+        assertThat(moved.get("instructions").asString()).as("lo no indicado se conserva").isEqualTo("Traer uniforme");
 
         // Contra otro evento sí hay conflicto y se informa cuál.
         JsonNode clash = body(reschedule(club, event, rescheduleBody(start.plus(3, ChronoUnit.HOURS), 60, "Cambio de turno"))
                 .andExpect(status().isConflict()));
-        assertThat(clash.get("conflicts").get(0).get("eventId").asText()).isEqualTo(other.toString());
+        assertThat(clash.get("conflicts").get(0).get("eventId").asString()).isEqualTo(other.toString());
 
         // Un entrenador sin rol COACH no sirve; un partido no se reprograma por aquí.
         UUID guardianAccount = jdbc.queryForObject("SELECT id FROM users WHERE email = ?", UUID.class, club.guardianEmail());
@@ -405,9 +405,9 @@ class AgendaNotificationsIT {
         String firstPayload = jdbc.queryForObject("SELECT payload::text FROM notifications WHERE related_entity_id = ? AND notification_type = 'EVENT_RESCHEDULED' AND recipient_email = ?",
                 String.class, event, club.coachEmail());
         JsonNode payload = json.readTree(firstPayload);
-        assertThat(payload.get("reason").asText()).isEqualTo("Cancha en mantenimiento");
-        assertThat(payload.get("previousStartAt").asText()).isEqualTo(start.toString());
-        assertThat(payload.get("sequence").asText()).isEqualTo("1");
+        assertThat(payload.get("reason").asString()).isEqualTo("Cancha en mantenimiento");
+        assertThat(payload.get("previousStartAt").asString()).isEqualTo(start.toString());
+        assertThat(payload.get("sequence").asString()).isEqualTo("1");
         assertThat(firstPayload.contains("Jugadorcito")).isFalse();
 
         // Cancelar después sube de nuevo la secuencia, así el calendario acepta la cancelación.
@@ -471,9 +471,9 @@ class AgendaNotificationsIT {
         // Ana solo tiene a la madre; el padre está vinculado a otro jugador que no fue confirmado.
         assertThat(recipients(match, "EVENT_REMINDER")).isEqualTo(sorted(club.guardianEmail(), club.coachEmail()));
         JsonNode payload = json.readTree((String) notices(match, "EVENT_REMINDER").get(0).get("payload"));
-        assertThat(payload.get("hoursBefore").asText()).isEqualTo("48");
-        assertThat(payload.get("opponent").asText()).isEqualTo("Club Rival");
-        assertThat(payload.get("eventType").asText()).isEqualTo("FRIENDLY_MATCH");
+        assertThat(payload.get("hoursBefore").asString()).isEqualTo("48");
+        assertThat(payload.get("opponent").asString()).isEqualTo("Club Rival");
+        assertThat(payload.get("eventType").asString()).isEqualTo("FRIENDLY_MATCH");
         // Un entrenamiento a la misma distancia aún no está en su primer tramo (24 h).
         assertThat(notices(training, "EVENT_REMINDER")).isEmpty();
     }

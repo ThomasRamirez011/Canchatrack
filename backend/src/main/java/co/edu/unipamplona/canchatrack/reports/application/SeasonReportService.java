@@ -11,8 +11,9 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 import co.edu.unipamplona.canchatrack.audit.api.AuditRecord;
 import co.edu.unipamplona.canchatrack.audit.api.AuditWriter;
@@ -32,7 +33,7 @@ public class SeasonReportService {
 
     public static final String GENERATED = "SEASON_REPORT_GENERATED";
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builder().build();
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final SeasonReportStore store;
@@ -163,7 +164,7 @@ public class SeasonReportService {
     private static String snapshotJson(SeasonReportFacts facts) {
         try {
             return MAPPER.writeValueAsString(facts.toSnapshot());
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalStateException(e);
         }
     }

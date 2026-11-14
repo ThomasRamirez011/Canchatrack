@@ -15,9 +15,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 import co.edu.unipamplona.canchatrack.evaluations.application.DecisionView;
 import co.edu.unipamplona.canchatrack.evaluations.application.EvaluationStore;
@@ -30,7 +31,7 @@ public class JdbcEvaluationStore implements EvaluationStore {
 
     /** SQLSTATE que levanta el disparador de la base cuando la ronda ya está cerrada (RN-08..RN-10). */
     private static final String ROUND_CLOSED_STATE = "CT003";
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builder().build();
     private static final TypeReference<Map<String, Object>> CRITERIA_TYPE = new TypeReference<>() {
     };
 
@@ -78,7 +79,7 @@ public class JdbcEvaluationStore implements EvaluationStore {
     private static Map<String, Object> criteria(String json) {
         try {
             return json == null ? Map.of() : MAPPER.readValue(json, CRITERIA_TYPE);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalStateException("Criterios almacenados con formato inválido", e);
         }
     }
@@ -86,7 +87,7 @@ public class JdbcEvaluationStore implements EvaluationStore {
     private static String criteriaJson(Map<String, Object> criteria) {
         try {
             return MAPPER.writeValueAsString(criteria);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalStateException(e);
         }
     }
