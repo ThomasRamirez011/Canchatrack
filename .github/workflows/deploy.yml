@@ -1,8 +1,11 @@
 # CanchaTrack — Entrega continua del backend (Guía 11 / FPI-27).
 # Plataforma: Render (plan gratuito). Notas: (1) el nombre de la imagen va en minúsculas (GHCR rechaza mayúsculas y el propietario
 # es «ThomasRamirez011»); (2) `imgURL` va codificado como URL, como exige Render.
-# ESTADO (2026-11-13): EJECUTADO de punta a punta dos veces (publicar → aprobación en `production` → hook → salud → marcar estable),
-# siempre por disparo manual (workflow_dispatch). El camino de rollback NO se ha ejercitado: se omite cuando el despliegue sale bien.
+# ESTADO (2026-11-13): EJECUTADO de punta a punta tres veces con éxito (publicar → aprobación en `production` → hook → salud →
+# marcar estable); un primer intento falló por no tener aún el hook ni el entorno. Hasta este cambio, siempre por disparo manual.
+# Desde el PR de la deuda D22 también se lanza solo cuando `backend-ci` termina bien en `main` por un push (ver `on`). La puesta en
+# producción sigue esperando la aprobación humana del entorno `production`. El camino de rollback NO se ha ejercitado: se omite
+# cuando el despliegue sale bien.
 # Requisitos ya creados: entorno `production` con revisores obligatorios, secreto RENDER_DEPLOY_HOOK_URL y variable PUBLIC_URL.
 # Las variables de la aplicación (DB_URL, DB_USER, DB_PASSWORD, DB_MIGRATION_USER, DB_MIGRATION_PASSWORD, JWT_SECRET,
 # MFA_ENCRYPTION_KEY, MAIL_HOST, MAIL_FROM, CORS_ALLOWED_ORIGINS) se configuran EN LA PLATAFORMA, nunca en este archivo.
@@ -10,13 +13,13 @@
 name: deploy
 
 on:
-  # Solo manual por decisión vigente. Las condiciones para el disparo automático ya se cumplen (entorno `production` con revisores,
-  # secreto, variable y dos corridas sanas), pero activarlo desplegaría en cada fusión a main (y tras la aprobación, cada vez): es una
-  # decisión del autor pendiente (deuda D22). Para activarlo, descomentar `workflow_run` y quitar la condición manual.
-  # workflow_run:
-  #   workflows: [backend-ci]      # solo despliega si el pipeline real terminó
-  #   types: [completed]
-  #   branches: [main]
+  # Disparo automático (deuda D22): solo si el pipeline real `backend-ci` terminó en `main` por un push. `backend-ci` solo corre cuando
+  # cambia backend/ o su propio workflow, así que los cambios de documentación no despliegan. La imagen se publica sola, pero la puesta
+  # en producción espera la aprobación del entorno `production`; sin aprobación no se despliega nada.
+  workflow_run:
+    workflows: [backend-ci]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       rollback_to:
@@ -35,7 +38,7 @@ permissions:
 jobs:
   publish:
     # Continuous DELIVERY: la imagen se publica sola, pero la puesta en producción espera aprobación humana (job deploy).
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
