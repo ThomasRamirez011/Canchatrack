@@ -33,8 +33,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import co.edu.unipamplona.canchatrack.TestcontainersConfiguration;
 
@@ -100,7 +100,7 @@ class CommitteeIT {
 
     private String token(Staff staff) throws Exception {
         return body(postJson("/auth/login", Map.of("email", staff.email(), "password", PASSWORD), null)
-                .andExpect(status().isOk())).get("accessToken").asText();
+                .andExpect(status().isOk())).get("accessToken").asString();
     }
 
     private String staffToken(String roleCode) throws Exception {
@@ -108,7 +108,7 @@ class CommitteeIT {
     }
 
     private UUID userIdOf(String token) throws Exception {
-        return UUID.fromString(body(getJson("/auth/me", token).andExpect(status().isOk())).get("id").asText());
+        return UUID.fromString(body(getJson("/auth/me", token).andExpect(status().isOk())).get("id").asString());
     }
 
     private String createCategory(int capacity) throws Exception {
@@ -119,7 +119,7 @@ class CommitteeIT {
         request.put("birthYearMin", first);
         request.put("birthYearMax", first + 1);
         request.put("capacity", capacity);
-        return body(postJson("/categories", request, coordinator).andExpect(status().isCreated())).get("id").asText();
+        return body(postJson("/categories", request, coordinator).andExpect(status().isCreated())).get("id").asString();
     }
 
     private UUID newPlayer() {
@@ -172,7 +172,7 @@ class CommitteeIT {
 
     private static List<String> errorFields(JsonNode problem) {
         List<String> fields = new ArrayList<>();
-        problem.get("errors").forEach(e -> fields.add(e.get("field").asText()));
+        problem.get("errors").forEach(e -> fields.add(e.get("field").asString()));
         return fields;
     }
 

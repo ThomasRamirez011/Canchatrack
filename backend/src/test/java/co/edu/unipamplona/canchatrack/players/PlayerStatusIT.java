@@ -22,8 +22,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import co.edu.unipamplona.canchatrack.TestcontainersConfiguration;
 
@@ -64,7 +64,7 @@ class PlayerStatusIT {
         String body = mvc.perform(post(API + "/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of("email", email, "password", PASSWORD))))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        return json.readTree(body).get("accessToken").asText();
+        return json.readTree(body).get("accessToken").asString();
     }
 
     private record Scenario(UUID player, UUID category) {
@@ -106,7 +106,7 @@ class PlayerStatusIT {
         String body = mvc.perform(get(API + "/dashboard/club").header("Authorization", "Bearer " + bearer))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         return StreamSupport.stream(json.readTree(body).get("players").spliterator(), false)
-                .filter(n -> player.toString().equals(n.get("playerId").asText())).findFirst().orElseThrow();
+                .filter(n -> player.toString().equals(n.get("playerId").asString())).findFirst().orElseThrow();
     }
 
     private String playerStatus(UUID player) {
@@ -120,13 +120,13 @@ class PlayerStatusIT {
 
         JsonNode suspended = json.readTree(suspend(scenario.player(), coordinator, Map.of("reason", "Lesión de rodilla"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
-        assertThat(suspended.get("previousStatus").asText()).isEqualTo("ACTIVE");
-        assertThat(suspended.get("status").asText()).isEqualTo("SUSPENDED");
+        assertThat(suspended.get("previousStatus").asString()).isEqualTo("ACTIVE");
+        assertThat(suspended.get("status").asString()).isEqualTo("SUSPENDED");
         assertThat(playerStatus(scenario.player())).isEqualTo("SUSPENDED");
 
         // sigue en la plantilla del tablero, pero deshabilitado
         JsonNode row = dashboardRow(coordinator, scenario.player());
-        assertThat(row.get("status").asText()).isEqualTo("SUSPENDED");
+        assertThat(row.get("status").asString()).isEqualTo("SUSPENDED");
         assertThat(row.get("enabled").asBoolean()).isFalse();
 
         assertThat(jdbc.queryForObject("""
@@ -143,8 +143,8 @@ class PlayerStatusIT {
 
         JsonNode reinstated = json.readTree(reinstate(scenario.player(), coordinator)
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
-        assertThat(reinstated.get("previousStatus").asText()).isEqualTo("SUSPENDED");
-        assertThat(reinstated.get("status").asText()).isEqualTo("ACTIVE");
+        assertThat(reinstated.get("previousStatus").asString()).isEqualTo("SUSPENDED");
+        assertThat(reinstated.get("status").asString()).isEqualTo("ACTIVE");
         assertThat(playerStatus(scenario.player())).isEqualTo("ACTIVE");
         assertThat(dashboardRow(coordinator, scenario.player()).get("enabled").asBoolean()).isTrue();
         assertThat(jdbc.queryForObject("""

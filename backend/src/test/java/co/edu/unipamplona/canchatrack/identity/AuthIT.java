@@ -23,8 +23,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import co.edu.unipamplona.canchatrack.TestcontainersConfiguration;
 import co.edu.unipamplona.canchatrack.identity.api.PlayerAccessPolicy;
@@ -101,7 +101,7 @@ class AuthIT {
     @Test
     void garbageAndTamperedTokensAreRejected() throws Exception {
         String email = newAccount("COACH");
-        String access = login(email, PASSWORD).get("accessToken").asText();
+        String access = login(email, PASSWORD).get("accessToken").asString();
         String tampered = access.substring(0, access.length() - 2) + (access.endsWith("AA") ? "BB" : "AA");
 
         me("esto-no-es-un-jwt").andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("AUTH_UNAUTHENTICATED"));
@@ -121,12 +121,12 @@ class AuthIT {
 
         JsonNode session = login(email, PASSWORD);
 
-        assertThat(session.get("tokenType").asText()).isEqualTo("Bearer");
+        assertThat(session.get("tokenType").asString()).isEqualTo("Bearer");
         assertThat(session.get("expiresIn").asLong()).isPositive();
-        assertThat(session.get("refreshToken").asText()).isNotBlank();
-        assertThat(session.get("user").get("roles").get(0).asText()).isEqualTo("COORDINATOR");
+        assertThat(session.get("refreshToken").asString()).isNotBlank();
+        assertThat(session.get("user").get("roles").get(0).asString()).isEqualTo("COORDINATOR");
         assertThat(session.toString()).doesNotContain("password");
-        me(session.get("accessToken").asText())
+        me(session.get("accessToken").asString())
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.email").value(email))
                 .andExpect(jsonPath("$.roles[0]").value("COORDINATOR"));
@@ -142,7 +142,7 @@ class AuthIT {
                 .andExpect(status().isUnauthorized()).andReturn().getResponse().getContentAsString();
 
         assertThat(json.readTree(wrongPassword).get("detail")).isEqualTo(json.readTree(unknownEmail).get("detail"));
-        assertThat(json.readTree(wrongPassword).get("code").asText()).isEqualTo("AUTH_UNAUTHENTICATED");
+        assertThat(json.readTree(wrongPassword).get("code").asString()).isEqualTo("AUTH_UNAUTHENTICATED");
     }
 
     @Test
@@ -189,13 +189,13 @@ class AuthIT {
     void refreshRotatesAndReusingTheOldTokenKillsTheSession() throws Exception {
         String email = newAccount("COACH");
         JsonNode first = login(email, PASSWORD);
-        String oldRefresh = first.get("refreshToken").asText();
+        String oldRefresh = first.get("refreshToken").asString();
 
         JsonNode second = json.readTree(postJson("/auth/refresh", Map.of("refreshToken", oldRefresh), null)
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
-        String newRefresh = second.get("refreshToken").asText();
+        String newRefresh = second.get("refreshToken").asString();
         assertThat(newRefresh).isNotEqualTo(oldRefresh);
-        me(second.get("accessToken").asText()).andExpect(status().isOk());
+        me(second.get("accessToken").asString()).andExpect(status().isOk());
 
         postJson("/auth/refresh", Map.of("refreshToken", oldRefresh), null).andExpect(status().isUnauthorized());
         postJson("/auth/refresh", Map.of("refreshToken", newRefresh), null)
@@ -207,7 +207,7 @@ class AuthIT {
     @Test
     void refreshTokensAreStoredOnlyAsHashes() throws Exception {
         String email = newAccount("COACH");
-        String refresh = login(email, PASSWORD).get("refreshToken").asText();
+        String refresh = login(email, PASSWORD).get("refreshToken").asString();
 
         assertThat(jdbc.queryForObject("SELECT count(*) FROM refresh_tokens WHERE token_hash = ?", Integer.class, refresh)).isZero();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM refresh_tokens WHERE user_id = ?", Integer.class, userId(email))).isEqualTo(1);
@@ -216,7 +216,7 @@ class AuthIT {
     @Test
     void logoutEndsTheSession() throws Exception {
         String email = newAccount("COACH");
-        String refresh = login(email, PASSWORD).get("refreshToken").asText();
+        String refresh = login(email, PASSWORD).get("refreshToken").asString();
 
         postJson("/auth/logout", Map.of("refreshToken", refresh), null).andExpect(status().isNoContent());
         postJson("/auth/logout", Map.of("refreshToken", refresh), null).andExpect(status().isNoContent()); // idempotente
@@ -230,8 +230,8 @@ class AuthIT {
 
         jdbc.update("UPDATE users SET status = 'DISABLED' WHERE id = ?", userId(email));
 
-        me(session.get("accessToken").asText()).andExpect(status().isUnauthorized());
-        postJson("/auth/refresh", Map.of("refreshToken", session.get("refreshToken").asText()), null)
+        me(session.get("accessToken").asString()).andExpect(status().isUnauthorized());
+        postJson("/auth/refresh", Map.of("refreshToken", session.get("refreshToken").asString()), null)
                 .andExpect(status().isUnauthorized());
     }
 
@@ -240,7 +240,7 @@ class AuthIT {
     @Test
     void coordinatorCreatesStaffAccountsWhoCanThenLogIn() throws Exception {
         String coordinator = newAccount("COORDINATOR");
-        String token = login(coordinator, PASSWORD).get("accessToken").asText();
+        String token = login(coordinator, PASSWORD).get("accessToken").asString();
         String newEmail = "nuevo-" + UUID.randomUUID() + "@club.test";
 
         postJson("/users", Map.of("email", newEmail, "fullName", "Nuevo Evaluador", "password", "Evaluador-2026",
@@ -250,7 +250,7 @@ class AuthIT {
                 .andExpect(jsonPath("$.roles[0]").value("EVALUATOR"))
                 .andExpect(jsonPath("$.password").doesNotExist());
 
-        assertThat(login(newEmail, "Evaluador-2026").get("user").get("roles").get(0).asText()).isEqualTo("EVALUATOR");
+        assertThat(login(newEmail, "Evaluador-2026").get("user").get("roles").get(0).asString()).isEqualTo("EVALUATOR");
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM audit_events WHERE action = 'USER_CREATED' AND actor_id = ?", Integer.class, userId(coordinator)))
                 .isEqualTo(1);
@@ -258,7 +258,7 @@ class AuthIT {
 
     @Test
     void nonCoordinatorsCannotCreateAccounts() throws Exception {
-        String token = login(newAccount("COACH"), PASSWORD).get("accessToken").asText();
+        String token = login(newAccount("COACH"), PASSWORD).get("accessToken").asString();
 
         postJson("/users", Map.of("email", "x@club.test", "fullName", "X", "password", "Evaluador-2026",
                 "roles", List.of("COACH")), token)
@@ -276,7 +276,7 @@ class AuthIT {
 
     @Test
     void invalidAccountDataIsReportedFieldByField() throws Exception {
-        String token = login(newAccount("COORDINATOR"), PASSWORD).get("accessToken").asText();
+        String token = login(newAccount("COORDINATOR"), PASSWORD).get("accessToken").asString();
 
         // Reglas de dominio: contraseña débil, rol de acudiente no permitido
         postJson("/users", Map.of("email", "ok-" + UUID.randomUUID() + "@club.test", "fullName", "X", "password", "deb1",
@@ -295,7 +295,7 @@ class AuthIT {
 
     @Test
     void duplicateEmailIsRejected() throws Exception {
-        String token = login(newAccount("COORDINATOR"), PASSWORD).get("accessToken").asText();
+        String token = login(newAccount("COORDINATOR"), PASSWORD).get("accessToken").asString();
         String existing = newAccount("COACH");
 
         postJson("/users", Map.of("email", existing.toUpperCase(), "fullName", "Dup", "password", "Evaluador-2026",

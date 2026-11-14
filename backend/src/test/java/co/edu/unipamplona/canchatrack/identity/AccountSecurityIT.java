@@ -28,8 +28,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import co.edu.unipamplona.canchatrack.TestcontainersConfiguration;
 import co.edu.unipamplona.canchatrack.identity.application.SecurityMaintenanceService;
@@ -249,7 +249,7 @@ class AccountSecurityIT {
     @Test
     void resetByEmailLinkChangesThePasswordClosesSessionsAndCannotBeReplayed() throws Exception {
         String email = verifiedAccount();
-        String refresh = loginOk(email, PASSWORD).get("refreshToken").asText();
+        String refresh = loginOk(email, PASSWORD).get("refreshToken").asString();
 
         postJson("/auth/password-reset/request", Map.of("email", email)).andExpect(status().isAccepted());
         String token = pendingToken("PASSWORD_RESET", email);
@@ -331,8 +331,8 @@ class AccountSecurityIT {
     void changingThePasswordRequiresTheCurrentOneAndClosesEverySession() throws Exception {
         String email = verifiedAccount();
         JsonNode session = loginOk(email, PASSWORD);
-        String access = session.get("accessToken").asText();
-        String refresh = session.get("refreshToken").asText();
+        String access = session.get("accessToken").asString();
+        String refresh = session.get("refreshToken").asString();
 
         postJson("/auth/password", Map.of("currentPassword", "no-es-la-clave-1", "newPassword", NEW_PASSWORD), access, ip)
                 .andExpect(status().isUnprocessableEntity())
@@ -360,7 +360,7 @@ class AccountSecurityIT {
     @Test
     void guessingTheCurrentPasswordWithAStolenSessionLocksTheAccount() throws Exception {
         String email = verifiedAccount();
-        String access = loginOk(email, PASSWORD).get("accessToken").asText();
+        String access = loginOk(email, PASSWORD).get("accessToken").asString();
 
         for (int i = 0; i < 5; i++) {
             postJson("/auth/password", Map.of("currentPassword", "intento-" + i + "-erroneo", "newPassword", NEW_PASSWORD), access, ip)

@@ -63,15 +63,11 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
-        <!-- Boot 4 usa Jackson 3 (tools.jackson). El código aún usa Jackson 2 (com.fasterxml.jackson, 39 archivos):
-             se mantiene con el módulo de compatibilidad, de forma transitoria. Migrarlo es la fase 2. -->
+        <!-- Jackson 3 (tools.jackson): Spring Boot 4 lo trae por defecto. Se declara el starter para dejar la dependencia explícita;
+             ya no se usa Jackson 2 (com.fasterxml.jackson) en el código, solo sus anotaciones, que Jackson 3 sigue usando. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-jackson2</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
+            <artifactId>spring-boot-starter-jackson</artifactId>
         </dependency>
         <!-- Correo saliente (notifications): solo se usa con canchatrack.notifications.sender=smtp -->
         <dependency>

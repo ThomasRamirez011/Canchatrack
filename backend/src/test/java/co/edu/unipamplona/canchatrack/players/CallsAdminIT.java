@@ -27,8 +27,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import co.edu.unipamplona.canchatrack.TestcontainersConfiguration;
 
@@ -85,7 +85,7 @@ class CallsAdminIT {
 
     private String login(String email) throws Exception {
         return body(postJson("/auth/login", Map.of("email", email, "password", PASSWORD), null)
-                .andExpect(status().isOk())).get("accessToken").asText();
+                .andExpect(status().isOk())).get("accessToken").asString();
     }
 
     private String staffToken(String roleCode) throws Exception {
@@ -97,7 +97,7 @@ class CallsAdminIT {
     }
 
     private UUID userIdOf(String token) throws Exception {
-        return UUID.fromString(body(getJson("/auth/me", token).andExpect(status().isOk())).get("id").asText());
+        return UUID.fromString(body(getJson("/auth/me", token).andExpect(status().isOk())).get("id").asString());
     }
 
     private record Guardian(String token, UUID userId, UUID guardianId) {
@@ -111,7 +111,7 @@ class CallsAdminIT {
         request.put("password", PASSWORD);
         request.put("documentType", "CC");
         request.put("documentNumber", String.valueOf(ThreadLocalRandom.current().nextLong(1_000_000_000L, 9_999_999_999L)));
-        UUID userId = UUID.fromString(body(postJson("/guardians", request, null).andExpect(status().isCreated())).get("id").asText());
+        UUID userId = UUID.fromString(body(postJson("/guardians", request, null).andExpect(status().isCreated())).get("id").asString());
         UUID guardianId = jdbc.queryForObject("SELECT id FROM guardians WHERE user_id = ?", UUID.class, userId);
         return new Guardian(login(email), userId, guardianId);
     }
@@ -139,7 +139,7 @@ class CallsAdminIT {
     private String createSeason(String coordinator) throws Exception {
         Map<String, Object> request = Map.of("name", "Temporada " + UUID.randomUUID(),
                 "startAt", in(Duration.ofDays(-30)), "endAt", in(Duration.ofDays(300)));
-        return body(postJson("/seasons", request, coordinator).andExpect(status().isCreated())).get("id").asText();
+        return body(postJson("/seasons", request, coordinator).andExpect(status().isCreated())).get("id").asString();
     }
 
     private Map<String, Object> callRequest(String seasonId, Duration start, Duration end) {
@@ -154,7 +154,7 @@ class CallsAdminIT {
 
     private String createDraft(String coordinator, String seasonId, Duration start, Duration end) throws Exception {
         return body(postJson("/calls", callRequest(seasonId, start, end), coordinator).andExpect(status().isCreated())
-                .andExpect(jsonPath("$.status").value("DRAFT"))).get("id").asText();
+                .andExpect(jsonPath("$.status").value("DRAFT"))).get("id").asString();
     }
 
     private String createPublished(String coordinator, String seasonId) throws Exception {
@@ -212,7 +212,7 @@ class CallsAdminIT {
 
         String seasonId = body(postJson("/seasons", request, coordinator)
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.status").value("PLANNED"))).get("id").asText();
+                .andExpect(jsonPath("$.status").value("PLANNED"))).get("id").asString();
         postJson("/seasons", request, coordinator).andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.errors[?(@.field == 'name')]").isNotEmpty());
 

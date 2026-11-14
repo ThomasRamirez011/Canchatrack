@@ -28,8 +28,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import co.edu.unipamplona.canchatrack.TestcontainersConfiguration;
 
@@ -93,7 +93,7 @@ class EvaluationsIT {
                 UUID.class, email, "Personal de prueba", encoder.encode(PASSWORD));
         jdbc.update("INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE code = ?", id, roleCode);
         String token = body(postJson("/auth/login", Map.of("email", email, "password", PASSWORD), null).andExpect(status().isOk()))
-                .get("accessToken").asText();
+                .get("accessToken").asString();
         return new Account(id, token);
     }
 
@@ -153,7 +153,7 @@ class EvaluationsIT {
 
     private UUID openRound(Scenario s) throws Exception {
         return UUID.fromString(body(postJson("/players/" + s.player() + "/evaluation-rounds", openRequest(30), s.coordinator().token())
-                .andExpect(status().isCreated())).get("id").asText());
+                .andExpect(status().isCreated())).get("id").asString());
     }
 
     private Map<String, Object> verdict(String verdict) {
@@ -202,10 +202,10 @@ class EvaluationsIT {
 
         // Una sola ronda abierta por jugador.
         assertThat(body(postJson("/players/" + s.player() + "/evaluation-rounds", openRequest(30), coordinator.token())
-                .andExpect(status().isConflict())).get("code").asText()).isEqualTo("PLAYER_STATE_CONFLICT");
+                .andExpect(status().isConflict())).get("code").asString()).isEqualTo("PLAYER_STATE_CONFLICT");
         // Sin conceptos y antes del vencimiento no se puede cerrar.
         assertThat(body(postJson("/evaluation-rounds/" + round + "/close", Map.of(), coordinator.token())
-                .andExpect(status().isConflict())).get("code").asText()).isEqualTo("RESOURCE_STATE_CONFLICT");
+                .andExpect(status().isConflict())).get("code").asString()).isEqualTo("RESOURCE_STATE_CONFLICT");
 
         decide(round, s.panel().get(0), "FAVORABLE");
 
@@ -216,19 +216,19 @@ class EvaluationsIT {
         assertThat(body(getJson("/evaluation-rounds/" + round, s.panel().get(1).token()).andExpect(status().isOk()))
                 .get("decisions").size()).isZero();
         JsonNode seen = body(getJson("/evaluation-rounds/" + round, coordinator.token()).andExpect(status().isOk()));
-        assertThat(seen.get("outcome").asText()).isEqualTo("PENDING");
+        assertThat(seen.get("outcome").asString()).isEqualTo("PENDING");
 
         decide(round, s.panel().get(1), "FAVORABLE");
         decide(round, s.panel().get(2), "FAVORABLE");
         assertThat(body(getJson("/evaluation-rounds/" + round, coordinator.token()).andExpect(status().isOk()))
-                .get("outcome").asText()).isEqualTo("APPROVED");
+                .get("outcome").asString()).isEqualTo("APPROVED");
 
         // Nadie decide en nombre de otro: la coordinación no tiene rol de evaluador y un evaluador ajeno al panel tampoco.
         putJson("/evaluation-rounds/" + round + "/decision", verdict("FAVORABLE"), coordinator.token())
                 .andExpect(status().isForbidden());
         Account outsider = account("EVALUATOR");
         assertThat(body(putJson("/evaluation-rounds/" + round + "/decision", verdict("FAVORABLE"), outsider.token())
-                .andExpect(status().isUnprocessableEntity())).get("code").asText()).isEqualTo("PANEL_INVALID");
+                .andExpect(status().isUnprocessableEntity())).get("code").asString()).isEqualTo("PANEL_INVALID");
         getJson("/evaluation-rounds/" + round, outsider.token()).andExpect(status().isNotFound());
 
         // Ascenso aún no ejecutable: la ronda no está cerrada.
@@ -236,22 +236,22 @@ class EvaluationsIT {
                 .andExpect(status().isConflict());
 
         JsonNode closed = body(postJson("/evaluation-rounds/" + round + "/close", Map.of(), coordinator.token()).andExpect(status().isOk()));
-        assertThat(closed.get("status").asText()).isEqualTo("CLOSED");
-        assertThat(closed.get("result").asText()).isEqualTo("APPROVED");
+        assertThat(closed.get("status").asString()).isEqualTo("CLOSED");
+        assertThat(closed.get("result").asString()).isEqualTo("APPROVED");
         assertThat(closed.get("decisions").size()).isEqualTo(3);
         assertThat(playerStatus(s.player())).isEqualTo("PROMOTION_APPROVED");
 
         // Cerrada la ronda, los conceptos no cambian (RN-10) y no se puede cerrar de nuevo.
         assertThat(body(putJson("/evaluation-rounds/" + round + "/decision", verdict("UNFAVORABLE"), s.panel().get(0).token())
-                .andExpect(status().isConflict())).get("code").asText()).isEqualTo("ROUND_CLOSED");
+                .andExpect(status().isConflict())).get("code").asString()).isEqualTo("ROUND_CLOSED");
         postJson("/evaluation-rounds/" + round + "/close", Map.of(), coordinator.token()).andExpect(status().isConflict());
 
         // Ascenso: la categoría siguiente se toma por defecto y el historial se conserva (CA-14).
         UUID newCoach = account("COACH").id();
         JsonNode promoted = body(postJson("/players/" + s.player() + "/promotion", promotion(newCoach), coordinator.token())
                 .andExpect(status().isOk()));
-        assertThat(promoted.get("categoryId").asText()).isEqualTo(s.target().toString());
-        assertThat(promoted.get("previousCategoryId").asText()).isEqualTo(s.source().toString());
+        assertThat(promoted.get("categoryId").asString()).isEqualTo(s.target().toString());
+        assertThat(promoted.get("previousCategoryId").asString()).isEqualTo(s.source().toString());
         assertThat(playerStatus(s.player())).isEqualTo("ACTIVE");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM category_assignments WHERE player_id = ?", Integer.class, s.player())).isEqualTo(2);
         assertThat(jdbc.queryForObject("""
@@ -276,19 +276,19 @@ class EvaluationsIT {
         bare.put("verdict", "UNFAVORABLE");
         JsonNode rejected = body(putJson("/evaluation-rounds/" + round + "/decision", bare, s.panel().get(0).token())
                 .andExpect(status().isUnprocessableEntity()));
-        assertThat(rejected.get("code").asText()).isEqualTo("NEGATIVE_REASON_REQUIRED");
+        assertThat(rejected.get("code").asString()).isEqualTo("NEGATIVE_REASON_REQUIRED");
         assertThat(rejected.get("errors").findValuesAsText("field")).containsExactlyInAnyOrder("justification", "actions");
 
         JsonNode first = decide(round, s.panel().get(0), "UNFAVORABLE");
         JsonNode adjusted = decide(round, s.panel().get(0), "FOLLOW_UP_REQUIRED");
-        assertThat(adjusted.get("id").asText()).isEqualTo(first.get("id").asText());
-        assertThat(adjusted.get("verdict").asText()).isEqualTo("FOLLOW_UP_REQUIRED");
+        assertThat(adjusted.get("id").asString()).isEqualTo(first.get("id").asString());
+        assertThat(adjusted.get("verdict").asString()).isEqualTo("FOLLOW_UP_REQUIRED");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM evaluator_decision_history WHERE decision_id = ?",
-                Integer.class, UUID.fromString(first.get("id").asText()))).isEqualTo(1);
+                Integer.class, UUID.fromString(first.get("id").asString()))).isEqualTo(1);
         decide(round, s.panel().get(1), "FAVORABLE");
         decide(round, s.panel().get(2), "FAVORABLE");
         assertThat(body(getJson("/evaluation-rounds/" + round, s.coordinator().token()).andExpect(status().isOk()))
-                .get("outcome").asText()).isEqualTo("FOLLOW_UP");
+                .get("outcome").asString()).isEqualTo("FOLLOW_UP");
 
         // Cerrar sin ascenso exige el plan de seguimiento, que define la coordinación.
         JsonNode noPlan = body(postJson("/evaluation-rounds/" + round + "/close", Map.of(), s.coordinator().token())
@@ -298,8 +298,8 @@ class EvaluationsIT {
 
         JsonNode closed = body(postJson("/evaluation-rounds/" + round + "/close", Map.of("followUpPlan", "Acondicionamiento y nueva ronda en 3 meses"),
                 s.coordinator().token()).andExpect(status().isOk()));
-        assertThat(closed.get("result").asText()).isEqualTo("FOLLOW_UP");
-        assertThat(closed.get("followUpPlan").asText()).startsWith("Acondicionamiento");
+        assertThat(closed.get("result").asString()).isEqualTo("FOLLOW_UP");
+        assertThat(closed.get("followUpPlan").asString()).startsWith("Acondicionamiento");
         assertThat(playerStatus(s.player())).isEqualTo("ACTIVE");
         postJson("/players/" + s.player() + "/promotion", promotion(account("COACH").id()), s.coordinator().token())
                 .andExpect(status().isConflict());
@@ -326,8 +326,8 @@ class EvaluationsIT {
                 .andExpect(status().isUnprocessableEntity())).get("errors").findValuesAsText("field")).containsExactly("reason");
         change.put("reason", "El torneo de referencia se aplazó un mes");
         JsonNode updated = body(putJson("/evaluation-rounds/" + round + "/period", change, s.coordinator().token()).andExpect(status().isOk()));
-        assertThat(updated.get("periodStart").asText()).isEqualTo("2026-02-01");
-        assertThat(updated.get("outcome").asText()).isEqualTo("PENDING");
+        assertThat(updated.get("periodStart").asString()).isEqualTo("2026-02-01");
+        assertThat(updated.get("outcome").asString()).isEqualTo("PENDING");
         assertThat(updated.get("decisions").findValuesAsText("current")).containsOnly("false");
         postJson("/evaluation-rounds/" + round + "/close", Map.of(), s.coordinator().token()).andExpect(status().isConflict());
 
@@ -336,7 +336,7 @@ class EvaluationsIT {
             decide(round, evaluator, "FAVORABLE");
         }
         JsonNode again = body(getJson("/evaluation-rounds/" + round, s.coordinator().token()).andExpect(status().isOk()));
-        assertThat(again.get("outcome").asText()).isEqualTo("APPROVED");
+        assertThat(again.get("outcome").asString()).isEqualTo("APPROVED");
         assertThat(again.get("decisions").findValuesAsText("current")).containsOnly("true");
     }
 
@@ -351,7 +351,7 @@ class EvaluationsIT {
         jdbc.update("UPDATE evaluation_rounds SET due_at = now() - interval '1 day' WHERE id = ?", round);
         JsonNode closed = body(postJson("/evaluation-rounds/" + round + "/close", Map.of("followUpPlan", "Faltaron conceptos; reprogramar"),
                 s.coordinator().token()).andExpect(status().isOk()));
-        assertThat(closed.get("result").asText()).isEqualTo("FOLLOW_UP");
+        assertThat(closed.get("result").asString()).isEqualTo("FOLLOW_UP");
         assertThat(playerStatus(s.player())).isEqualTo("ACTIVE");
     }
 
@@ -359,11 +359,11 @@ class EvaluationsIT {
     void roundsOnlyOpenForActivePlayersWithAFullPanelAndValidPeriods() throws Exception {
         Scenario submitted = scenario("SUBMITTED", 3, 30);
         assertThat(body(postJson("/players/" + submitted.player() + "/evaluation-rounds", openRequest(30), submitted.coordinator().token())
-                .andExpect(status().isConflict())).get("code").asText()).isEqualTo("PLAYER_STATE_CONFLICT");
+                .andExpect(status().isConflict())).get("code").asString()).isEqualTo("PLAYER_STATE_CONFLICT");
 
         Scenario shortPanel = scenario("ACTIVE", 2, 30);
         assertThat(body(postJson("/players/" + shortPanel.player() + "/evaluation-rounds", openRequest(30), shortPanel.coordinator().token())
-                .andExpect(status().isUnprocessableEntity())).get("code").asText()).isEqualTo("PANEL_INVALID");
+                .andExpect(status().isUnprocessableEntity())).get("code").asString()).isEqualTo("PANEL_INVALID");
         assertThat(playerStatus(shortPanel.player())).isEqualTo("ACTIVE");
 
         Scenario valid = scenario("ACTIVE", 3, 30);
@@ -394,7 +394,7 @@ class EvaluationsIT {
 
         JsonNode full = body(postJson("/players/" + s.player() + "/promotion", promotion(newCoach), s.coordinator().token())
                 .andExpect(status().isConflict()));
-        assertThat(full.get("code").asText()).isEqualTo("CATEGORY_FULL");
+        assertThat(full.get("code").asString()).isEqualTo("CATEGORY_FULL");
         assertThat(playerStatus(s.player())).isEqualTo("PROMOTION_APPROVED");
 
         // Entrenador que no es entrenador: validación; y el jugador sigue pendiente de ascenso.

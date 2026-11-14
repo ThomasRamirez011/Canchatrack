@@ -26,8 +26,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import co.edu.unipamplona.canchatrack.TestcontainersConfiguration;
 
@@ -79,7 +79,7 @@ class AuditQueryIT {
                 UUID.class, email, "Personal de prueba", encoder.encode(PASSWORD));
         jdbc.update("INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE code = ?", id, roleCode);
         String token = body(send(post(API + "/auth/login"), Map.of("email", email, "password", PASSWORD), null)
-                .andExpect(status().isOk())).get("accessToken").asText();
+                .andExpect(status().isOk())).get("accessToken").asString();
         return new Account(id, token);
     }
 
@@ -100,7 +100,7 @@ class AuditQueryIT {
     }
 
     private static List<String> ids(JsonNode page) {
-        return StreamSupport.stream(page.get("items").spliterator(), false).map(i -> i.get("id").asText()).toList();
+        return StreamSupport.stream(page.get("items").spliterator(), false).map(i -> i.get("id").asString()).toList();
     }
 
     // ---------- pruebas ----------
@@ -157,12 +157,12 @@ class AuditQueryIT {
         JsonNode item = body(getJson("/audit/events?action=" + action, coordinator.token()).andExpect(status().isOk()))
                 .get("items").get(0);
 
-        assertThat(item.get("action").asText()).isEqualTo(action);
-        assertThat(item.get("actorRole").asText()).isEqualTo("COORDINATOR");
-        assertThat(item.get("before").get("status").asText()).isEqualTo("ACTIVE");
-        assertThat(item.get("after").get("status").asText()).isEqualTo("SUSPENDED");
-        assertThat(item.get("reason").asText()).isEqualTo("motivo de prueba");
-        assertThat(item.get("correlationId").asText()).isEqualTo("corr-it-1234");
+        assertThat(item.get("action").asString()).isEqualTo(action);
+        assertThat(item.get("actorRole").asString()).isEqualTo("COORDINATOR");
+        assertThat(item.get("before").get("status").asString()).isEqualTo("ACTIVE");
+        assertThat(item.get("after").get("status").asString()).isEqualTo("SUSPENDED");
+        assertThat(item.get("reason").asString()).isEqualTo("motivo de prueba");
+        assertThat(item.get("correlationId").asString()).isEqualTo("corr-it-1234");
         assertThat(item.has("actorId")).as("un evento del sistema no inventa actor").isFalse();
         assertThat(item.has("ip")).isFalse();
         assertThat(item.has("userAgent")).isFalse();
@@ -189,7 +189,7 @@ class AuditQueryIT {
             JsonNode page = body(getJson(path, coordinator.token()).andExpect(status().isOk()));
             walked.addAll(ids(page));
             pageSizes.add(page.get("items").size());
-            cursor = page.has("nextCursor") ? page.get("nextCursor").asText() : null;
+            cursor = page.has("nextCursor") ? page.get("nextCursor").asString() : null;
         } while (cursor != null);
 
         List<String> expected = jdbc.queryForList(
@@ -222,7 +222,7 @@ class AuditQueryIT {
         assertThat(trace.get("before_state")).isNull();
 
         // Pedir la segunda página continúa la misma búsqueda: no genera otro rastro.
-        getJson("/audit/events?limit=2&action=" + action + "&entityId=" + entity + "&cursor=" + first.get("nextCursor").asText(),
+        getJson("/audit/events?limit=2&action=" + action + "&entityId=" + entity + "&cursor=" + first.get("nextCursor").asString(),
                 coordinator.token()).andExpect(status().isOk());
         assertThat(queried(coordinator.id())).isEqualTo(1);
     }
@@ -234,9 +234,9 @@ class AuditQueryIT {
         JsonNode problem = body(getJson("/audit/events?outcome=MAYBE&limit=0&cursor=basura&from=2031-05-02T00:00:00Z&to=2031-05-01T00:00:00Z",
                 coordinator.token()).andExpect(status().isUnprocessableEntity()));
 
-        assertThat(problem.get("code").asText()).isEqualTo("VALIDATION_FAILED");
+        assertThat(problem.get("code").asString()).isEqualTo("VALIDATION_FAILED");
         Set<String> fields = StreamSupport.stream(problem.get("errors").spliterator(), false)
-                .map(e -> e.get("field").asText()).collect(Collectors.toSet());
+                .map(e -> e.get("field").asString()).collect(Collectors.toSet());
         assertThat(fields).containsExactlyInAnyOrder("outcome", "limit", "cursor", "to");
         assertThat(queried(coordinator.id())).isZero();
 

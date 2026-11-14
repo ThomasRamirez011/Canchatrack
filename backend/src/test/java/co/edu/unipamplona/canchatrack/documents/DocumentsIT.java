@@ -32,8 +32,8 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import co.edu.unipamplona.canchatrack.TestcontainersConfiguration;
 import co.edu.unipamplona.canchatrack.documents.application.ExpiryAlertService;
@@ -107,7 +107,7 @@ class DocumentsIT {
                 UUID.class, email, "Usuario de prueba", encoder.encode(PASSWORD));
         jdbc.update("INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE code = ?", id, roleCode);
         String token = body(postJson("/auth/login", Map.of("email", email, "password", PASSWORD), null).andExpect(status().isOk()))
-                .get("accessToken").asText();
+                .get("accessToken").asString();
         return new Account(id, email, token);
     }
 
@@ -186,7 +186,7 @@ class DocumentsIT {
         JsonNode seen = body(getJson("/document-types", guardian.token()).andExpect(status().isOk()));
         assertThat(seen.findValuesAsText("code")).contains("MEDICAL_CERTIFICATE", code);
 
-        String typeId = created.get("id").asText();
+        String typeId = created.get("id").asString();
         JsonNode updated = body(patchJson("/document-types/" + typeId, Map.of("active", false), coordinator.token())
                 .andExpect(status().isOk()));
         assertThat(updated.get("active").asBoolean()).isFalse();
@@ -235,7 +235,7 @@ class DocumentsIT {
 
         // Vigente por 300 días y sin ventana: no se puede reemplazar (RN-05).
         assertThat(body(uploadDocument(family.player(), medical, LocalDate.now().plusDays(500), guardian)
-                .andExpect(status().isConflict())).get("code").asText()).isEqualTo("DOCUMENT_UPLOAD_NOT_ALLOWED");
+                .andExpect(status().isConflict())).get("code").asString()).isEqualTo("DOCUMENT_UPLOAD_NOT_ALLOWED");
 
         // La coordinación habilita una ventana para este jugador y entonces sí.
         Instant now = Instant.now();
@@ -245,7 +245,7 @@ class DocumentsIT {
         JsonNode second = body(uploadDocument(family.player(), medical, LocalDate.now().plusDays(500), guardian)
                 .andExpect(status().isCreated()));
         assertThat(second.get("versionNumber").asInt()).isEqualTo(2);
-        assertThat(second.get("fileName").asText()).isEqualTo("certificado.pdf");
+        assertThat(second.get("fileName").asString()).isEqualTo("certificado.pdf");
 
         // Historial completo, la más reciente primero; el estado actual refleja la última versión.
         JsonNode history = body(getJson("/players/" + family.player() + "/document-types/" + medical + "/versions", guardian)
@@ -254,20 +254,20 @@ class DocumentsIT {
         JsonNode current = body(getJson("/players/" + family.player() + "/documents", guardian).andExpect(status().isOk()));
         JsonNode certificate = null;
         for (JsonNode item : current) {
-            if ("MEDICAL_CERTIFICATE".equals(item.get("type").get("code").asText())) {
+            if ("MEDICAL_CERTIFICATE".equals(item.get("type").get("code").asString())) {
                 certificate = item;
             }
         }
-        assertThat(certificate.get("status").asText()).isEqualTo("VALID");
+        assertThat(certificate.get("status").asString()).isEqualTo("VALID");
         assertThat(certificate.get("current").get("versionNumber").asInt()).isEqualTo(2);
 
         // El contenido se descarga íntegro, como adjunto y sin que el navegador lo reinterprete.
-        byte[] downloaded = getJson("/players/" + family.player() + "/documents/versions/" + second.get("id").asText() + "/file", guardian)
+        byte[] downloaded = getJson("/players/" + family.player() + "/documents/versions/" + second.get("id").asString() + "/file", guardian)
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray();
         assertThat(downloaded).isEqualTo(PDF);
 
         // La base rechaza cualquier edición o borrado de una versión (RF-008).
-        UUID versionId = UUID.fromString(first.get("id").asText());
+        UUID versionId = UUID.fromString(first.get("id").asString());
         assertThatThrownBy(() -> jdbc.update("UPDATE document_versions SET notes = 'x' WHERE id = ?", versionId))
                 .hasMessageContaining("IMMUTABLE_RECORD");
         assertThatThrownBy(() -> jdbc.update("DELETE FROM document_versions WHERE id = ?", versionId))
@@ -303,8 +303,8 @@ class DocumentsIT {
         UUID medical = medicalType();
         JsonNode version = body(uploadDocument(family.player(), medical, LocalDate.now().plusDays(300), family.guardian().token())
                 .andExpect(status().isCreated()));
-        String versionPath = "/players/" + family.player() + "/documents/versions/" + version.get("id").asText() + "/file";
-        UUID fileId = jdbc.queryForObject("SELECT file_id FROM document_versions WHERE id = ?::uuid", UUID.class, version.get("id").asText());
+        String versionPath = "/players/" + family.player() + "/documents/versions/" + version.get("id").asString() + "/file";
+        UUID fileId = jdbc.queryForObject("SELECT file_id FROM document_versions WHERE id = ?::uuid", UUID.class, version.get("id").asString());
 
         // El comité ve al jugador, pero ni los documentos de salud en el listado ni su contenido.
         JsonNode committeeView = body(getJson("/players/" + family.player() + "/documents", committee.token()).andExpect(status().isOk()));

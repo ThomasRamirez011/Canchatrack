@@ -20,9 +20,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 import co.edu.unipamplona.canchatrack.competitions.application.CompetitionStore;
 import co.edu.unipamplona.canchatrack.competitions.application.DuplicateTournamentException;
@@ -37,7 +38,7 @@ import co.edu.unipamplona.canchatrack.competitions.domain.PlayerResultLine;
 public class JdbcCompetitionStore implements CompetitionStore {
 
     private static final String FOREIGN_KEY_VIOLATION = "23503";
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builder().build();
     private static final TypeReference<LinkedHashMap<String, Boolean>> CHECKS = new TypeReference<>() { };
 
     private static final String TOURNAMENT_SELECT = """
@@ -100,7 +101,7 @@ public class JdbcCompetitionStore implements CompetitionStore {
     private static Map<String, Boolean> checks(String json) {
         try {
             return json == null ? Map.of() : MAPPER.readValue(json, CHECKS);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalStateException("callup_entries.eligibility is not a JSON object of booleans", e);
         }
     }
@@ -108,7 +109,7 @@ public class JdbcCompetitionStore implements CompetitionStore {
     private static String write(Map<String, Boolean> checks) {
         try {
             return MAPPER.writeValueAsString(checks);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalStateException(e);
         }
     }

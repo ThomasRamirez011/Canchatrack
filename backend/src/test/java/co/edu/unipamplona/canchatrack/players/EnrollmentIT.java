@@ -24,8 +24,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import co.edu.unipamplona.canchatrack.TestcontainersConfiguration;
 
@@ -78,7 +78,7 @@ class EnrollmentIT {
 
     private String login(String email) throws Exception {
         return body(postJson("/auth/login", Map.of("email", email, "password", PASSWORD), null)
-                .andExpect(status().isOk())).get("accessToken").asText();
+                .andExpect(status().isOk())).get("accessToken").asString();
     }
 
     private static String randomDigits() {
@@ -95,7 +95,7 @@ class EnrollmentIT {
         request.put("documentType", "CC");
         request.put("documentNumber", randomDigits());
         request.put("phone", "300 123 4567");
-        UUID userId = UUID.fromString(body(postJson("/guardians", request, null).andExpect(status().isCreated())).get("id").asText());
+        UUID userId = UUID.fromString(body(postJson("/guardians", request, null).andExpect(status().isCreated())).get("id").asString());
         UUID guardianId = jdbc.queryForObject("SELECT id FROM guardians WHERE user_id = ?", UUID.class, userId);
         return new Guardian(email, login(email), userId, guardianId);
     }
@@ -226,7 +226,7 @@ class EnrollmentIT {
                 .andExpect(jsonPath("$.playerStatus").value("SUBMITTED"))
                 .andExpect(jsonPath("$.viaException").value(false)));
 
-        UUID playerId = UUID.fromString(receipt.get("playerId").asText());
+        UUID playerId = UUID.fromString(receipt.get("playerId").asString());
         assertThat(jdbc.queryForObject("SELECT status FROM players WHERE id = ?", String.class, playerId)).isEqualTo("SUBMITTED");
         assertThat(jdbc.queryForObject("SELECT is_primary FROM player_guardians WHERE player_id = ? AND guardian_id = ?",
                 Boolean.class, playerId, guardian.guardianId())).isTrue();
@@ -340,11 +340,11 @@ class EnrollmentIT {
         // el mismo acudiente, mismo jugador con proceso en curso
         String sameGuardian = body(postJson("/enrollments", enrollmentRequest(otherCall, document), owner.token())
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PLAYER_STATE_CONFLICT")))
-                .get("detail").asText();
+                .get("detail").asString();
         // otro acudiente con el mismo documento: misma respuesta, sin pistas de que el jugador existe
         String otherGuardian = body(postJson("/enrollments", enrollmentRequest(otherCall, document), stranger.token())
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PLAYER_STATE_CONFLICT")))
-                .get("detail").asText();
+                .get("detail").asString();
 
         assertThat(otherGuardian).isEqualTo(sameGuardian).doesNotContain(document);
         assertThat(countAudit("ENROLLMENT_REJECTED", stranger.userId(), "PLAYER_NOT_LINKED")).isEqualTo(1L);
@@ -358,13 +358,13 @@ class EnrollmentIT {
         String document = newPlayerDocument();
         JsonNode first = body(postJson("/enrollments", enrollmentRequest(openCall(), document), guardian.token())
                 .andExpect(status().isCreated()));
-        UUID playerId = UUID.fromString(first.get("playerId").asText());
+        UUID playerId = UUID.fromString(first.get("playerId").asString());
         jdbc.update("UPDATE players SET status = 'REJECTED' WHERE id = ?", playerId);
 
         JsonNode second = body(postJson("/enrollments", enrollmentRequest(openCall(), document), guardian.token())
                 .andExpect(status().isCreated()));
 
-        assertThat(second.get("playerId").asText()).isEqualTo(playerId.toString());
+        assertThat(second.get("playerId").asString()).isEqualTo(playerId.toString());
         assertThat(jdbc.queryForObject("SELECT status FROM players WHERE id = ?", String.class, playerId)).isEqualTo("SUBMITTED");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM enrollments WHERE player_id = ?", Long.class, playerId)).isEqualTo(2L);
     }
@@ -377,13 +377,13 @@ class EnrollmentIT {
         Guardian stranger = registerGuardian();
         JsonNode receipt = body(postJson("/enrollments", enrollmentRequest(openCall(), newPlayerDocument()), owner.token())
                 .andExpect(status().isCreated()));
-        String playerId = receipt.get("playerId").asText();
+        String playerId = receipt.get("playerId").asString();
 
         getJson("/players/" + playerId, owner.token())
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(playerId))
                 .andExpect(jsonPath("$.status").value("SUBMITTED"))
-                .andExpect(jsonPath("$.enrollments[0].filingCode").value(receipt.get("filingCode").asText()));
+                .andExpect(jsonPath("$.enrollments[0].filingCode").value(receipt.get("filingCode").asString()));
         getJson("/players/" + playerId, staffToken("COORDINATOR")).andExpect(status().isOk());
         getJson("/players/" + playerId, staffToken("COMMITTEE")).andExpect(status().isOk());
 
@@ -401,9 +401,9 @@ class EnrollmentIT {
         Guardian owner = registerGuardian();
         Guardian stranger = registerGuardian();
         String mine = body(postJson("/enrollments", enrollmentRequest(openCall(), newPlayerDocument()), owner.token())
-                .andExpect(status().isCreated())).get("playerId").asText();
+                .andExpect(status().isCreated())).get("playerId").asString();
         String theirs = body(postJson("/enrollments", enrollmentRequest(openCall(), newPlayerDocument()), stranger.token())
-                .andExpect(status().isCreated())).get("playerId").asText();
+                .andExpect(status().isCreated())).get("playerId").asString();
 
         List<String> ownerSees = body(getJson("/players", owner.token()).andExpect(status().isOk())).get("items")
                 .findValuesAsText("id");

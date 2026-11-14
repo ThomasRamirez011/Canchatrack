@@ -12,9 +12,10 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 import co.edu.unipamplona.canchatrack.notifications.application.DueNotification;
 import co.edu.unipamplona.canchatrack.notifications.application.NotificationOutbox;
@@ -28,7 +29,7 @@ import co.edu.unipamplona.canchatrack.notifications.application.NotificationOutb
 @Repository
 public class JdbcNotificationOutbox implements NotificationOutbox {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builder().build();
     private static final TypeReference<Map<String, String>> PAYLOAD = new TypeReference<>() {
     };
 
@@ -121,7 +122,7 @@ public class JdbcNotificationOutbox implements NotificationOutbox {
     private static Map<String, String> payload(ResultSet rs) throws SQLException {
         try {
             return MAPPER.readValue(rs.getString("payload"), PAYLOAD);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             return Map.of();
         }
     }

@@ -27,8 +27,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import co.edu.unipamplona.canchatrack.TestcontainersConfiguration;
 
@@ -91,7 +91,7 @@ class ReportExportsIT {
         String email = "staff-" + UUID.randomUUID() + "@club.test";
         UUID id = user(email, fullName, roleCode);
         String token = body(send(post(API + "/auth/login"), Map.of("email", email, "password", PASSWORD), null)
-                .andExpect(status().isOk())).get("accessToken").asText();
+                .andExpect(status().isOk())).get("accessToken").asString();
         return new Account(id, token);
     }
 
@@ -107,7 +107,7 @@ class ReportExportsIT {
     }
 
     private static List<String> fields(JsonNode problem) {
-        return StreamSupport.stream(problem.get("errors").spliterator(), false).map(e -> e.get("field").asText()).toList();
+        return StreamSupport.stream(problem.get("errors").spliterator(), false).map(e -> e.get("field").asString()).toList();
     }
 
     private record Club(Account coordinator, Account coach, UUID season, UUID category, String categoryName, UUID venue,

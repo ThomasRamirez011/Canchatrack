@@ -30,8 +30,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import co.edu.unipamplona.canchatrack.TestcontainersConfiguration;
 
@@ -98,7 +98,7 @@ class CompetitionsIT {
 
     private String login(String email) throws Exception {
         return body(postJson("/auth/login", Map.of("email", email, "password", PASSWORD), null).andExpect(status().isOk()))
-                .get("accessToken").asText();
+                .get("accessToken").asString();
     }
 
     private UUID user(String email, String roleCode) {
@@ -216,7 +216,7 @@ class CompetitionsIT {
 
     private UUID scheduleMatch(Club club) throws Exception {
         return UUID.fromString(body(postJson("/matches", matchRequest(club, null, NEXT_DAY.getAndIncrement(), 10),
-                club.coordinator().token()).andExpect(status().isCreated())).get("id").asText());
+                club.coordinator().token()).andExpect(status().isCreated())).get("id").asString());
     }
 
     private JsonNode propose(Club club, UUID match, Kid... kids) throws Exception {
@@ -238,7 +238,7 @@ class CompetitionsIT {
 
     private static JsonNode entry(JsonNode callups, Kid kid) {
         for (JsonNode node : callups) {
-            if (kid.id().toString().equals(node.get("playerId").asText())) {
+            if (kid.id().toString().equals(node.get("playerId").asString())) {
                 return node;
             }
         }
@@ -292,23 +292,23 @@ class CompetitionsIT {
 
         JsonNode callups = propose(club, match, ok1, ok2, noCertificate, inArrears, noAuthorization, withdrawn);
 
-        assertThat(entry(callups, ok1).get("status").asText()).isEqualTo("PROPOSED");
-        assertThat(entry(callups, ok2).get("status").asText()).isEqualTo("PROPOSED");
+        assertThat(entry(callups, ok1).get("status").asString()).isEqualTo("PROPOSED");
+        assertThat(entry(callups, ok2).get("status").asString()).isEqualTo("PROPOSED");
         Map<Kid, String> causes = Map.of(noCertificate, "MEDICAL_CERTIFICATE_INVALID", inArrears, "ARREARS_POLICY",
                 noAuthorization, "PARTICIPATION_AUTHORIZATION_INVALID", withdrawn, "PLAYER_NOT_ACTIVE");
         causes.forEach((kid, cause) -> {
-            assertThat(entry(callups, kid).get("status").asText()).isEqualTo("NOT_ELIGIBLE");
-            assertThat(entry(callups, kid).get("ineligibilityCode").asText()).isEqualTo(cause);
+            assertThat(entry(callups, kid).get("status").asString()).isEqualTo("NOT_ELIGIBLE");
+            assertThat(entry(callups, kid).get("ineligibilityCode").asString()).isEqualTo(cause);
         });
 
         // Quien no es elegible no puede confirmarse; los elegibles sí, y solo el coordinador confirma.
         JsonNode conflict = body(confirm(club, match, noCertificate).andExpect(status().isConflict()));
-        assertThat(conflict.get("players").get(0).asText()).isEqualTo(noCertificate.id().toString());
+        assertThat(conflict.get("players").get(0).asString()).isEqualTo(noCertificate.id().toString());
         postJson("/matches/" + match + "/callup/confirm", Map.of("playerIds", ids(ok1, ok2)), club.coach().token())
                 .andExpect(status().isForbidden());
         JsonNode confirmed = body(confirm(club, match, ok1, ok2).andExpect(status().isOk()));
-        assertThat(entry(confirmed, ok1).get("status").asText()).isEqualTo("CONFIRMED");
-        assertThat(entry(confirmed, ok2).get("confirmedAt").asText()).isNotBlank();
+        assertThat(entry(confirmed, ok1).get("status").asString()).isEqualTo("CONFIRMED");
+        assertThat(entry(confirmed, ok2).get("confirmedAt").asString()).isNotBlank();
 
         // Un aviso por acudiente de convocado confirmado, sin datos de salud ni causas.
         assertThat(notifications(match, "MATCH_CALLUP")).isEqualTo(2);
@@ -319,15 +319,15 @@ class CompetitionsIT {
         // Corregido el requisito, proponer de nuevo re-evalúa y deja al jugador propuesto.
         addCertificate(noCertificate.id(), noCertificate.guardianUserId(), 1, "current_date + 30");
         JsonNode again = propose(club, match, noCertificate, ok1);
-        assertThat(entry(again, noCertificate).get("status").asText()).isEqualTo("PROPOSED");
-        assertThat(entry(again, ok1).get("status").asText()).as("un confirmado no cambia").isEqualTo("CONFIRMED");
+        assertThat(entry(again, noCertificate).get("status").asString()).isEqualTo("PROPOSED");
+        assertThat(entry(again, ok1).get("status").asString()).as("un confirmado no cambia").isEqualTo("CONFIRMED");
 
         // Retirar a un confirmado lo saca de la convocatoria, avisa a su acudiente y repetirlo no falla.
         deleteJson("/matches/" + match + "/callup/" + ok2.id(), club.coach().token()).andExpect(status().isNoContent());
         deleteJson("/matches/" + match + "/callup/" + ok2.id(), club.coach().token()).andExpect(status().isNoContent());
         assertThat(notifications(match, "MATCH_CALLUP_REMOVED")).isEqualTo(1);
         JsonNode detail = body(getJson("/matches/" + match, club.coach().token()).andExpect(status().isOk()));
-        assertThat(detail.get("callups")).noneMatch(c -> ok2.id().toString().equals(c.get("playerId").asText()));
+        assertThat(detail.get("callups")).noneMatch(c -> ok2.id().toString().equals(c.get("playerId").asString()));
         assertThat(jdbc.queryForObject("SELECT count(*) FROM audit_events WHERE entity_id = ? AND action = 'CALLUP_CONFIRMED'",
                 Long.class, match)).isEqualTo(1);
     }
@@ -337,15 +337,15 @@ class CompetitionsIT {
         Club club = club();
         Kid kid = fullKid(club);
         UUID match = scheduleMatch(club);
-        assertThat(entry(propose(club, match, kid), kid).get("status").asText()).isEqualTo("PROPOSED");
+        assertThat(entry(propose(club, match, kid), kid).get("status").asString()).isEqualTo("PROPOSED");
 
         // Después de proponer vence el certificado: llega una versión nueva ya vencida.
         addCertificate(kid.id(), kid.guardianUserId(), 2, "current_date - 1");
 
         JsonNode problem = body(confirm(club, match, kid).andExpect(status().isConflict()));
-        assertThat(problem.get("code").asText()).isEqualTo("CALLUP_NOT_ELIGIBLE");
-        assertThat(problem.get("players").get(0).get("playerId").asText()).isEqualTo(kid.id().toString());
-        assertThat(problem.get("players").get(0).get("causes").get(0).asText()).isEqualTo("MEDICAL_CERTIFICATE_INVALID");
+        assertThat(problem.get("code").asString()).isEqualTo("CALLUP_NOT_ELIGIBLE");
+        assertThat(problem.get("players").get(0).get("playerId").asString()).isEqualTo(kid.id().toString());
+        assertThat(problem.get("players").get(0).get("causes").get(0).asString()).isEqualTo("MEDICAL_CERTIFICATE_INVALID");
         assertThat(jdbc.queryForObject("SELECT status FROM callup_entries WHERE match_id = ? AND player_id = ?", String.class,
                 match, kid.id())).as("nada se confirma").isEqualTo("PROPOSED");
         assertThat(notifications(match, "MATCH_CALLUP")).isZero();
@@ -379,7 +379,7 @@ class CompetitionsIT {
                 .get("authorized").asBoolean()).isTrue();
         JsonNode history = body(getJson("/players/" + kid.id() + "/matches", guardian).andExpect(status().isOk()));
         assertThat(history).hasSize(1);
-        assertThat(history.get(0).get("matchId").asText()).isEqualTo(match.toString());
+        assertThat(history.get(0).get("matchId").asString()).isEqualTo(match.toString());
         assertThat(history.get(0).get("authorized").asBoolean()).isTrue();
         assertThat(history.get(0).has("ineligibilityCode")).isFalse();
         getJson("/players/" + kid.id() + "/matches", login(stranger.guardianEmail())).andExpect(status().isNotFound());
@@ -410,7 +410,7 @@ class CompetitionsIT {
 
         JsonNode recorded = body(putJson("/matches/" + match + "/result", result(2, 1, null, line(first, 90, 2), line(second, 45, 0)),
                 club.coach().token()).andExpect(status().isOk()));
-        assertThat(recorded.get("match").get("status").asText()).isEqualTo("COMPLETED");
+        assertThat(recorded.get("match").get("status").asString()).isEqualTo("COMPLETED");
         assertThat(recorded.get("match").get("scoreFor").asInt()).isEqualTo(2);
         assertThat(entry(recorded.get("callups"), first).get("minutesPlayed").asInt()).isEqualTo(90);
         assertThat(entry(recorded.get("callups"), first).get("goals").asInt()).isEqualTo(2);
@@ -430,7 +430,7 @@ class CompetitionsIT {
         assertThat((String) audit.get("after_state")).contains("\"scoreFor\": 3");
 
         JsonNode history = body(getJson("/players/" + first.id() + "/matches", login(first.guardianEmail())).andExpect(status().isOk()));
-        assertThat(history.get(0).get("matchStatus").asText()).isEqualTo("COMPLETED");
+        assertThat(history.get(0).get("matchStatus").asString()).isEqualTo("COMPLETED");
         assertThat(history.get(0).get("scoreFor").asInt()).isEqualTo(3);
         assertThat(history.get(0).get("minutesPlayed").asInt()).isEqualTo(90);
         assertThat(history.get(0).get("goals").asInt()).isEqualTo(3);
@@ -451,7 +451,7 @@ class CompetitionsIT {
         confirm(club, match, expiring, lasting).andExpect(status().isOk());
         String eventId = jdbc.queryForObject("SELECT event_id::text FROM matches WHERE id = ?", String.class, match);
         Instant originalStart = Instant.parse(body(getJson("/matches/" + match, club.coordinator().token()).andExpect(status().isOk()))
-                .get("match").get("startAt").asText());
+                .get("match").get("startAt").asString());
 
         // Permisos y datos: solo el coordinador; motivo obligatorio; futuro; sin cambios no hay reprogramación.
         Map<String, Object> shift = rescheduleRequest(originalStart.plusSeconds(1800), "Cambio de cancha");
@@ -464,7 +464,7 @@ class CompetitionsIT {
 
         // Correrlo media hora no choca con el propio partido y no cambia a nadie.
         JsonNode moved = body(postJson("/matches/" + match + "/reschedule", shift, club.coordinator().token()).andExpect(status().isOk()));
-        assertThat(moved.get("match").get("startAt").asText()).isEqualTo(originalStart.plusSeconds(1800).toString());
+        assertThat(moved.get("match").get("startAt").asString()).isEqualTo(originalStart.plusSeconds(1800).toString());
         assertThat(moved.get("confirmedToReview")).isEmpty();
         assertThat(notifications(match, "MATCH_RESCHEDULED")).as("un aviso por acudiente de confirmado").isEqualTo(2);
 
@@ -472,10 +472,10 @@ class CompetitionsIT {
         Instant far = startAt(120, 10);
         JsonNode result = body(postJson("/matches/" + match + "/reschedule", rescheduleRequest(far, "Se aplazó la fecha"),
                 club.coordinator().token()).andExpect(status().isOk()));
-        assertThat(result.get("match").get("startAt").asText()).isEqualTo(far.toString());
+        assertThat(result.get("match").get("startAt").asString()).isEqualTo(far.toString());
         assertThat(result.get("confirmedToReview")).hasSize(1);
-        assertThat(result.get("confirmedToReview").get(0).get("playerId").asText()).isEqualTo(expiring.id().toString());
-        assertThat(result.get("confirmedToReview").get(0).get("causes").get(0).asText()).isEqualTo("MEDICAL_CERTIFICATE_INVALID");
+        assertThat(result.get("confirmedToReview").get(0).get("playerId").asString()).isEqualTo(expiring.id().toString());
+        assertThat(result.get("confirmedToReview").get(0).get("causes").get(0).asString()).isEqualTo("MEDICAL_CERTIFICATE_INVALID");
         assertThat(notifications(match, "MATCH_RESCHEDULED")).isEqualTo(4);
         String payload = jdbc.queryForObject("SELECT payload::text FROM notifications WHERE related_entity_id = ? AND notification_type = 'MATCH_RESCHEDULED' ORDER BY created_at DESC LIMIT 1",
                 String.class, match);
@@ -483,10 +483,10 @@ class CompetitionsIT {
         assertThat(payload.toLowerCase()).doesNotContain("medic", "certificate", "eligib");
 
         JsonNode detail = body(getJson("/matches/" + match, club.coordinator().token()).andExpect(status().isOk()));
-        assertThat(entry(detail.get("callups"), expiring).get("status").asText()).as("el confirmado conserva su lugar").isEqualTo("CONFIRMED");
-        assertThat(entry(detail.get("callups"), lasting).get("status").asText()).isEqualTo("CONFIRMED");
-        assertThat(entry(detail.get("callups"), proposedExpiring).get("status").asText()).isEqualTo("NOT_ELIGIBLE");
-        assertThat(entry(detail.get("callups"), proposedLasting).get("status").asText()).isEqualTo("PROPOSED");
+        assertThat(entry(detail.get("callups"), expiring).get("status").asString()).as("el confirmado conserva su lugar").isEqualTo("CONFIRMED");
+        assertThat(entry(detail.get("callups"), lasting).get("status").asString()).isEqualTo("CONFIRMED");
+        assertThat(entry(detail.get("callups"), proposedExpiring).get("status").asString()).isEqualTo("NOT_ELIGIBLE");
+        assertThat(entry(detail.get("callups"), proposedLasting).get("status").asString()).isEqualTo("PROPOSED");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM audit_events WHERE entity_id = ? AND action = 'MATCH_RESCHEDULED'",
                 Long.class, match)).isEqualTo(2);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM audit_events WHERE entity_id = ?::uuid AND action = 'EVENT_RESCHEDULED'",
@@ -521,12 +521,12 @@ class CompetitionsIT {
         JsonNode payload = json.readTree(jdbc.queryForObject(
                 "SELECT payload::text FROM notifications WHERE related_entity_id = ? AND notification_type = 'EVENT_SCHEDULED'",
                 String.class, event));
-        assertThat(payload.get("opponent").asText()).isEqualTo("Club Rival");
-        assertThat(payload.get("eventType").asText()).isEqualTo("FRIENDLY_MATCH");
+        assertThat(payload.get("opponent").asString()).isEqualTo("Club Rival");
+        assertThat(payload.get("eventType").asString()).isEqualTo("FRIENDLY_MATCH");
         assertThat(payload.has("playerName")).isFalse();
 
         Instant start = Instant.parse(body(getJson("/matches/" + match, club.coordinator().token()).andExpect(status().isOk()))
-                .get("match").get("startAt").asText());
+                .get("match").get("startAt").asString());
         postJson("/matches/" + match + "/reschedule", rescheduleRequest(start.plusSeconds(1800), "Cambio de cancha"),
                 club.coordinator().token()).andExpect(status().isOk());
         assertThat(eventNoticeRecipients(event, "EVENT_RESCHEDULED")).containsExactly(coachEmail);
@@ -562,8 +562,8 @@ class CompetitionsIT {
         postJson("/matches/" + match + "/cancel", Map.of("reason", "Lluvia"), club.coach().token()).andExpect(status().isForbidden());
         JsonNode cancelled = body(postJson("/matches/" + match + "/cancel", Map.of("reason", "Cancha inundada"),
                 club.coordinator().token()).andExpect(status().isOk()));
-        assertThat(cancelled.get("status").asText()).isEqualTo("CANCELLED");
-        assertThat(cancelled.get("cancellationReason").asText()).isEqualTo("Cancha inundada");
+        assertThat(cancelled.get("status").asString()).isEqualTo("CANCELLED");
+        assertThat(cancelled.get("cancellationReason").asString()).isEqualTo("Cancha inundada");
         assertThat(notifications(match, "MATCH_CANCELLED")).as("solo al acudiente del confirmado").isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM audit_events WHERE entity_id = ? AND action = 'MATCH_CANCELLED'",
                 Long.class, match)).isEqualTo(1);
@@ -572,7 +572,7 @@ class CompetitionsIT {
         postJson("/matches/" + match + "/callup", Map.of("playerIds", ids(confirmed)), club.coach().token()).andExpect(status().isConflict());
         putJson("/matches/" + match + "/result", result(1, 0, null), club.coach().token()).andExpect(status().isConflict());
         JsonNode history = body(getJson("/players/" + confirmed.id() + "/matches", login(confirmed.guardianEmail())).andExpect(status().isOk()));
-        assertThat(history.get(0).get("matchStatus").asText()).isEqualTo("CANCELLED");
+        assertThat(history.get(0).get("matchStatus").asString()).isEqualTo("CANCELLED");
     }
 
     @Test
@@ -588,25 +588,25 @@ class CompetitionsIT {
 
         JsonNode match = body(postJson("/matches", matchRequest(club, null, 20, 10), club.coordinator().token())
                 .andExpect(status().isCreated()));
-        assertThat(match.get("opponent").asText()).isEqualTo("Club Rival");
-        assertThat(match.get("status").asText()).isEqualTo("CONFIRMED");
+        assertThat(match.get("opponent").asString()).isEqualTo("Club Rival");
+        assertThat(match.get("status").asString()).isEqualTo("CONFIRMED");
         assertThat(jdbc.queryForObject("SELECT event_type FROM sports_events WHERE id = ?", String.class,
-                UUID.fromString(match.get("eventId").asText()))).isEqualTo("FRIENDLY_MATCH");
+                UUID.fromString(match.get("eventId").asString()))).isEqualTo("FRIENDLY_MATCH");
 
         // Mismo escenario, entrenador y categoría a la misma hora: conflicto de agenda (RN-14).
         JsonNode conflict = body(postJson("/matches", matchRequest(club, null, 20, 10), club.coordinator().token())
                 .andExpect(status().isConflict()));
-        assertThat(conflict.get("code").asText()).isEqualTo("SCHEDULE_CONFLICT");
+        assertThat(conflict.get("code").asString()).isEqualTo("SCHEDULE_CONFLICT");
 
         // Un entrenador ajeno no ve el partido ni aparece en su lista; el responsable sí.
         Account other = staff("COACH");
-        getJson("/matches/" + match.get("id").asText(), other.token()).andExpect(status().isNotFound());
+        getJson("/matches/" + match.get("id").asString(), other.token()).andExpect(status().isNotFound());
         assertThat(body(getJson("/matches?categoryId=" + club.category(), other.token()).andExpect(status().isOk()))).isEmpty();
         assertThat(body(getJson("/matches?categoryId=" + club.category(), club.coach().token()).andExpect(status().isOk()))).hasSize(1);
         assertThat(body(getJson("/matches?categoryId=" + club.category(), club.coordinator().token()).andExpect(status().isOk()))).hasSize(1);
-        postJson("/matches/" + match.get("id").asText() + "/callup", Map.of("playerIds", List.of(UUID.randomUUID())), other.token())
+        postJson("/matches/" + match.get("id").asString() + "/callup", Map.of("playerIds", List.of(UUID.randomUUID())), other.token())
                 .andExpect(status().isNotFound());
-        postJson("/matches/" + match.get("id").asText() + "/callup", Map.of("playerIds", List.of(UUID.randomUUID())),
+        postJson("/matches/" + match.get("id").asString() + "/callup", Map.of("playerIds", List.of(UUID.randomUUID())),
                 club.coach().token()).andExpect(status().isUnprocessableEntity());
     }
 
@@ -627,8 +627,8 @@ class CompetitionsIT {
 
         postJson("/tournaments", request, club.coach().token()).andExpect(status().isForbidden());
         JsonNode tournament = body(postJson("/tournaments", request, club.coordinator().token()).andExpect(status().isCreated()));
-        UUID tournamentId = UUID.fromString(tournament.get("id").asText());
-        assertThat(tournament.get("rules").asText()).contains("35 minutos");
+        UUID tournamentId = UUID.fromString(tournament.get("id").asString());
+        assertThat(tournament.get("rules").asString()).contains("35 minutos");
         assertThat(body(postJson("/tournaments", request, club.coordinator().token()).andExpect(status().isUnprocessableEntity())).toString())
                 .contains("name");
         Map<String, Object> reversed = new LinkedHashMap<>(request);
@@ -649,10 +649,10 @@ class CompetitionsIT {
 
         JsonNode match = body(postJson("/matches", matchRequest(club, tournamentId, 30, 10), club.coordinator().token())
                 .andExpect(status().isCreated()));
-        assertThat(match.get("tournamentId").asText()).isEqualTo(tournamentId.toString());
-        assertThat(match.get("tournamentName").asText()).isEqualTo("Liga Juvenil");
+        assertThat(match.get("tournamentId").asString()).isEqualTo(tournamentId.toString());
+        assertThat(match.get("tournamentName").asString()).isEqualTo("Liga Juvenil");
         assertThat(jdbc.queryForObject("SELECT event_type FROM sports_events WHERE id = ?", String.class,
-                UUID.fromString(match.get("eventId").asText()))).isEqualTo("TOURNAMENT_MATCH");
+                UUID.fromString(match.get("eventId").asString()))).isEqualTo("TOURNAMENT_MATCH");
         assertThat(body(getJson("/matches?tournamentId=" + tournamentId, club.coordinator().token()).andExpect(status().isOk()))).hasSize(1);
     }
 }

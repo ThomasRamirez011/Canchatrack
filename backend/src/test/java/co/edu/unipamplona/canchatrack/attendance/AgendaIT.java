@@ -26,8 +26,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import co.edu.unipamplona.canchatrack.TestcontainersConfiguration;
 
@@ -91,7 +91,7 @@ class AgendaIT {
                 UUID.class, email, "Personal de prueba", encoder.encode(PASSWORD));
         jdbc.update("INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE code = ?", id, roleCode);
         String token = body(postJson("/auth/login", Map.of("email", email, "password", PASSWORD), null).andExpect(status().isOk()))
-                .get("accessToken").asText();
+                .get("accessToken").asString();
         return new Account(id, token);
     }
 
@@ -103,7 +103,7 @@ class AgendaIT {
 
     private UUID newVenue(String coordinator) throws Exception {
         return UUID.fromString(body(postJson("/venues", Map.of("name", "Cancha " + UUID.randomUUID()), coordinator)
-                .andExpect(status().isCreated())).get("id").asText());
+                .andExpect(status().isCreated())).get("id").asString());
     }
 
     /** Jugador con asignación vigente en la categoría (la plantilla se deriva de ahí) en el estado indicado. */
@@ -148,7 +148,7 @@ class AgendaIT {
     private UUID startedEvent(String coordinator, UUID category, UUID venue, UUID coach) throws Exception {
         Instant start = Instant.now().plus(40 + (long) (Math.random() * 1000), ChronoUnit.DAYS);
         UUID event = UUID.fromString(body(postJson("/events", eventRequest(category, venue, coach, start, 90), coordinator)
-                .andExpect(status().isCreated())).get("id").asText());
+                .andExpect(status().isCreated())).get("id").asString());
         jdbc.update("UPDATE sports_events SET start_at = now() - interval '3 hours', end_at = now() - interval '90 minutes' WHERE id = ?", event);
         return event;
     }
@@ -167,14 +167,14 @@ class AgendaIT {
         Instant start = Instant.now().plus(100, ChronoUnit.DAYS).truncatedTo(ChronoUnit.HOURS);
 
         UUID first = UUID.fromString(body(postJson("/events", eventRequest(category, venue, coach.id(), start, 60), coordinator.token())
-                .andExpect(status().isCreated())).get("id").asText());
+                .andExpect(status().isCreated())).get("id").asString());
 
         // Mismo escenario, otro entrenador y otra categoría: cruce de escenario.
         JsonNode venueClash = body(postJson("/events", eventRequest(otherCategory, venue, otherCoach.id(), start.plus(30, ChronoUnit.MINUTES), 60),
                 coordinator.token()).andExpect(status().isConflict()));
-        assertThat(venueClash.get("code").asText()).isEqualTo("SCHEDULE_CONFLICT");
-        assertThat(venueClash.get("conflicts").get(0).get("dimension").asText()).isEqualTo("VENUE");
-        assertThat(venueClash.get("conflicts").get(0).get("eventId").asText()).isEqualTo(first.toString());
+        assertThat(venueClash.get("code").asString()).isEqualTo("SCHEDULE_CONFLICT");
+        assertThat(venueClash.get("conflicts").get(0).get("dimension").asString()).isEqualTo("VENUE");
+        assertThat(venueClash.get("conflicts").get(0).get("eventId").asString()).isEqualTo(first.toString());
 
         // Mismo entrenador en otro escenario y categoría: cruce de entrenador. Misma categoría, otro todo: cruce de categoría.
         JsonNode coachClash = body(postJson("/events", eventRequest(otherCategory, otherVenue, coach.id(), start, 60), coordinator.token())
@@ -252,7 +252,7 @@ class AgendaIT {
         assertThat(closed.get("total").asInt()).isEqualTo(3);
         JsonNode blocked = body(send(post(API + path), Map.of("records", List.of(mark(caro, "PRESENT"))), coach.token(), "k-" + UUID.randomUUID())
                 .andExpect(status().isConflict()));
-        assertThat(blocked.get("code").asText()).isEqualTo("ATTENDANCE_SESSION_CLOSED");
+        assertThat(blocked.get("code").asString()).isEqualTo("ATTENDANCE_SESSION_CLOSED");
         postJson(path + "/close", null, coach.token()).andExpect(status().isConflict());
 
         // Corrección: exige justificación y deja rastro; el porcentaje la refleja (excusa aceptada no cuenta).
@@ -284,7 +284,7 @@ class AgendaIT {
         UUID player = rosterPlayer(category, coach.id(), "ACTIVE");
         Instant start = Instant.now().plus(200, ChronoUnit.DAYS);
         UUID future = UUID.fromString(body(postJson("/events", eventRequest(category, venue, coach.id(), start, 60), coordinator.token())
-                .andExpect(status().isCreated())).get("id").asText());
+                .andExpect(status().isCreated())).get("id").asString());
         Map<String, Object> batch = Map.of("records", List.of(mark(player, "PRESENT")));
         send(post(API + "/events/" + future + "/attendance"), batch, coach.token(), "k-" + UUID.randomUUID()).andExpect(status().isConflict());
 

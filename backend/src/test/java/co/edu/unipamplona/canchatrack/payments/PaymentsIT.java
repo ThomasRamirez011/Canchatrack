@@ -26,8 +26,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import co.edu.unipamplona.canchatrack.TestcontainersConfiguration;
 
@@ -84,7 +84,7 @@ class PaymentsIT {
                 UUID.class, email, "Personal de prueba", encoder.encode(PASSWORD));
         jdbc.update("INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE code = ?", id, roleCode);
         return body(postJson("/auth/login", Map.of("email", email, "password", PASSWORD), null).andExpect(status().isOk()))
-                .get("accessToken").asText();
+                .get("accessToken").asString();
     }
 
     private UUID newSeason() {
@@ -106,12 +106,12 @@ class PaymentsIT {
         request.put("name", concept + " " + UUID.randomUUID());
         request.put("amount", amount);
         request.put("validFrom", LocalDate.now().toString());
-        return body(postJson("/fees", request, coordinator).andExpect(status().isCreated())).get("id").asText();
+        return body(postJson("/fees", request, coordinator).andExpect(status().isCreated())).get("id").asString();
     }
 
     private String uploadReceipt(String token) throws Exception {
         return body(mvc.perform(multipart(API + "/files").file(new MockMultipartFile("file", "recibo.pdf", "application/pdf", PDF))
-                .header("Authorization", "Bearer " + token)).andExpect(status().isCreated())).get("id").asText();
+                .header("Authorization", "Bearer " + token)).andExpect(status().isCreated())).get("id").asString();
     }
 
     // ---------- pruebas ----------
@@ -126,8 +126,8 @@ class PaymentsIT {
         // Matrícula: genera el cargo y deja al jugador pendiente; repetirla ya no procede.
         JsonNode started = body(postJson("/players/" + player + "/registration",
                 Map.of("feeId", fee, "dueDate", LocalDate.now().plusDays(15).toString()), coordinator).andExpect(status().isCreated()));
-        assertThat(started.get("playerStatus").asText()).isEqualTo("PENDING_REGISTRATION");
-        String chargeId = started.get("chargeId").asText();
+        assertThat(started.get("playerStatus").asString()).isEqualTo("PENDING_REGISTRATION");
+        String chargeId = started.get("chargeId").asString();
         postJson("/players/" + player + "/registration", Map.of("feeId", fee, "dueDate", LocalDate.now().plusDays(15).toString()),
                 coordinator).andExpect(status().isConflict());
 
@@ -143,27 +143,27 @@ class PaymentsIT {
         first.put("reference", "TX-1");
         first.put("receiptFileId", receipt);
         String firstPayment = body(postJson("/players/" + player + "/payments", first, coordinator).andExpect(status().isCreated()))
-                .get("id").asText();
+                .get("id").asString();
         JsonNode tooMuch = body(postJson("/players/" + player + "/payments",
                 Map.of("chargeId", chargeId, "amount", 70000, "method", "CASH"), coordinator).andExpect(status().isUnprocessableEntity()));
-        assertThat(tooMuch.get("errors").get(0).get("field").asText()).isEqualTo("amount");
+        assertThat(tooMuch.get("errors").get(0).get("field").asString()).isEqualTo("amount");
 
         JsonNode partial = body(getJson("/players/" + player + "/account", coordinator).andExpect(status().isOk()));
         assertThat(partial.get("balance").decimalValue()).isEqualByComparingTo("60000");
-        assertThat(partial.get("charges").get(0).get("status").asText()).isEqualTo("PARTIAL");
+        assertThat(partial.get("charges").get(0).get("status").asString()).isEqualTo("PARTIAL");
 
         // Se salda: ya se puede activar.
         String secondPayment = body(postJson("/players/" + player + "/payments",
-                Map.of("chargeId", chargeId, "amount", 60000, "method", "CASH"), coordinator).andExpect(status().isCreated())).get("id").asText();
+                Map.of("chargeId", chargeId, "amount", 60000, "method", "CASH"), coordinator).andExpect(status().isCreated())).get("id").asString();
         JsonNode settled = body(getJson("/players/" + player + "/account", coordinator).andExpect(status().isOk()));
         assertThat(settled.get("balance").decimalValue()).isEqualByComparingTo("0");
-        assertThat(settled.get("charges").get(0).get("status").asText()).isEqualTo("SETTLED");
+        assertThat(settled.get("charges").get(0).get("status").asString()).isEqualTo("SETTLED");
         postJson("/players/" + player + "/payments", Map.of("chargeId", chargeId, "amount", 1, "method", "CASH"), coordinator)
                 .andExpect(status().isConflict());
 
         // Con la matrícula saldada pero sin el certificado médico obligatorio tampoco se activa (RF-048, CA-02).
         JsonNode missing = body(postJson("/players/" + player + "/activation", null, coordinator).andExpect(status().isConflict()));
-        assertThat(missing.get("missingDocuments").get(0).asText()).isEqualTo("Certificado médico");
+        assertThat(missing.get("missingDocuments").get(0).asString()).isEqualTo("Certificado médico");
         UUID medicalCertificate = jdbc.queryForObject("SELECT id FROM document_types WHERE code = 'MEDICAL_CERTIFICATE'", UUID.class);
         mvc.perform(multipart(API + "/players/" + player + "/documents")
                 .file(new MockMultipartFile("file", "certificado.pdf", "application/pdf", PDF))
@@ -172,7 +172,7 @@ class PaymentsIT {
                 .header("Authorization", "Bearer " + coordinator)).andExpect(status().isCreated());
 
         JsonNode active = body(postJson("/players/" + player + "/activation", null, coordinator).andExpect(status().isOk()));
-        assertThat(active.get("playerStatus").asText()).isEqualTo("ACTIVE");
+        assertThat(active.get("playerStatus").asString()).isEqualTo("ACTIVE");
 
         // Anular el segundo pago: la deuda vuelve; anularlo otra vez es un conflicto; el pago original no cambia.
         JsonNode voided = body(postJson("/payments/" + secondPayment + "/void", Map.of("reason", "Error de captura"), coordinator)

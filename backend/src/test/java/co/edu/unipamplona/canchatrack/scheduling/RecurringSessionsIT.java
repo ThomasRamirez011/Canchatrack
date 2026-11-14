@@ -36,8 +36,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import co.edu.unipamplona.canchatrack.TestcontainersConfiguration;
 import co.edu.unipamplona.canchatrack.notifications.application.EmailDeliveryException;
@@ -107,7 +107,7 @@ class RecurringSessionsIT {
 
     private String login(String email) throws Exception {
         return body(postJson("/auth/login", Map.of("email", email, "password", PASSWORD), null).andExpect(status().isOk()))
-                .get("accessToken").asText();
+                .get("accessToken").asString();
     }
 
     /** Categoría con un jugador, su acudiente, un entrenador y un escenario propios (cada prueba usa los suyos). */
@@ -186,7 +186,7 @@ class RecurringSessionsIT {
 
     private static List<UUID> eventIds(JsonNode series) {
         List<UUID> ids = new ArrayList<>();
-        series.get("events").forEach(e -> ids.add(UUID.fromString(e.get("id").asText())));
+        series.get("events").forEach(e -> ids.add(UUID.fromString(e.get("id").asString())));
         return ids;
     }
 
@@ -223,21 +223,21 @@ class RecurringSessionsIT {
         JsonNode series = createSeries(club, monday);
 
         assertThat(series.get("occurrenceCount").asInt()).isEqualTo(4);
-        assertThat(series.get("eventType").asText()).isEqualTo("TRAINING");
-        assertThat(series.get("timeZone").asText()).isEqualTo("America/Bogota");
-        assertThat(series.get("startTime").asText()).startsWith("17:00");
+        assertThat(series.get("eventType").asString()).isEqualTo("TRAINING");
+        assertThat(series.get("timeZone").asString()).isEqualTo("America/Bogota");
+        assertThat(series.get("startTime").asString()).startsWith("17:00");
         List<String> days = new ArrayList<>();
-        series.get("weekdays").forEach(n -> days.add(n.asText()));
+        series.get("weekdays").forEach(n -> days.add(n.asString()));
         assertThat(days).containsExactly("MONDAY", "WEDNESDAY");
         List<Instant> starts = new ArrayList<>();
-        series.get("events").forEach(e -> starts.add(Instant.parse(e.get("startAt").asText())));
+        series.get("events").forEach(e -> starts.add(Instant.parse(e.get("startAt").asString())));
         assertThat(starts).containsExactly(at(monday, "17:00"), at(monday.plusDays(2), "17:00"), at(monday.plusDays(7), "17:00"),
                 at(monday.plusDays(9), "17:00"));
-        assertThat(Instant.parse(series.get("events").get(0).get("endAt").asText())).isEqualTo(at(monday, "19:00"));
-        assertThat(series.get("events").get(0).get("headCoachId").asText()).isEqualTo(club.coach().toString());
-        assertThat(series.get("events").get(0).get("meetingPoint").asText()).isEqualTo("Puerta principal");
+        assertThat(Instant.parse(series.get("events").get(0).get("endAt").asString())).isEqualTo(at(monday, "19:00"));
+        assertThat(series.get("events").get(0).get("headCoachId").asString()).isEqualTo(club.coach().toString());
+        assertThat(series.get("events").get(0).get("meetingPoint").asString()).isEqualTo("Puerta principal");
 
-        UUID seriesId = UUID.fromString(series.get("id").asText());
+        UUID seriesId = UUID.fromString(series.get("id").asString());
         assertThat(jdbc.queryForList("SELECT series_position FROM sports_events WHERE series_id = ? ORDER BY start_at", Integer.class, seriesId))
                 .containsExactly(1, 2, 3, 4);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM event_participants p JOIN sports_events e ON e.id = p.event_id "
@@ -253,7 +253,7 @@ class RecurringSessionsIT {
     void aSeriesIsOneNoticeWithOneInvitationEventPerSession() throws Exception {
         Club club = club();
         JsonNode series = createSeries(club, mondayAfter(61));
-        UUID seriesId = UUID.fromString(series.get("id").asText());
+        UUID seriesId = UUID.fromString(series.get("id").asString());
 
         assertThat(recipients(seriesId, "EVENT_SERIES_SCHEDULED")).isEqualTo(sorted(club.guardianEmail(), club.coachEmail()));
         for (UUID event : eventIds(series)) {
@@ -288,7 +288,7 @@ class RecurringSessionsIT {
 
         JsonNode problem = body(postJson("/event-series", seriesRequest(club, monday), club.coordinatorToken()).andExpect(status().isConflict()));
 
-        assertThat(problem.get("code").asText()).isEqualTo("SCHEDULE_CONFLICT");
+        assertThat(problem.get("code").asString()).isEqualTo("SCHEDULE_CONFLICT");
         assertThat(problem.get("conflicts").findValuesAsText("dimension")).containsExactlyInAnyOrder("VENUE", "CATEGORY");
         assertThat(problem.get("conflicts").findValuesAsText("eventId")).containsOnly(other.toString());
         assertThat(problem.get("conflicts").findValuesAsText("occurrenceStartAt")).containsOnly(at(monday.plusDays(7), "17:00").toString());
@@ -351,7 +351,7 @@ class RecurringSessionsIT {
     void cancellingASeriesCancelsTheFutureConfirmedSessionsWithOneNotice() throws Exception {
         Club club = club();
         JsonNode series = createSeries(club, mondayAfter(65));
-        UUID seriesId = UUID.fromString(series.get("id").asText());
+        UUID seriesId = UUID.fromString(series.get("id").asString());
         List<UUID> ids = eventIds(series);
 
         // Una sesión ya cancelada antes no se vuelve a tocar ni a avisar.
@@ -391,7 +391,7 @@ class RecurringSessionsIT {
         Club club = club();
         JsonNode series = createSeries(club, mondayAfter(66));
         UUID second = eventIds(series).get(1);
-        LocalDate day = LocalDate.parse(series.get("startDate").asText()).plusDays(2);
+        LocalDate day = LocalDate.parse(series.get("startDate").asString()).plusDays(2);
         Map<String, Object> move = new LinkedHashMap<>();
         move.put("startAt", at(day, "18:00").toString());
         move.put("endAt", at(day, "20:00").toString());
@@ -401,7 +401,7 @@ class RecurringSessionsIT {
 
         assertThat(recipients(second, "EVENT_RESCHEDULED")).isEqualTo(sorted(club.guardianEmail(), club.coachEmail()));
         assertThat(jdbc.queryForObject("SELECT series_id FROM sports_events WHERE id = ?", UUID.class, second))
-                .isEqualTo(UUID.fromString(series.get("id").asText()));
+                .isEqualTo(UUID.fromString(series.get("id").asString()));
     }
 
     @Test
@@ -411,8 +411,8 @@ class RecurringSessionsIT {
         LocalDate monday = mondayAfter(70);
         JsonNode seriesA = createSeries(first, monday);
         JsonNode seriesB = createSeries(second, monday);
-        String idA = seriesA.get("id").asText();
-        String idB = seriesB.get("id").asText();
+        String idA = seriesA.get("id").asString();
+        String idB = seriesB.get("id").asString();
 
         String coordinator = first.coordinatorToken();
         assertThat(events("seriesId=" + idA, coordinator)).hasSize(4);
@@ -429,7 +429,7 @@ class RecurringSessionsIT {
         String dayRange = "&from=" + at(monday, "00:00") + "&to=" + at(monday.plusDays(1), "00:00");
         JsonNode oneDay = events("venueId=" + first.venue() + dayRange, coordinator);
         assertThat(oneDay).hasSize(1);
-        assertThat(Instant.parse(oneDay.get(0).get("startAt").asText())).isEqualTo(at(monday, "17:00"));
+        assertThat(Instant.parse(oneDay.get(0).get("startAt").asString())).isEqualTo(at(monday, "17:00"));
         assertThat(events("venueId=" + first.venue() + "&from=" + at(monday, "17:00") + "&to=" + at(monday, "17:01"), coordinator)).hasSize(1);
         assertThat(events("venueId=" + first.venue() + "&from=" + at(monday, "17:01") + "&to=" + at(monday.plusDays(1), "00:00"), coordinator)).isEmpty();
 
@@ -453,7 +453,7 @@ class RecurringSessionsIT {
     void onlyTheCoordinatorSchedulesAndCancelsSeries() throws Exception {
         Club club = club();
         JsonNode series = createSeries(club, mondayAfter(72));
-        String seriesId = series.get("id").asText();
+        String seriesId = series.get("id").asString();
         String guardianToken = login(club.guardianEmail());
 
         postJson("/event-series", seriesRequest(club, mondayAfter(80)), club.coachToken()).andExpect(status().isForbidden());
