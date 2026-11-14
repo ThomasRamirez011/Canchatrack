@@ -206,7 +206,7 @@ class EnrollmentIT {
 
         getJson("/calls/open", null).andExpect(status().isUnauthorized());
 
-        String ids = body(getJson("/calls/open", staffToken("COACH")).andExpect(status().isOk())).findValuesAsText("id").toString();
+        String ids = body(getJson("/calls/open", staffToken("COACH")).andExpect(status().isOk())).findValuesAsString("id").toString();
         assertThat(ids).contains(open.toString())
                 .doesNotContain(closed.toString(), upcoming.toString(), draft.toString(), cancelled.toString());
     }
@@ -406,15 +406,15 @@ class EnrollmentIT {
                 .andExpect(status().isCreated())).get("playerId").asString();
 
         List<String> ownerSees = body(getJson("/players", owner.token()).andExpect(status().isOk())).get("items")
-                .findValuesAsText("id");
+                .findValuesAsString("id");
         assertThat(ownerSees).containsExactly(mine);
 
         JsonNode coordinatorView = body(getJson("/players?size=100", staffToken("COORDINATOR")).andExpect(status().isOk()));
-        assertThat(coordinatorView.get("items").findValuesAsText("id")).contains(mine, theirs);
+        assertThat(coordinatorView.get("items").findValuesAsString("id")).contains(mine, theirs);
         assertThat(coordinatorView.get("total").asLong()).isGreaterThanOrEqualTo(2L);
 
         List<String> active = body(getJson("/players?status=ACTIVE&size=100", staffToken("COMMITTEE")).andExpect(status().isOk()))
-                .get("items").findValuesAsText("id");
+                .get("items").findValuesAsString("id");
         assertThat(active).doesNotContain(mine, theirs);
 
         // el entrenador sin jugadores asignados lista vacío (su alcance está en StaffScopeIT), no los de otros

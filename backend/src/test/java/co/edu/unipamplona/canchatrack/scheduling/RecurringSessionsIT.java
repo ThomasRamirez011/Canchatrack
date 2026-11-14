@@ -289,9 +289,9 @@ class RecurringSessionsIT {
         JsonNode problem = body(postJson("/event-series", seriesRequest(club, monday), club.coordinatorToken()).andExpect(status().isConflict()));
 
         assertThat(problem.get("code").asString()).isEqualTo("SCHEDULE_CONFLICT");
-        assertThat(problem.get("conflicts").findValuesAsText("dimension")).containsExactlyInAnyOrder("VENUE", "CATEGORY");
-        assertThat(problem.get("conflicts").findValuesAsText("eventId")).containsOnly(other.toString());
-        assertThat(problem.get("conflicts").findValuesAsText("occurrenceStartAt")).containsOnly(at(monday.plusDays(7), "17:00").toString());
+        assertThat(problem.get("conflicts").findValuesAsString("dimension")).containsExactlyInAnyOrder("VENUE", "CATEGORY");
+        assertThat(problem.get("conflicts").findValuesAsString("eventId")).containsOnly(other.toString());
+        assertThat(problem.get("conflicts").findValuesAsString("occurrenceStartAt")).containsOnly(at(monday.plusDays(7), "17:00").toString());
         assertThat(jdbc.queryForObject("SELECT count(*) FROM sports_events WHERE category_id = ?", Integer.class, club.category())).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM event_series WHERE category_id = ?", Integer.class, club.category())).isZero();
     }
@@ -325,7 +325,7 @@ class RecurringSessionsIT {
 
         JsonNode problem = body(postJson("/event-series", bad, club.coordinatorToken()).andExpect(status().isUnprocessableEntity()));
 
-        assertThat(problem.get("errors").findValuesAsText("field")).contains("eventType", "weekdays", "startDate", "endDate",
+        assertThat(problem.get("errors").findValuesAsString("field")).contains("eventType", "weekdays", "startDate", "endDate",
                 "endTime", "venueId", "headCoachId");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM event_series WHERE category_id = ?", Integer.class, club.category())).isZero();
     }
@@ -338,13 +338,13 @@ class RecurringSessionsIT {
         everyDay.put("weekdays", List.of("MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"));
         everyDay.put("endDate", monday.plusDays(90).toString());
         JsonNode tooMany = body(postJson("/event-series", everyDay, club.coordinatorToken()).andExpect(status().isUnprocessableEntity()));
-        assertThat(tooMany.get("errors").findValuesAsText("field")).containsExactly("endDate");
+        assertThat(tooMany.get("errors").findValuesAsString("field")).containsExactly("endDate");
 
         Map<String, Object> none = seriesRequest(club, monday);
         none.put("weekdays", List.of("SUNDAY"));
         none.put("endDate", monday.plusDays(3).toString());
         JsonNode noDates = body(postJson("/event-series", none, club.coordinatorToken()).andExpect(status().isUnprocessableEntity()));
-        assertThat(noDates.get("errors").findValuesAsText("field")).containsExactly("weekdays");
+        assertThat(noDates.get("errors").findValuesAsString("field")).containsExactly("weekdays");
     }
 
     @Test
@@ -361,7 +361,7 @@ class RecurringSessionsIT {
         JsonNode cancelled = body(postJson("/event-series/" + seriesId + "/cancel", Map.of("reason", "Cancha cerrada por obras"),
                 club.coordinatorToken()).andExpect(status().isOk()));
 
-        assertThat(cancelled.get("events").findValuesAsText("status")).containsOnly("CANCELLED");
+        assertThat(cancelled.get("events").findValuesAsString("status")).containsOnly("CANCELLED");
         assertThat(jdbc.queryForList("SELECT cancellation_reason FROM sports_events WHERE series_id = ? ORDER BY series_position", String.class, seriesId))
                 .containsExactly("Feriado", "Cancha cerrada por obras", "Cancha cerrada por obras", "Cancha cerrada por obras");
         assertThat(recipients(seriesId, "EVENT_SERIES_CANCELLED")).isEqualTo(sorted(club.guardianEmail(), club.coachEmail()));
@@ -436,7 +436,7 @@ class RecurringSessionsIT {
         // Datos inválidos: errores juntos.
         JsonNode bad = body(getJson("/events?eventType=PARTIDO&status=HECHO&from=" + at(monday, "10:00") + "&to=" + at(monday, "09:00"), coordinator)
                 .andExpect(status().isUnprocessableEntity()));
-        assertThat(bad.get("errors").findValuesAsText("field")).containsExactly("eventType", "status", "to");
+        assertThat(bad.get("errors").findValuesAsString("field")).containsExactly("eventType", "status", "to");
 
         // El entrenador solo ve lo suyo, pida lo que pida.
         assertThat(events("venueId=" + first.venue(), first.coachToken())).hasSize(4);

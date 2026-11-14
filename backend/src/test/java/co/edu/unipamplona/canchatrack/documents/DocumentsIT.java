@@ -184,14 +184,14 @@ class DocumentsIT {
 
         // Cualquier usuario autenticado ve qué se exige; solo la coordinación ve los desactivados.
         JsonNode seen = body(getJson("/document-types", guardian.token()).andExpect(status().isOk()));
-        assertThat(seen.findValuesAsText("code")).contains("MEDICAL_CERTIFICATE", code);
+        assertThat(seen.findValuesAsString("code")).contains("MEDICAL_CERTIFICATE", code);
 
         String typeId = created.get("id").asString();
         JsonNode updated = body(patchJson("/document-types/" + typeId, Map.of("active", false), coordinator.token())
                 .andExpect(status().isOk()));
         assertThat(updated.get("active").asBoolean()).isFalse();
-        assertThat(body(getJson("/document-types", guardian.token())).findValuesAsText("code")).doesNotContain(code);
-        assertThat(body(getJson("/document-types?includeInactive=true", coordinator.token())).findValuesAsText("code")).contains(code);
+        assertThat(body(getJson("/document-types", guardian.token())).findValuesAsString("code")).doesNotContain(code);
+        assertThat(body(getJson("/document-types?includeInactive=true", coordinator.token())).findValuesAsString("code")).contains(code);
         patchJson("/document-types/" + typeId, Map.of("validityDays", 0), coordinator.token()).andExpect(status().isUnprocessableEntity());
         patchJson("/document-types/" + UUID.randomUUID(), Map.of("active", true), coordinator.token()).andExpect(status().isNotFound());
         assertThat(auditCount("DOCUMENT_TYPE_CREATED", coordinator.id())).isEqualTo(1);
@@ -250,7 +250,7 @@ class DocumentsIT {
         // Historial completo, la más reciente primero; el estado actual refleja la última versión.
         JsonNode history = body(getJson("/players/" + family.player() + "/document-types/" + medical + "/versions", guardian)
                 .andExpect(status().isOk()));
-        assertThat(history.findValuesAsText("versionNumber")).containsExactly("2", "1");
+        assertThat(history.findValuesAsString("versionNumber")).containsExactly("2", "1");
         JsonNode current = body(getJson("/players/" + family.player() + "/documents", guardian).andExpect(status().isOk()));
         JsonNode certificate = null;
         for (JsonNode item : current) {
@@ -308,7 +308,7 @@ class DocumentsIT {
 
         // El comité ve al jugador, pero ni los documentos de salud en el listado ni su contenido.
         JsonNode committeeView = body(getJson("/players/" + family.player() + "/documents", committee.token()).andExpect(status().isOk()));
-        assertThat(committeeView.findValuesAsText("code")).doesNotContain("MEDICAL_CERTIFICATE");
+        assertThat(committeeView.findValuesAsString("code")).doesNotContain("MEDICAL_CERTIFICATE");
         getJson(versionPath, committee.token()).andExpect(status().isForbidden());
         getJson("/players/" + family.player() + "/document-types/" + medical + "/versions", committee.token())
                 .andExpect(status().isForbidden());

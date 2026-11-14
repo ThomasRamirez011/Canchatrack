@@ -277,7 +277,7 @@ class EvaluationsIT {
         JsonNode rejected = body(putJson("/evaluation-rounds/" + round + "/decision", bare, s.panel().get(0).token())
                 .andExpect(status().isUnprocessableEntity()));
         assertThat(rejected.get("code").asString()).isEqualTo("NEGATIVE_REASON_REQUIRED");
-        assertThat(rejected.get("errors").findValuesAsText("field")).containsExactlyInAnyOrder("justification", "actions");
+        assertThat(rejected.get("errors").findValuesAsString("field")).containsExactlyInAnyOrder("justification", "actions");
 
         JsonNode first = decide(round, s.panel().get(0), "UNFAVORABLE");
         JsonNode adjusted = decide(round, s.panel().get(0), "FOLLOW_UP_REQUIRED");
@@ -293,7 +293,7 @@ class EvaluationsIT {
         // Cerrar sin ascenso exige el plan de seguimiento, que define la coordinación.
         JsonNode noPlan = body(postJson("/evaluation-rounds/" + round + "/close", Map.of(), s.coordinator().token())
                 .andExpect(status().isUnprocessableEntity()));
-        assertThat(noPlan.get("errors").findValuesAsText("field")).containsExactly("followUpPlan");
+        assertThat(noPlan.get("errors").findValuesAsString("field")).containsExactly("followUpPlan");
         assertThat(playerStatus(s.player())).isEqualTo("IN_EVALUATION");
 
         JsonNode closed = body(postJson("/evaluation-rounds/" + round + "/close", Map.of("followUpPlan", "Acondicionamiento y nueva ronda en 3 meses"),
@@ -323,12 +323,12 @@ class EvaluationsIT {
 
         // El cambio de periodo exige motivo.
         assertThat(body(putJson("/evaluation-rounds/" + round + "/period", change, s.coordinator().token())
-                .andExpect(status().isUnprocessableEntity())).get("errors").findValuesAsText("field")).containsExactly("reason");
+                .andExpect(status().isUnprocessableEntity())).get("errors").findValuesAsString("field")).containsExactly("reason");
         change.put("reason", "El torneo de referencia se aplazó un mes");
         JsonNode updated = body(putJson("/evaluation-rounds/" + round + "/period", change, s.coordinator().token()).andExpect(status().isOk()));
         assertThat(updated.get("periodStart").asString()).isEqualTo("2026-02-01");
         assertThat(updated.get("outcome").asString()).isEqualTo("PENDING");
-        assertThat(updated.get("decisions").findValuesAsText("current")).containsOnly("false");
+        assertThat(updated.get("decisions").findValuesAsString("current")).containsOnly("false");
         postJson("/evaluation-rounds/" + round + "/close", Map.of(), s.coordinator().token()).andExpect(status().isConflict());
 
         // Los evaluadores vuelven a emitir sobre el periodo nuevo y la unanimidad se recupera.
@@ -337,7 +337,7 @@ class EvaluationsIT {
         }
         JsonNode again = body(getJson("/evaluation-rounds/" + round, s.coordinator().token()).andExpect(status().isOk()));
         assertThat(again.get("outcome").asString()).isEqualTo("APPROVED");
-        assertThat(again.get("decisions").findValuesAsText("current")).containsOnly("true");
+        assertThat(again.get("decisions").findValuesAsString("current")).containsOnly("true");
     }
 
     @Test
@@ -373,7 +373,7 @@ class EvaluationsIT {
         bad.put("dueAt", Instant.now().minus(1, ChronoUnit.DAYS).toString());
         JsonNode errors = body(postJson("/players/" + valid.player() + "/evaluation-rounds", bad, valid.coordinator().token())
                 .andExpect(status().isUnprocessableEntity()));
-        assertThat(errors.get("errors").findValuesAsText("field")).containsExactlyInAnyOrder("periodEnd", "dueAt");
+        assertThat(errors.get("errors").findValuesAsString("field")).containsExactlyInAnyOrder("periodEnd", "dueAt");
         assertThat(playerStatus(valid.player())).isEqualTo("ACTIVE");
 
         // Solo la coordinación abre rondas; el personal ajeno al panel no las consulta.
@@ -400,7 +400,7 @@ class EvaluationsIT {
         // Entrenador que no es entrenador: validación; y el jugador sigue pendiente de ascenso.
         JsonNode badCoach = body(postJson("/players/" + s.player() + "/promotion", promotion(s.panel().get(0).id()), s.coordinator().token())
                 .andExpect(status().isUnprocessableEntity()));
-        assertThat(badCoach.get("errors").findValuesAsText("field")).containsExactly("headCoachId");
+        assertThat(badCoach.get("errors").findValuesAsString("field")).containsExactly("headCoachId");
 
         // Con cupo, ya se puede ascender a la categoría destino indicada explícitamente.
         jdbc.update("UPDATE categories SET capacity = 5 WHERE id = ?", s.target());

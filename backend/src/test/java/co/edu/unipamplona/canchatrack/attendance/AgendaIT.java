@@ -179,10 +179,10 @@ class AgendaIT {
         // Mismo entrenador en otro escenario y categoría: cruce de entrenador. Misma categoría, otro todo: cruce de categoría.
         JsonNode coachClash = body(postJson("/events", eventRequest(otherCategory, otherVenue, coach.id(), start, 60), coordinator.token())
                 .andExpect(status().isConflict()));
-        assertThat(coachClash.get("conflicts").findValuesAsText("dimension")).containsExactly("COACH");
+        assertThat(coachClash.get("conflicts").findValuesAsString("dimension")).containsExactly("COACH");
         JsonNode categoryClash = body(postJson("/events", eventRequest(category, otherVenue, otherCoach.id(), start, 60), coordinator.token())
                 .andExpect(status().isConflict()));
-        assertThat(categoryClash.get("conflicts").findValuesAsText("dimension")).containsExactly("CATEGORY");
+        assertThat(categoryClash.get("conflicts").findValuesAsString("dimension")).containsExactly("CATEGORY");
 
         // Justo después del fin no hay cruce; un evento cancelado libera el horario.
         postJson("/events", eventRequest(category, venue, coach.id(), start.plus(60, ChronoUnit.MINUTES), 60), coordinator.token())
@@ -196,7 +196,7 @@ class AgendaIT {
         Map<String, Object> bad = eventRequest(category, venue, evaluator.id(), Instant.now().minus(1, ChronoUnit.DAYS), 60);
         bad.put("eventType", "PARTIDO");
         JsonNode errors = body(postJson("/events", bad, coordinator.token()).andExpect(status().isUnprocessableEntity()));
-        assertThat(errors.get("errors").findValuesAsText("field")).contains("eventType", "startAt", "headCoachId");
+        assertThat(errors.get("errors").findValuesAsString("field")).contains("eventType", "startAt", "headCoachId");
 
         // El entrenador solo ve sus eventos (el cancelado también aparece en el listado).
         assertThat(body(getJson("/events?categoryId=" + category, coach.token()).andExpect(status().isOk())).size()).isEqualTo(2);

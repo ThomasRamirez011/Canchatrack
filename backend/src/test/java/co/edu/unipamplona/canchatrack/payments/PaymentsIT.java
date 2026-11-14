@@ -209,14 +209,14 @@ class PaymentsIT {
         UUID assigned = newPlayer("CATEGORY_ASSIGNED");
         JsonNode errors = body(postJson("/players/" + assigned + "/registration", Map.of("feeId", monthlyFee), coordinator)
                 .andExpect(status().isUnprocessableEntity()));
-        List<String> fields = errors.get("errors").findValuesAsText("field");
+        List<String> fields = errors.get("errors").findValuesAsString("field");
         assertThat(fields).contains("feeId");
         assertThat(jdbc.queryForObject("SELECT status FROM players WHERE id = ?", String.class, assigned)).isEqualTo("CATEGORY_ASSIGNED");
 
         // Tarifa inválida: todos los errores a la vez.
         JsonNode badFee = body(postJson("/fees", Map.of("concept", "XX", "name", " ", "amount", -5), coordinator)
                 .andExpect(status().isUnprocessableEntity()));
-        assertThat(badFee.get("errors").findValuesAsText("field")).contains("concept", "name", "amount", "validFrom", "seasonId");
+        assertThat(badFee.get("errors").findValuesAsString("field")).contains("concept", "name", "amount", "validFrom", "seasonId");
 
         // Solo el coordinador cobra; un evaluador no puede ver tarifas ni estados de cuenta.
         String evaluator = staffToken("EVALUATOR");

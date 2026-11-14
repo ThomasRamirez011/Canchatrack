@@ -250,9 +250,9 @@ class CategoriesIT {
         patchJson("/categories/" + categoryId, Map.of("active", true), coordinator).andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.errors[?(@.field == 'birthYearMin')]").isNotEmpty());
 
-        assertThat(body(getJson("/categories", coordinator).andExpect(status().isOk())).findValuesAsText("id"))
+        assertThat(body(getJson("/categories", coordinator).andExpect(status().isOk())).findValuesAsString("id"))
                 .contains(replacement).doesNotContain(categoryId);
-        assertThat(body(getJson("/categories?includeInactive=true", coordinator).andExpect(status().isOk())).findValuesAsText("id"))
+        assertThat(body(getJson("/categories?includeInactive=true", coordinator).andExpect(status().isOk())).findValuesAsString("id"))
                 .contains(replacement, categoryId);
         assertThat(countAudit("CATEGORY_UPDATED", coordinatorId)).isEqualTo(2L);
     }

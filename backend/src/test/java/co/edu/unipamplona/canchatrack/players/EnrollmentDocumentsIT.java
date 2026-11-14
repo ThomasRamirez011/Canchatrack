@@ -271,11 +271,11 @@ class EnrollmentDocumentsIT {
                 guardian.token()).andExpect(status().isUnprocessableEntity()));
 
         assertThat(problem.get("code").asString()).isEqualTo("VALIDATION_FAILED");
-        List<String> fields = problem.get("errors").findValuesAsText("field");
+        List<String> fields = problem.get("errors").findValuesAsString("field");
         assertThat(fields).containsExactlyInAnyOrder("documents[0].fileId", "documents[0].expiresOn",
                 "documents[1].documentTypeId", "documents[1].fileId");
         // Ajeno e inexistente responden igual: no se revela qué archivos existen.
-        assertThat(problem.get("errors").findValuesAsText("message")).contains("El archivo no existe.");
+        assertThat(problem.get("errors").findValuesAsString("message")).contains("El archivo no existe.");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM players WHERE document_number = ?", Long.class, document)).isZero();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM enrollments WHERE guardian_id = (SELECT id FROM guardians WHERE user_id = ?)",
                 Long.class, guardian.userId())).isZero();
@@ -295,13 +295,13 @@ class EnrollmentDocumentsIT {
         // Reutilizar el mismo archivo en otra radicación se rechaza.
         JsonNode reuse = body(postJson("/enrollments", request(openCall(), newPlayerDocument(), List.of(attachment(support, file, null))),
                 guardian.token()).andExpect(status().isUnprocessableEntity()));
-        assertThat(reuse.get("errors").findValuesAsText("field")).containsExactly("documents[0].fileId");
+        assertThat(reuse.get("errors").findValuesAsString("field")).containsExactly("documents[0].fileId");
 
         // Dos adjuntos del mismo tipo en la misma radicación también.
         JsonNode repeated = body(postJson("/enrollments", request(openCall(), newPlayerDocument(), List.of(
                 attachment(support, second, null), attachment(support, uploadFile(guardian.token()), null))),
                 guardian.token()).andExpect(status().isUnprocessableEntity()));
-        assertThat(repeated.get("errors").findValuesAsText("field")).containsExactly("documents[1].documentTypeId");
+        assertThat(repeated.get("errors").findValuesAsString("field")).containsExactly("documents[1].documentTypeId");
     }
 
     @Test

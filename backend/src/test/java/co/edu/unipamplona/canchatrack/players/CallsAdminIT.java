@@ -222,7 +222,7 @@ class CallsAdminIT {
                 .andExpect(jsonPath("$.code").value("RESOURCE_STATE_CONFLICT"));
         postJson("/seasons/" + UUID.randomUUID() + "/activate", null, coordinator).andExpect(status().isNotFound());
 
-        assertThat(body(getJson("/seasons", coordinator).andExpect(status().isOk())).findValuesAsText("id")).contains(seasonId);
+        assertThat(body(getJson("/seasons", coordinator).andExpect(status().isOk())).findValuesAsString("id")).contains(seasonId);
         assertThat(countAudit("SEASON_CREATED", coordinatorId, null)).isEqualTo(1L);
         assertThat(countAudit("SEASON_ACTIVATED", coordinatorId, null)).isEqualTo(1L);
     }
@@ -236,14 +236,14 @@ class CallsAdminIT {
         Guardian guardian = registerGuardian();
         String callId = createDraft(coordinator, createSeason(coordinator), Duration.ofDays(-1), Duration.ofDays(1));
 
-        assertThat(body(getJson("/calls/open", guardian.token()).andExpect(status().isOk())).findValuesAsText("id"))
+        assertThat(body(getJson("/calls/open", guardian.token()).andExpect(status().isOk())).findValuesAsString("id"))
                 .doesNotContain(callId);
         postJson("/enrollments", enrollmentRequest(callId), guardian.token()).andExpect(status().isNotFound());
 
         postJson("/calls/" + callId + "/publish", null, coordinator).andExpect(status().isOk())
                 .andExpect(jsonPath("$.windowOpen").value(true));
 
-        assertThat(body(getJson("/calls/open", guardian.token()).andExpect(status().isOk())).findValuesAsText("id"))
+        assertThat(body(getJson("/calls/open", guardian.token()).andExpect(status().isOk())).findValuesAsString("id"))
                 .contains(callId);
         postJson("/enrollments", enrollmentRequest(callId), guardian.token()).andExpect(status().isCreated());
         postJson("/calls/" + callId + "/publish", null, coordinator).andExpect(status().isConflict());
@@ -403,9 +403,9 @@ class CallsAdminIT {
         String published = createPublished(coordinator, seasonId);
         String draft = createDraft(coordinator, seasonId, Duration.ofDays(-1), Duration.ofDays(1));
 
-        assertThat(body(getJson("/calls?seasonId=" + seasonId, coordinator).andExpect(status().isOk())).findValuesAsText("id"))
+        assertThat(body(getJson("/calls?seasonId=" + seasonId, coordinator).andExpect(status().isOk())).findValuesAsString("id"))
                 .containsExactlyInAnyOrder(published, draft);
         assertThat(body(getJson("/calls?seasonId=" + seasonId + "&status=PUBLISHED", coordinator).andExpect(status().isOk()))
-                .findValuesAsText("id")).containsExactly(published);
+                .findValuesAsString("id")).containsExactly(published);
     }
 }
