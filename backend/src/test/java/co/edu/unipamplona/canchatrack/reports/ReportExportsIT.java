@@ -201,9 +201,9 @@ class ReportExportsIT {
         assertThat(lines.get(0)).isEqualTo("Categoría,Código,Jugador,Fecha de nacimiento,Estado,Entrenador titular,Acudiente principal,En la categoría desde");
         assertThat(lines).hasSize(3);
         // orden por apellido: Paz antes que Ruiz
-        assertThat(lines.get(1)).startsWith(club.categoryName() + ",JG-").contains(",Luis Paz,2012-03-01,ACTIVE,Coach Uno,Padre Paz,");
+        assertThat(lines.get(1)).startsWith(club.categoryName() + ",JG-").contains(",Luis Paz,2012-03-01,Activo,Coach Uno,Padre Paz,");
         // el nombre del acudiente lo escribe un acudiente: una fórmula no llega viva al Excel
-        assertThat(lines.get(2)).contains(",Ana Ruiz,2012-03-01,ACTIVE,Coach Uno,'=Madre Ruiz,");
+        assertThat(lines.get(2)).contains(",Ana Ruiz,2012-03-01,Activo,Coach Uno,'=Madre Ruiz,");
         assertThat(String.join("\n", lines)).doesNotContain("TI-");
 
         Map<String, Object> trace = jdbc.queryForMap("""
@@ -236,9 +236,9 @@ class ReportExportsIT {
         List<String> lines = lines(response);
         assertThat(lines.get(0)).isEqualTo("Fecha,Hora,Tipo,Categoría,Escenario,Código,Jugador,Asistencia,Excusa aceptada");
         assertThat(lines).hasSize(3);
-        String prefix = "2030-02-04,17:00,TRAINING," + club.categoryName() + "," + club.venueName() + ",JG-";
-        assertThat(lines.get(1)).startsWith(prefix).endsWith(",Luis Paz,EXCUSED,Sí");
-        assertThat(lines.get(2)).startsWith(prefix).endsWith(",Ana Ruiz,PRESENT,No");
+        String prefix = "2030-02-04,17:00,Entrenamiento," + club.categoryName() + "," + club.venueName() + ",JG-";
+        assertThat(lines.get(1)).startsWith(prefix).endsWith(",Luis Paz,Excusado,Sí");
+        assertThat(lines.get(2)).startsWith(prefix).endsWith(",Ana Ruiz,Presente,No");
 
         // la misma categoría con la temporada completa suma marzo
         List<String> season = lines(download("/reports/attendance/export?categoryId=" + club.category() + "&seasonId=" + club.season(),
@@ -273,10 +273,10 @@ class ReportExportsIT {
 
         assertThat(lines.get(0)).isEqualTo("Fecha,Hora,Categoría,Tipo,Torneo,Rival,Escenario,Estado del partido,Puntos a favor,Puntos en contra,Código,Jugador,Convocatoria,Minutos,Puntos");
         assertThat(lines).hasSize(3);
-        assertThat(lines.get(1)).startsWith("2030-02-10,09:30," + club.categoryName() + ",TOURNAMENT_MATCH," + tournamentName
-                + ",Rival FC," + club.venueName() + ",COMPLETED,3,1,JG-").endsWith(",Ana Ruiz,CONFIRMED,60,2");
-        assertThat(lines.get(2)).isEqualTo("2030-02-17,09:30," + club.categoryName() + ",FRIENDLY_MATCH,,Otro FC," + club.venueName()
-                + ",CONFIRMED,,,,,,,");
+        assertThat(lines.get(1)).startsWith("2030-02-10,09:30," + club.categoryName() + ",Partido de torneo," + tournamentName
+                + ",Rival FC," + club.venueName() + ",Finalizado,3,1,JG-").endsWith(",Ana Ruiz,Convocado,60,2");
+        assertThat(lines.get(2)).isEqualTo("2030-02-17,09:30," + club.categoryName() + ",Partido amistoso,,Otro FC," + club.venueName()
+                + ",Confirmado,,,,,,,");
 
         // filtrar por torneo deja solo el partido del torneo
         List<String> onlyTournament = lines(download("/reports/matches/export?categoryId=" + club.category() + "&tournamentId=" + tournament
@@ -316,7 +316,7 @@ class ReportExportsIT {
         List<String> lines = lines(response);
         assertThat(lines.get(0)).isEqualTo("Categoría,Código,Jugador,Periodo desde,Periodo hasta,Vence,Estado de la ronda,Resultado,Fecha de cierre,Conceptos emitidos,Favorables,Seguimiento,Desfavorables");
         assertThat(lines).hasSize(2);
-        assertThat(lines.get(1)).startsWith(club.categoryName() + ",JG-").endsWith(",Ana Ruiz,2030-02-01,2030-02-28,2030-03-05,CLOSED,APPROVED,2030-03-04,2,2,0,0");
+        assertThat(lines.get(1)).startsWith(club.categoryName() + ",JG-").endsWith(",Ana Ruiz,2030-02-01,2030-02-28,2030-03-05,Cerrada,Ascenso avalado,2030-03-04,2,2,0,0");
         // no se publica quién dio cada concepto
         assertThat(String.join("\n", lines)).doesNotContain("Evaluadora Uno").doesNotContain("Evaluador Dos");
 

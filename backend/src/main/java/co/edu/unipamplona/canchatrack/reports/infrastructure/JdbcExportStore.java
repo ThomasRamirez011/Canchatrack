@@ -20,6 +20,7 @@ import org.springframework.stereotype.Repository;
 
 import co.edu.unipamplona.canchatrack.reports.application.ExportStore;
 import co.edu.unipamplona.canchatrack.reports.application.ReportSettings;
+import co.edu.unipamplona.canchatrack.reports.domain.ExportLabels;
 import co.edu.unipamplona.canchatrack.reports.domain.ExportRules;
 
 /**
@@ -77,7 +78,7 @@ public class JdbcExportStore implements ExportStore {
         args.add(limit);
         return jdbc.query(sql.toString(), cells((rs, rowNum) -> Arrays.asList(rs.getString("category_name"),
                 rs.getString("code"), rs.getString("player_name"), rs.getObject("birth_date", LocalDate.class),
-                rs.getString("status"), orEmpty(rs.getString("coach_name")), orEmpty(rs.getString("guardian_name")),
+                ExportLabels.playerStatus(rs.getString("status")), orEmpty(rs.getString("coach_name")), orEmpty(rs.getString("guardian_name")),
                 day(rs, "valid_from"))), args.toArray());
     }
 
@@ -102,8 +103,8 @@ public class JdbcExportStore implements ExportStore {
         sql.append(" ORDER BY e.start_at, e.id, p.last_name, p.first_name, p.id LIMIT ?");
         args.add(limit);
         return jdbc.query(sql.toString(), cells((rs, rowNum) -> Arrays.asList(day(rs, "start_at"), time(rs, "start_at"),
-                rs.getString("event_type"), rs.getString("category_name"), rs.getString("venue_name"),
-                rs.getString("code"), rs.getString("player_name"), rs.getString("status"),
+                ExportLabels.eventType(rs.getString("event_type")), rs.getString("category_name"), rs.getString("venue_name"),
+                rs.getString("code"), rs.getString("player_name"), ExportLabels.attendance(rs.getString("status")),
                 ExportRules.yesNo(rs.getBoolean("excuse_accepted")))), args.toArray());
     }
 
@@ -139,16 +140,16 @@ public class JdbcExportStore implements ExportStore {
             row.add(day(rs, "start_at"));
             row.add(time(rs, "start_at"));
             row.add(rs.getString("category_name"));
-            row.add(rs.getString("event_type"));
+            row.add(ExportLabels.eventType(rs.getString("event_type")));
             row.add(orEmpty(rs.getString("tournament")));
             row.add(rs.getString("opponent"));
             row.add(rs.getString("venue_name"));
-            row.add(rs.getString("event_status"));
+            row.add(ExportLabels.eventStatus(rs.getString("event_status")));
             row.add(nullableInt(rs, "score_for"));
             row.add(nullableInt(rs, "score_against"));
             row.add(orEmpty(rs.getString("code")));
             row.add(orEmpty(rs.getString("player_name")));
-            row.add(orEmpty(rs.getString("callup_status")));
+            row.add(orEmpty(ExportLabels.callup(rs.getString("callup_status"))));
             row.add(nullableInt(rs, "minutes_played"));
             row.add(nullableInt(rs, "goals"));
             return row;
@@ -191,8 +192,8 @@ public class JdbcExportStore implements ExportStore {
             row.add(rs.getObject("period_start", LocalDate.class));
             row.add(rs.getObject("period_end", LocalDate.class));
             row.add(day(rs, "due_at"));
-            row.add(rs.getString("status"));
-            row.add(orEmpty(rs.getString("result")));
+            row.add(ExportLabels.roundStatus(rs.getString("status")));
+            row.add(orEmpty(ExportLabels.roundResult(rs.getString("result"))));
             row.add(day(rs, "closed_at"));
             row.add(rs.getInt("emitted"));
             row.add(rs.getInt("favorable"));

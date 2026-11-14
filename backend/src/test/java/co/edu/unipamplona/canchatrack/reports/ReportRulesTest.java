@@ -86,6 +86,6 @@ class ReportRulesTest {
 
         assertThat(rows).hasSize(2);
         assertThat(rows[0]).isEqualTo("Categoría,Código,Jugador,Acudiente,Concepto,Tarifa,Periodo,Vencimiento,Valor,Pagado,Saldo,Días de mora,Estado");
-        assertThat(rows[1]).isEqualTo("Sub-12,JG-000001,Ana Gómez,Marta López,MONTHLY,Mensualidad,2030-01-01,2030-01-05,100000.00,40000.00,60000.00,10,PARTIAL");
+        assertThat(rows[1]).isEqualTo("Sub-12,JG-000001,Ana Gómez,Marta López,Mensualidad,Mensualidad,2030-01-01,2030-01-05,100000.00,40000.00,60000.00,10,Pago parcial");
     }
 }

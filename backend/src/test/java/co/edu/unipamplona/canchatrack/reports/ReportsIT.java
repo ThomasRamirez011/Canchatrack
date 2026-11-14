@@ -280,7 +280,7 @@ class ReportsIT {
         assertThat(rows).hasSize(2);
         assertThat(rows[1]).contains("Eva Ruiz")
                 .contains("\"'=HYPERLINK(\"\"http://x\"\"),mala\"")
-                .endsWith(",100000.00,0,100000.00,10,PENDING");
+                .endsWith(",100000.00,0,100000.00,10,Pendiente");
 
         Map<String, Object> trace = jdbc.queryForMap("""
                 SELECT actor_role, entity_type, after_state ->> 'report' AS report, after_state ->> 'format' AS format,
