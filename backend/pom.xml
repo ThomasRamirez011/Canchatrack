@@ -9,7 +9,7 @@
         <artifactId>spring-boot-starter-parent</artifactId>
         <!-- Línea 3.5.x, SIN soporte OSS desde el 30-06-2026: 3.5.16 es el último parche público. Ver README
              (sección "Decisiones que debe confirmar") y .trivyignore. -->
-        <version>4.1.2</version>
+        <version>4.2.0</version>
         <relativePath/>
     </parent>
 
